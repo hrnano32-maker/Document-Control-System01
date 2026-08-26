@@ -1,0 +1,6 @@
+{
+  "name": "Document Control System",
+  "description": "ระบบควบคุมเอกสารอิเล็กทรอนิกส์ (DCC) จัดการ DAR, Master List อัตโนมัติ, ระบบแจกจ่ายและควบคุมการดาวน์โหลด Controlled Copy พร้อม Audit Trail",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
