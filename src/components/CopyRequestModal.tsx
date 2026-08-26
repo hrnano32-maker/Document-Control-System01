@@ -20,8 +20,8 @@ export const CopyRequestModal: React.FC = () => {
     currentUser,
   } = useDcs();
 
-  const [requestedBy, setRequestedBy] = useState(currentUser.userName);
-  const [empId, setEmpId] = useState(currentUser.userEmpId);
+  const [requestedBy, setRequestedBy] = useState('');
+  const [empId, setEmpId] = useState('');
   const [reasonType, setReasonType] = useState<CopyReRequest['reasonType']>('EXPIRED_DOWNLOAD_WINDOW');
   const [reasonDetails, setReasonDetails] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);

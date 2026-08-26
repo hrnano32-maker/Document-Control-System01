@@ -191,30 +191,30 @@ export const MasterListView: React.FC = () => {
       </div>
 
       {/* Search and Filters Strip */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-100 pb-2">
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3.5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
             <Filter className="w-4 h-4 text-indigo-600" />
             <span>ตัวกรองข้อมูล Master List (เลือกเพื่อค้นหาหรือพิมพ์รายงาน)</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-slate-500">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xs text-slate-600">
               พบ <strong className="text-indigo-700 font-bold">{filteredDocs.length}</strong> รายการ
             </span>
             <button
               type="button"
               id="btn-print-masterlist-filter"
               onClick={handlePrintMasterList}
-              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
               title="พิมพ์ Master List ตามตัวกรองปัจจุบัน"
             >
-              <Printer className="w-3.5 h-3.5" />
+              <Printer className="w-4 h-4" />
               พิมพ์ Master List ({filteredDocs.length})
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3.5">
           
           {/* Search Bar */}
           <div className="relative md:col-span-1">
@@ -224,17 +224,17 @@ export const MasterListView: React.FC = () => {
               placeholder="ค้นหาชื่อเอกสาร, รหัส หรือ DAR..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50"
+              className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50"
             />
           </div>
 
           {/* Type Filter */}
           <div>
-            <label className="block text-[10px] font-semibold text-slate-500 mb-1">ประเภทเอกสาร:</label>
+            <label className="block text-xs font-bold text-slate-600 mb-1">ประเภทเอกสาร:</label>
             <select
               value={selectedType}
               onChange={e => setSelectedType(e.target.value)}
-              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
+              className="w-full px-3.5 py-2.5 text-xs sm:text-sm font-medium border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
             >
               <option value="ALL">📁 ทุกประเภทเอกสาร (All Types)</option>
               {DOCUMENT_TYPES.map(t => (
@@ -247,11 +247,11 @@ export const MasterListView: React.FC = () => {
 
           {/* Department Filter */}
           <div>
-            <label className="block text-[10px] font-semibold text-slate-500 mb-1">หน่วยงานเจ้าของ:</label>
+            <label className="block text-xs font-bold text-slate-600 mb-1">หน่วยงานเจ้าของ:</label>
             <select
               value={selectedDept}
               onChange={e => setSelectedDept(e.target.value)}
-              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
+              className="w-full px-3.5 py-2.5 text-xs sm:text-sm font-medium border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
             >
               <option value="ALL">🏢 ทุกหน่วยงานเจ้าของ (All Depts)</option>
               {DEPARTMENTS.map(d => (
@@ -264,11 +264,11 @@ export const MasterListView: React.FC = () => {
 
           {/* Status Filter */}
           <div>
-            <label className="block text-[10px] font-semibold text-slate-500 mb-1">สถานะเอกสาร:</label>
+            <label className="block text-xs font-bold text-slate-600 mb-1">สถานะเอกสาร:</label>
             <select
               value={selectedStatus}
               onChange={e => setSelectedStatus(e.target.value)}
-              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
+              className="w-full px-3.5 py-2.5 text-xs sm:text-sm font-medium border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
             >
               <option value="ALL">🟢 ทุกสถานะ (Active & Obsolete)</option>
               <option value="ACTIVE">🟢 ใช้งานอยู่ (Active)</option>
@@ -285,22 +285,22 @@ export const MasterListView: React.FC = () => {
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left border-collapse">
             <thead>
-              <tr className="bg-slate-900 text-white font-semibold uppercase text-[11px] tracking-wider">
-                <th className="p-3.5 border-r border-slate-800">รหัสเอกสาร (Doc No.)</th>
-                <th className="p-3.5 border-r border-slate-800 min-w-[240px]">ชื่อเอกสาร (Document Name)</th>
-                <th className="p-3.5 border-r border-slate-800 text-center">ประเภท</th>
-                <th className="p-3.5 border-r border-slate-800 text-center">หน่วยงาน</th>
-                <th className="p-3.5 border-r border-slate-800 text-center">Rev. ปัจจุบัน</th>
-                <th className="p-3.5 border-r border-slate-800 text-center">วันที่มีผลบังคับใช้</th>
-                <th className="p-3.5 border-r border-slate-800 text-center">ครบกำหนดทบทวน</th>
-                <th className="p-3.5 border-r border-slate-800 text-center">สถานะ</th>
-                <th className="p-3.5 text-center">การจัดการ</th>
+              <tr className="bg-slate-900 text-white font-semibold uppercase text-xs tracking-wider">
+                <th className="py-4 px-3.5 border-r border-slate-800">รหัสเอกสาร (Doc No.)</th>
+                <th className="py-4 px-3.5 border-r border-slate-800 min-w-[240px]">ชื่อเอกสาร (Document Name)</th>
+                <th className="py-4 px-3.5 border-r border-slate-800 text-center">ประเภท</th>
+                <th className="py-4 px-3.5 border-r border-slate-800 text-center">หน่วยงาน</th>
+                <th className="py-4 px-3.5 border-r border-slate-800 text-center">Rev. ปัจจุบัน</th>
+                <th className="py-4 px-3.5 border-r border-slate-800 text-center">วันที่มีผลบังคับใช้</th>
+                <th className="py-4 px-3.5 border-r border-slate-800 text-center">ครบกำหนดทบทวน</th>
+                <th className="py-4 px-3.5 border-r border-slate-800 text-center">สถานะ</th>
+                <th className="py-4 px-3.5 text-center">การจัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {filteredDocs.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-slate-400">
+                  <td colSpan={9} className="p-8 text-center text-slate-400 text-sm">
                     <FolderOpen className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                     ไม่พบเอกสารตามเงื่อนไขที่ระบุ
                   </td>
@@ -312,67 +312,67 @@ export const MasterListView: React.FC = () => {
                     <tr key={doc.id} className="hover:bg-slate-50/80 transition-colors">
                       
                       {/* Doc No */}
-                      <td className="p-3.5 border-r border-slate-100 font-mono font-bold text-indigo-900 whitespace-nowrap">
+                      <td className="py-3.5 px-3.5 border-r border-slate-100 font-mono font-bold text-indigo-900 whitespace-nowrap text-xs">
                         <div className="flex items-center gap-1.5">
-                          <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                          <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
                           <span>{doc.docNo}</span>
                         </div>
                       </td>
 
                       {/* Doc Name */}
-                      <td className="p-3.5 border-r border-slate-100">
+                      <td className="py-3.5 px-3.5 border-r border-slate-100">
                         <div className="space-y-0.5">
-                          <div className="font-bold text-slate-900">{doc.docNameTh}</div>
-                          <div className="text-[11px] text-slate-500 italic">{doc.docNameEn}</div>
-                          <div className="text-[10px] text-slate-400 font-mono">
+                          <div className="font-bold text-slate-900 text-xs sm:text-sm">{doc.docNameTh}</div>
+                          <div className="text-xs text-slate-500 italic">{doc.docNameEn}</div>
+                          <div className="text-[11px] text-slate-400 font-mono">
                             DAR Ref: {doc.darReferenceId}
                           </div>
                         </div>
                       </td>
 
                       {/* Type Badge */}
-                      <td className="p-3.5 border-r border-slate-100 text-center whitespace-nowrap">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${typeObj?.badgeColor || 'bg-slate-100 text-slate-700'}`}>
+                      <td className="py-3.5 px-3.5 border-r border-slate-100 text-center whitespace-nowrap">
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${typeObj?.badgeColor || 'bg-slate-100 text-slate-700'}`}>
                           {doc.docType}
                         </span>
                       </td>
 
                       {/* Owner Dept */}
-                      <td className="p-3.5 border-r border-slate-100 text-center whitespace-nowrap font-medium text-slate-700">
+                      <td className="py-3.5 px-3.5 border-r border-slate-100 text-center whitespace-nowrap font-semibold text-slate-700 text-xs">
                         {doc.ownerDept}
                       </td>
 
                       {/* Current Rev */}
-                      <td className="p-3.5 border-r border-slate-100 text-center whitespace-nowrap">
+                      <td className="py-3.5 px-3.5 border-r border-slate-100 text-center whitespace-nowrap">
                         <button
                           onClick={() => setSelectedDocForHistory(doc)}
-                          className="inline-flex items-center gap-1 font-mono font-bold text-xs px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 cursor-pointer transition-colors"
+                          className="inline-flex items-center gap-1 font-mono font-bold text-xs px-2.5 py-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 cursor-pointer transition-colors"
                           title="คลิกเพื่อดูประวัติ Revision ทั้งหมด"
                         >
                           Rev.{doc.currentRevision}
-                          <History className="w-3 h-3" />
+                          <History className="w-3.5 h-3.5" />
                         </button>
                       </td>
 
                       {/* Effective Date */}
-                      <td className="p-3.5 border-r border-slate-100 text-center whitespace-nowrap text-slate-800 font-mono">
+                      <td className="py-3.5 px-3.5 border-r border-slate-100 text-center whitespace-nowrap text-slate-800 font-mono text-xs font-medium">
                         {doc.effectiveDate}
                       </td>
 
                       {/* Review Due Date */}
-                      <td className="p-3.5 border-r border-slate-100 text-center whitespace-nowrap text-slate-600 font-mono">
+                      <td className="py-3.5 px-3.5 border-r border-slate-100 text-center whitespace-nowrap text-slate-600 font-mono text-xs font-medium">
                         {doc.reviewDueDate}
                       </td>
 
                       {/* Status */}
-                      <td className="p-3.5 border-r border-slate-100 text-center whitespace-nowrap">
+                      <td className="py-3.5 px-3.5 border-r border-slate-100 text-center whitespace-nowrap">
                         {doc.status === 'ACTIVE' ? (
-                          <span className="inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                            <CheckCircle2 className="w-3 h-3" /> Active
+                          <span className="inline-flex items-center gap-1 font-bold text-xs px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Active
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
-                            <AlertCircle className="w-3 h-3" /> Obsolete
+                          <span className="inline-flex items-center gap-1 font-bold text-xs px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
+                            <AlertCircle className="w-3.5 h-3.5" /> Obsolete
                           </span>
                         )}
                       </td>
@@ -411,7 +411,7 @@ export const MasterListView: React.FC = () => {
                             </button>
                           )}
 
-                          {/* View Document & Google Drive Link */}
+                          {/* View Document */}
                           <button
                             type="button"
                             onClick={() => openDocumentViewer({
@@ -422,14 +422,16 @@ export const MasterListView: React.FC = () => {
                               docType: doc.docType,
                               revision: doc.currentRevision,
                               dept: doc.ownerDept,
-                              driveLink: doc.controlledDriveLink,
-                              fileName: `${doc.docNo}_Rev${doc.currentRevision}_CONTROLLED.pdf`,
+                              fileName: doc.fileName || `${doc.docNo}_Rev${doc.currentRevision}_CONTROLLED.pdf`,
+                              fileSize: doc.fileSize,
+                              fileType: doc.fileType,
+                              fileDataUrl: doc.fileDataUrl,
                               docId: doc.id,
                               effectiveDate: doc.effectiveDate,
                               isControlledCopy: true,
                             })}
                             className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                            title="เปิดดูตัวอย่างเอกสาร & ลิงก์ Google Drive"
+                            title="เปิดดูตัวอย่างเอกสาร & ดาวน์โหลดไฟล์"
                           >
                             <Eye className="w-4 h-4" />
                           </button>

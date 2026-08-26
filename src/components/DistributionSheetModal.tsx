@@ -571,7 +571,7 @@ export const DistributionSheetModal: React.FC = () => {
                   {currentDar.id}
                 </span>
                 <span className="text-indigo-200">
-                  (ผู้ขอ: <strong>{currentDar.requesterName}</strong> - {currentDar.requestDept})
+                  (ผู้ขอ: <strong>{currentDar.requesterName || `ฝ่าย ${currentDar.requestDept}`}</strong> - {currentDar.requestDept})
                 </span>
                 <span className="text-[11px] bg-cyan-950 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-700">
                   DAR ระบุแจกจ่าย {currentDar.distributionHolders?.filter(h => h.checked).length || 0} ตำแหน่ง

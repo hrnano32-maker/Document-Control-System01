@@ -49,7 +49,7 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
   const [deptManagerDate, setDeptManagerDate] = useState<string>(dar.deptApproverDate || dar.requestDate);
   const [deptManagerSig, setDeptManagerSig] = useState<string | undefined>(dar.deptApproverSignature);
 
-  const [qmrName, setQmrName] = useState<string>(dar.qmrName || 'ดร. ธีรเดช วิริยะคุณ (QMR)');
+  const [qmrName, setQmrName] = useState<string>(dar.qmrName || 'ตัวแทนฝ่ายบริหาร (QMR)');
   const [qmrDate, setQmrDate] = useState<string>(dar.qmrDate || new Date().toISOString().split('T')[0]);
   const [qmrSig, setQmrSig] = useState<string | undefined>(dar.qmrSignature);
   const [qmrDecision, setQmrDecision] = useState<'YES' | 'NO'>(

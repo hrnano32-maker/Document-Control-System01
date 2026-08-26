@@ -35,19 +35,12 @@ export const DocumentViewerModal: React.FC = () => {
     currentUser,
   } = useDcs();
 
-  const [isEditingLink, setIsEditingLink] = useState(false);
-  const [customDriveLink, setCustomDriveLink] = useState('');
-  const [copiedLink, setCopiedLink] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [rotation, setRotation] = useState(0);
-  const [activeTab, setActiveTab] = useState<'preview' | 'drive-info' | 'properties'>('preview');
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [activeTab, setActiveTab] = useState<'preview' | 'file-info' | 'properties'>('preview');
 
   useEffect(() => {
     if (selectedDocumentForView) {
-      setCustomDriveLink(selectedDocumentForView.driveLink || '');
-      setIsEditingLink(false);
-      setSaveSuccess(false);
       setZoomLevel(100);
       setRotation(0);
       setActiveTab('preview');
@@ -58,20 +51,7 @@ export const DocumentViewerModal: React.FC = () => {
 
   const doc = selectedDocumentForView;
 
-  const isMockDriveLink = !doc.driveLink || 
-    doc.driveLink.includes('incoming-temp') || 
-    doc.driveLink.includes('dcc-archive') || 
-    doc.driveLink.includes('dcc-controlled') || 
-    doc.driveLink.includes('dcc-original');
-
-  const isRealDriveLink = Boolean(
-    doc.driveLink &&
-    (doc.driveLink.includes('drive.google.com/file/d/') ||
-     doc.driveLink.includes('docs.google.com/') ||
-     (doc.driveLink.includes('drive.google.com/drive/folders/') && !isMockDriveLink))
-  );
-
-  const fileExt = (doc.fileName || doc.driveLink || '').split('.').pop()?.toLowerCase() || '';
+  const fileExt = (doc.fileName || '').split('.').pop()?.toLowerCase() || '';
   const isPdf = fileExt === 'pdf' || (doc.fileType && doc.fileType.includes('pdf'));
   const isImage = ['png', 'jpg', 'jpeg', 'svg', 'webp', 'gif'].includes(fileExt) || 
     (doc.fileType && doc.fileType.startsWith('image/')) ||
@@ -79,30 +59,6 @@ export const DocumentViewerModal: React.FC = () => {
 
   const handleClose = () => {
     setSelectedDocumentForView(null);
-  };
-
-  const handleCopyLink = () => {
-    if (doc.driveLink) {
-      navigator.clipboard.writeText(doc.driveLink);
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2000);
-    }
-  };
-
-  const handleSaveDriveLink = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customDriveLink.trim()) return;
-
-    if (doc.darId) {
-      updateDriveLink(doc.darId, 'DAR', customDriveLink.trim());
-    } else if (doc.docId || doc.docNo) {
-      updateDriveLink(doc.docId || doc.docNo!, 'MASTER_DOC', customDriveLink.trim());
-    }
-
-    setSaveSuccess(true);
-    setIsEditingLink(false);
-    confetti({ particleCount: 40, spread: 50, origin: { y: 0.6 } });
-    setTimeout(() => setSaveSuccess(false), 3000);
   };
 
   const handleDownload = () => {
@@ -281,18 +237,15 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
               ตัวอย่างเอกสาร (Preview)
             </button>
             <button
-              onClick={() => setActiveTab('drive-info')}
+              onClick={() => setActiveTab('file-info')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                activeTab === 'drive-info'
+                activeTab === 'file-info'
                   ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
               }`}
             >
               <FolderSync className="w-3.5 h-3.5" />
-              Google Drive & ลิงก์
-              {isMockDriveLink && (
-                <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
-              )}
+              ข้อมูลไฟล์แนบ (File Info)
             </button>
             <button
               onClick={() => setActiveTab('properties')}
@@ -307,30 +260,15 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
             </button>
           </div>
 
-          {/* Quick Google Drive Bridge Action */}
           <div className="flex items-center gap-2">
-            {doc.driveLink && isRealDriveLink ? (
-              <a
-                href={doc.driveLink}
-                target="_blank"
-                rel="noreferrer"
-                className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                เปิดใน Google Drive จริง
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setActiveTab('drive-info')}
-                className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-              >
-                <FolderSync className="w-3.5 h-3.5 text-amber-600" />
-                <span>สถานะ Google Drive: จำลองในระบบ</span>
-                <Edit3 className="w-3 h-3 ml-0.5" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleDownload}
+              className="px-3 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-indigo-600" />
+              ดาวน์โหลดเอกสารฉบับนี้
+            </button>
           </div>
         </div>
 
@@ -575,7 +513,7 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
                     <div className="p-2 border border-slate-200 rounded-lg bg-slate-50">
                       <span className="font-bold text-slate-600 block text-[10px]">ผู้จัดทำ (Prepared By)</span>
                       <div className="h-10 flex items-center justify-center font-serif text-slate-800 italic">
-                        {currentUser.userName}
+                        {currentUser.position || `เจ้าหน้าที่ ${doc.dept || currentUser.currentDept}`}
                       </div>
                       <span className="text-[10px] text-slate-500 border-t border-slate-200 block pt-1">
                         หน่วยงาน: {doc.dept || currentUser.currentDept}
@@ -584,16 +522,16 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
                     <div className="p-2 border border-slate-200 rounded-lg bg-slate-50">
                       <span className="font-bold text-slate-600 block text-[10px]">ผู้ทบทวน (Reviewed By)</span>
                       <div className="h-10 flex items-center justify-center font-serif text-slate-800 italic">
-                        สมหญิง ผู้ควบคุมเอกสาร (DCC)
+                        ผู้ควบคุมเอกสาร (DCC Controller)
                       </div>
                       <span className="text-[10px] text-slate-500 border-t border-slate-200 block pt-1">
-                        DCC Controller
+                        DCC Admin / ISO Controller
                       </span>
                     </div>
                     <div className="p-2 border border-slate-200 rounded-lg bg-slate-50">
                       <span className="font-bold text-slate-600 block text-[10px]">ผู้อนุมัติ (Approved By)</span>
                       <div className="h-10 flex items-center justify-center font-serif text-slate-800 italic">
-                        นายอดิศร บริหารยิ่ง (QMR)
+                        ตัวแทนฝ่ายบริหาร (QMR / Dept Head)
                       </div>
                       <span className="text-[10px] text-slate-500 border-t border-slate-200 block pt-1">
                         ตัวแทนฝ่ายบริหารด้านคุณภาพ (QMR)
@@ -606,137 +544,63 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
             </div>
           )}
 
-          {/* TAB 2: GOOGLE DRIVE & LINK CONFIGURATION */}
-          {activeTab === 'drive-info' && (
+          {/* TAB 2: FILE ATTACHMENT DETAILS */}
+          {activeTab === 'file-info' && (
             <div className="max-w-3xl mx-auto space-y-4">
               
-              {/* Drive Status Card */}
-              <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs space-y-3">
+              {/* File Status Card */}
+              <div className="p-5 bg-white rounded-xl border border-slate-200 shadow-xs space-y-4">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                      isRealDriveLink ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                    }`}>
-                      <FolderSync className="w-5 h-5" />
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+                      {isPdf ? <FileText className="w-6 h-6 text-rose-600" /> : isImage ? <Eye className="w-6 h-6 text-cyan-600" /> : <FileBox className="w-6 h-6 text-indigo-600" />}
                     </div>
                     <div>
                       <h4 className="font-bold text-slate-900 text-sm">
-                        {isRealDriveLink ? 'Google Drive เชื่อมต่อแล้ว (Live Cloud)' : 'Google Drive จำลองในระบบ DCS (Simulation)'}
+                        {doc.fileName || `${doc.docNo || 'Document'}_Rev${doc.revision || '00'}`}
                       </h4>
                       <p className="text-xs text-slate-500">
-                        {isRealDriveLink
-                          ? 'ลิงก์นี้ชี้ไปยัง Google Drive จริง สามารถคลิกเพื่อเปิดดูและแชร์ได้'
-                          : 'ลิงก์ปัจจุบันเป็น Mock Path ของระบบ เพื่อความปลอดภัยคุณสามารถระบุ Google Drive จริงได้'}
+                        {doc.fileDataUrl ? 'ไฟล์แนบถูกจัดเก็บในระบบเรียบร้อยแล้ว พร้อมให้ DCC หรือผู้เกี่ยวข้องดาวน์โหลด' : 'เอกสารสร้างขึ้นในระบบ DCS'}
                       </p>
                     </div>
                   </div>
 
                   <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                    isRealDriveLink ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                    doc.fileDataUrl ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-800'
                   }`}>
-                    {isRealDriveLink ? 'Active Cloud Link' : 'DCS Internal Link'}
+                    {doc.fileDataUrl ? '✓ มีไฟล์แนบจริง' : 'โครงสร้างเอกสาร DCS'}
                   </span>
                 </div>
 
-                {/* Current URL Display */}
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between gap-2">
-                  <span className="text-xs font-mono text-slate-700 truncate flex-1">
-                    {doc.driveLink || 'ยังไม่มีการระบุลิงก์ Google Drive'}
-                  </span>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={handleCopyLink}
-                      className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-                      title="คัดลอกลิงก์"
-                    >
-                      {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedLink ? 'คัดลอกแล้ว' : 'คัดลอก'}</span>
-                    </button>
-                    {isRealDriveLink && (
-                      <a
-                        href={doc.driveLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        เปิด Drive
-                      </a>
-                    )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs">
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <span className="text-[10px] text-slate-500 font-semibold block uppercase">ชื่อไฟล์</span>
+                    <span className="font-bold text-slate-800 font-mono break-all">{doc.fileName || 'ระบบ DCS Document'}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <span className="text-[10px] text-slate-500 font-semibold block uppercase">ขนาดไฟล์</span>
+                    <span className="font-bold text-slate-800">{doc.fileSize || 'N/A'}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <span className="text-[10px] text-slate-500 font-semibold block uppercase">ประเภทไฟล์</span>
+                    <span className="font-bold text-slate-800 font-mono">{doc.fileType || (isPdf ? 'application/pdf' : 'Quality Document')}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <span className="text-[10px] text-slate-500 font-semibold block uppercase">สถานะการจัดเก็บ</span>
+                    <span className="font-bold text-emerald-700">จัดเก็บถาวรในระบบ DCS</span>
                   </div>
                 </div>
 
-                {saveSuccess && (
-                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2 font-bold animate-in fade-in">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    บันทึกลิงก์ Google Drive ใหม่เรียบร้อยแล้ว!
-                  </div>
-                )}
-              </div>
-
-              {/* Edit / Update Drive Link Form */}
-              <div className="p-5 bg-white rounded-xl border border-slate-200 shadow-xs space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                    <Edit3 className="w-4 h-4 text-indigo-600" />
-                    เปลี่ยนหรือระบุลิงก์ Google Drive จริงของบริษัท
-                  </h4>
+                <div className="pt-2 flex items-center justify-end">
                   <button
                     type="button"
-                    onClick={() => setIsEditingLink(!isEditingLink)}
-                    className="text-xs font-bold text-indigo-600 hover:underline cursor-pointer"
+                    onClick={handleDownload}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-colors"
                   >
-                    {isEditingLink ? 'ยกเลิก' : 'คลิกเพื่อแก้ไขลิงก์'}
+                    <Download className="w-4 h-4" />
+                    ดาวน์โหลดไฟล์นี้
                   </button>
                 </div>
-
-                {isEditingLink ? (
-                  <form onSubmit={handleSaveDriveLink} className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        วาง URL ของ Google Drive (Shared Link หรือ Folder Link):
-                      </label>
-                      <input
-                        type="url"
-                        value={customDriveLink}
-                        onChange={(e) => setCustomDriveLink(e.target.value)}
-                        placeholder="https://drive.google.com/file/d/12345abcdef.../view?usp=sharing"
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                        required
-                      />
-                    </div>
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsEditingLink(false)}
-                        className="px-3 py-1.5 border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-semibold text-slate-700 cursor-pointer"
-                      >
-                        ยกเลิก
-                      </button>
-                      <button
-                        type="submit"
-                        className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
-                      >
-                        <Save className="w-3.5 h-3.5" />
-                        บันทึกการเชื่อมโยง
-                      </button>
-                    </div>
-                  </form>
-                ) : (
-                  <div className="p-4 bg-indigo-50/60 rounded-xl border border-indigo-100 text-xs text-indigo-900 space-y-2">
-                    <div className="flex items-start gap-2">
-                      <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        <span className="font-bold block">วิธีนำลิงก์ Google Drive ของบริษัทมาเชื่อมต่อ:</span>
-                        <ol className="list-decimal list-inside space-y-0.5 text-[11px] text-indigo-800">
-                          <li>เปิด Google Drive ขององค์กร แล้วไปยังไฟล์หรือโฟลเดอร์ที่ต้องการ</li>
-                          <li>คลิกขวาที่ไฟล์ เลือก <strong>แชร์ (Share)</strong> &gt; ปรับสิทธิ์เป็น <em>ทุกคนในองค์กรที่มีลิงก์</em></li>
-                          <li>คลิก <strong>คัดลอกลิงก์ (Copy Link)</strong> แล้วกดปุ่ม <em>"คลิกเพื่อแก้ไขลิงก์"</em> ด้านบนเพื่อวาง</li>
-                        </ol>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
 
             </div>

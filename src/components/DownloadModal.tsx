@@ -28,13 +28,9 @@ export const DownloadModal: React.FC = () => {
 
   const target = distribution.targets.find(t => t.dept === dept);
 
-  // Form states
-  const [downloaderName, setDownloaderName] = useState(
-    currentUser.currentDept === dept ? currentUser.userName : ''
-  );
-  const [downloaderEmpId, setDownloaderEmpId] = useState(
-    currentUser.currentDept === dept ? currentUser.userEmpId : ''
-  );
+  // Form states: Recipient must explicitly enter their real name upon receiving document
+  const [downloaderName, setDownloaderName] = useState('');
+  const [downloaderEmpId, setDownloaderEmpId] = useState('');
   const [downloaderPosition, setDownloaderPosition] = useState(
     currentUser.currentDept === dept ? currentUser.position : ''
   );
@@ -192,8 +188,18 @@ export const DownloadModal: React.FC = () => {
         origin: { y: 0.6 },
       });
 
-      // Simulate browser download file of controlled copy metadata / watermarked receipt
-      const controlledDocText = `======================================================
+      // If binary fileDataUrl is present, download the actual attached file directly
+      if (distribution.fileDataUrl) {
+        const link = document.createElement('a');
+        link.href = distribution.fileDataUrl;
+        const baseName = distribution.fileName || `${distribution.docNo}_Rev${distribution.revision}_CONTROLLED.pdf`;
+        link.download = `CONTROLLED_${dept}_${baseName}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        // Fallback controlled copy document text
+        const controlledDocText = `======================================================
          OFFICIAL CONTROLLED COPY (สำเนาควบคุม)
          Document Control System (ISO 9001 / IATF 16949)
 ======================================================
@@ -218,20 +224,18 @@ Status:           DOWNLOADED & LOCKED 🔒
 This electronic Controlled Copy must be retained exclusively on the designated 
 departmental workstation for operational use. Re-distribution or un-authorized 
 duplication is strictly prohibited under DCC procedure.
-
-Google Drive Reference Link:
-${distribution.controlledDriveLink}
 ======================================================`;
 
-      const blob = new Blob([controlledDocText], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `CONTROLLED_${distribution.docNo}_Rev${distribution.revision}_${dept.replace(/[^A-Za-z0-9]/g, '_')}_Copy1-1.txt`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+        const blob = new Blob([controlledDocText], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `CONTROLLED_${distribution.docNo}_Rev${distribution.revision}_${dept.replace(/[^A-Za-z0-9]/g, '_')}_Copy1-1.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
 
       setTimeout(() => {
         setIsSubmitting(false);
@@ -354,28 +358,35 @@ ${distribution.controlledDriveLink}
             <div className="space-y-4">
               
               <div className="space-y-3">
-                <h4 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-                  <ShieldCheck className="w-4 h-4 text-indigo-600" />
-                  1. ข้อมูลผู้ดาวน์โหลดและรับมอบหมาย
-                </h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                    <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                    1. ข้อมูลผู้รับมอบหมายและดาวน์โหลดเอกสาร
+                  </h4>
+                  <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                    * กรอกชื่อจริงของผู้รับเอกสาร
+                  </span>
+                </div>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      ชื่อ-นามสกุล ผู้ดาวน์โหลด <span className="text-rose-500">*</span>
+                      ชื่อ-นามสกุล ผู้รับเอกสารจริง <span className="text-rose-500 font-bold">* (บังคับกรอก)</span>
                     </label>
                     <input
                       type="text"
                       value={downloaderName}
                       onChange={e => setDownloaderName(e.target.value)}
-                      placeholder="เช่น นายสมชาย ใจดี"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      placeholder="ระบุชื่อ-นามสกุลจริงผู้รับมอบหมาย"
+                      className="w-full px-3.5 py-2.5 border-2 border-indigo-200 bg-indigo-50/20 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-none placeholder-slate-400"
+                      required
+                      autoFocus
                     />
                   </div>
 
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      รหัสพนักงาน (Employee ID)
+                      รหัสพนักงาน (Employee ID) <span className="text-slate-400 font-normal">(ถ้ามี)</span>
                     </label>
                     <input
                       type="text"
@@ -395,7 +406,7 @@ ${distribution.controlledDriveLink}
                     type="text"
                     value={downloaderPosition}
                     onChange={e => setDownloaderPosition(e.target.value)}
-                    placeholder="เช่น หัวหน้างานฝ่ายผลิต / ISO Controller ประจำแผนก"
+                    placeholder="เช่น วิศวกรควบคุมคุณภาพ / หัวหน้ากะฝ่ายผลิต"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   />
                 </div>

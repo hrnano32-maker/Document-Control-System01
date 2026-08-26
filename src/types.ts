@@ -139,7 +139,7 @@ export interface DarRecord {
   proposedRevision: string; // e.g. "03" or "00"
   reasonForChange: string;
   changeDetails: string;
-  incomingDriveLink: string; // Google Drive Incoming/Temp Link
+  incomingDriveLink?: string; // Optional reference
   status: DarStatus;
   dccReviewer?: string;
   dccReviewDate?: string;
@@ -197,13 +197,19 @@ export interface MasterDocument {
   effectiveDate: string;
   reviewDueDate: string;
   status: DocumentStatus;
-  controlledDriveLink: string; // Google Drive Controlled Copy Folder Link
-  originalDriveLink: string; // Google Drive Original Archive
+  controlledDriveLink?: string; // Optional reference
+  originalDriveLink?: string;
   darReferenceId: string;
   createdAt: string;
   updatedAt: string;
   revisionHistory: RevisionHistoryItem[];
   retentionPeriodYears: number;
+
+  // Attached File Data
+  fileName?: string;
+  fileSize?: string;
+  fileType?: string;
+  fileDataUrl?: string;
 }
 
 export type TargetDownloadStatus = 'PENDING' | 'DOWNLOADED' | 'EXPIRED' | 'RE_REQUESTED';
@@ -239,9 +245,15 @@ export interface DistributionRecord {
   distributedDate: string; // ISO string
   expirationDate: string; // ISO string (3 days from distributedDate)
   status: DistributionStatus;
-  controlledDriveLink: string;
+  controlledDriveLink?: string;
   instructions: string;
   targets: DepartmentDistributionTarget[];
+
+  // Uploaded Master/Controlled File for Distribution
+  fileName?: string;
+  fileSize?: string;
+  fileType?: string;
+  fileDataUrl?: string;
 }
 
 export interface CopyReRequest {

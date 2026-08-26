@@ -48,7 +48,17 @@ interface DcsContextType {
 
   // Distribution Management
   distributions: DistributionRecord[];
-  createDistribution: (docId: string, targetDepts: Department[], instructions: string, driveLink?: string) => string;
+  createDistribution: (
+    docId: string,
+    targetDepts: Department[],
+    instructions: string,
+    attachedFile?: {
+      name: string;
+      size: string;
+      type: string;
+      dataUrl?: string;
+    }
+  ) => string;
   downloadControlledCopy: (
     distributionId: string,
     dept: Department,
@@ -449,8 +459,8 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       'DAR_CREATED',
       newDar.docNo,
       newDar.proposedRevision,
-      `แผนก ${newDar.requestDept} สร้างคำขอดำเนินการ ${darId} ประเภท [${newDar.requestType}] สำหรับเอกสาร ${newDar.docNo} (${newDar.docNameTh}) พร้อมระบุลิงก์ Google Drive Incoming`,
-      { darId, requestType: newDar.requestType, driveLink: newDar.incomingDriveLink }
+      `แผนก ${newDar.requestDept} สร้างคำขอดำเนินการ ${darId} ประเภท [${newDar.requestType}] สำหรับเอกสาร ${newDar.docNo} (${newDar.docNameTh}) พร้อมอัปโหลดไฟล์ร่าง "${newDar.attachmentFileName || 'เอกสารร่าง'}" ส่งถึง DCC`,
+      { darId, requestType: newDar.requestType, fileName: newDar.attachmentFileName }
     );
 
     return darId;
@@ -581,6 +591,10 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 darReferenceId: dar.id,
                 updatedAt: today,
                 controlledDriveLink: historyItem.controlledDriveLink,
+                fileName: dar.attachmentFileName || d.fileName,
+                fileSize: dar.attachmentFileSize || d.fileSize,
+                fileType: dar.attachmentFileType || d.fileType,
+                fileDataUrl: dar.attachmentFileDataUrl || d.fileDataUrl,
                 revisionHistory: [
                   ...d.revisionHistory.map(h => ({ ...h, status: 'SUPERSEDED' as const })),
                   historyItem,
@@ -609,6 +623,10 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createdAt: today,
         updatedAt: today,
         retentionPeriodYears: 5,
+        fileName: dar.attachmentFileName,
+        fileSize: dar.attachmentFileSize,
+        fileType: dar.attachmentFileType,
+        fileDataUrl: dar.attachmentFileDataUrl,
         revisionHistory: [
           {
             rev: dar.proposedRevision || '00',
@@ -717,7 +735,12 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     docId: string,
     targetDepts: Department[],
     instructions: string,
-    driveLink?: string
+    attachedFile?: {
+      name: string;
+      size: string;
+      type: string;
+      dataUrl?: string;
+    }
   ): string => {
     const targetDoc = documents.find(d => d.id === docId);
     if (!targetDoc) return '';
@@ -728,6 +751,11 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const nowIso = new Date().toISOString();
     // 3 Days Expiration (exactly 72 hours)
     const expiryIso = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+
+    const fileName = attachedFile?.name || targetDoc.fileName || `${targetDoc.docNo}_Rev${targetDoc.currentRevision}_CONTROLLED.pdf`;
+    const fileSize = attachedFile?.size || targetDoc.fileSize || '1.5 MB';
+    const fileType = attachedFile?.type || targetDoc.fileType || 'application/pdf';
+    const fileDataUrl = attachedFile?.dataUrl || targetDoc.fileDataUrl;
 
     const newDist: DistributionRecord = {
       id: `DIS-${Date.now()}`,
@@ -743,8 +771,12 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       distributedDate: nowIso,
       expirationDate: expiryIso,
       status: 'IN_PROGRESS',
-      controlledDriveLink: driveLink || targetDoc.controlledDriveLink,
+      controlledDriveLink: targetDoc.controlledDriveLink,
       instructions: instructions || 'กรุณาดาวน์โหลดและจัดเก็บ Controlled Copy เข้าแฟ้มเอกสารประจำหน่วยงานภายใน 3 วัน',
+      fileName,
+      fileSize,
+      fileType,
+      fileDataUrl,
       targets: targetDepts.map(dept => ({
         dept,
         copyNo: 'Copy 1/1',
@@ -764,8 +796,8 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       'DISTRIBUTION_INITIATED',
       targetDoc.docNo,
       targetDoc.currentRevision,
-      `DCC (${currentUser.userName}) ทำการแจกจ่ายเอกสาร ${targetDoc.docNo} Rev.${targetDoc.currentRevision} (เลขที่แจกจ่าย: ${distNo}) ไปยัง ${targetDepts.length} แผนก พร้อมกำหนดอายุลิงก์ดาวน์โหลด 3 วัน (หมดอายุ: ${new Date(expiryIso).toLocaleString('th-TH')})`,
-      { distributionNo: distNo, targetCount: targetDepts.length, targets: targetDepts }
+      `DCC (${currentUser.userName}) ทำการอัปโหลดไฟล์ "${fileName}" และแจกจ่ายเอกสาร ${targetDoc.docNo} Rev.${targetDoc.currentRevision} (เลขที่แจกจ่าย: ${distNo}) ไปยัง ${targetDepts.length} แผนก พร้อมกำหนดอายุลิงก์ดาวน์โหลด 3 วัน`,
+      { distributionNo: distNo, targetCount: targetDepts.length, targets: targetDepts, fileName }
     );
 
     return distNo;

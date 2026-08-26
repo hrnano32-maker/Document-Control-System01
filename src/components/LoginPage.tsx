@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useDcs } from '../context/DcsContext';
-import { USER_ACCOUNTS } from '../data/userCredentials';
 import { NanoLogo } from './NanoLogo';
 import {
   ShieldCheck,
@@ -11,10 +10,6 @@ import {
   LogIn,
   CheckCircle2,
   AlertCircle,
-  KeyRound,
-  HelpCircle,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 
 export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSuccessfulLogin }) => {
@@ -27,7 +22,6 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showHelpGuide, setShowHelpGuide] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,12 +48,6 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
         setErrorMessage(res.message);
       }
     }, 200);
-  };
-
-  const handleSelectAccount = (u: string, p: string) => {
-    setUsername(u);
-    setPassword(p);
-    setErrorMessage('');
   };
 
   return (
@@ -208,48 +196,6 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
             </button>
 
           </form>
-
-          {/* Quick Department Accounts Reference Guide */}
-          <div className="pt-2 border-t border-slate-800/80">
-            <button
-              type="button"
-              onClick={() => setShowHelpGuide(!showHelpGuide)}
-              className="w-full flex items-center justify-between text-xs text-slate-400 hover:text-indigo-300 py-1.5 transition-colors cursor-pointer"
-            >
-              <span className="flex items-center gap-1.5 font-medium">
-                <KeyRound className="w-3.5 h-3.5 text-indigo-400" />
-                ดูรายชื่อบัญชี & รหัสผ่านเริ่มต้นทุกแผนก
-              </span>
-              {showHelpGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
-
-            {showHelpGuide && (
-              <div className="mt-3 p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-[11px] max-h-60 overflow-y-auto space-y-1.5 divide-y divide-slate-800/60 animate-fadeIn">
-                {USER_ACCOUNTS.map(acc => (
-                  <div
-                    key={acc.username}
-                    onClick={() => handleSelectAccount(acc.username, acc.password)}
-                    className="pt-1.5 first:pt-0 flex items-center justify-between hover:bg-slate-900/80 p-1.5 rounded-lg transition-colors cursor-pointer"
-                  >
-                    <div>
-                      <div className="font-bold text-slate-200">{acc.dept} ({acc.deptDescriptionTh})</div>
-                      <div className="text-slate-400 text-[10px]">
-                        User: <code className="text-indigo-300 font-mono font-bold">{acc.username}</code>
-                        {acc.aliases && acc.aliases.length > 0 && (
-                          <span className="text-slate-500 ml-1">({acc.aliases.join(', ')})</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <code className="text-amber-300 font-mono bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-[10px]">
-                        {acc.password}
-                      </code>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
 
         </div>
 

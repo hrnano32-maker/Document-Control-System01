@@ -169,25 +169,25 @@ export const Dashboard: React.FC = () => {
           onClick={() => {
             if (isDcc) setActiveView('masterlist');
           }}
-          className={`bg-white rounded-2xl p-5 border border-slate-200 shadow-xs hover:border-indigo-400 hover:shadow-md transition-all ${isDcc ? 'cursor-pointer' : ''} group`}
+          className={`bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs hover:border-indigo-400 hover:shadow-md transition-all ${isDcc ? 'cursor-pointer' : ''} group`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">
+            <span className="text-xs sm:text-sm font-bold text-slate-600">
               {isDcc ? 'ทะเบียนเอกสาร Master List' : `เอกสารของฝ่าย ${currentUser.currentDept}`}
             </span>
-            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <FileText className="w-4 h-4" />
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+              <FileText className="w-5 h-5" />
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-slate-900 font-mono">
+            <span className="text-2xl sm:text-3xl font-black text-slate-900 font-mono tracking-tight">
               {isDcc ? totalDocs : deptOwnedDocs.length}
             </span>
-            <span className="text-xs text-emerald-600 font-semibold">
+            <span className="text-xs text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
               {isDcc ? `Active ${activeDocs} ฉบับ` : `${deptOwnedDocs.filter(d => d.status === 'ACTIVE').length} Active`}
             </span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">
+          <p className="text-xs text-slate-400 mt-1.5">
             {isDcc ? 'อัปเดตอัตโนมัติตาม DAR' : 'เอกสารที่หน่วยงานเป็นเจ้าของ'}
           </p>
         </div>
@@ -195,25 +195,25 @@ export const Dashboard: React.FC = () => {
         {/* Card 2 */}
         <div
           onClick={() => setActiveView('dar')}
-          className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs hover:border-amber-400 hover:shadow-md transition-all cursor-pointer group"
+          className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs hover:border-amber-400 hover:shadow-md transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">
+            <span className="text-xs sm:text-sm font-bold text-slate-600">
               {isDcc ? 'DAR รอพิจารณา' : `DAR ฝ่าย ${currentUser.currentDept}`}
             </span>
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Sparkles className="w-4 h-4" />
+            <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+              <Sparkles className="w-5 h-5" />
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-slate-900 font-mono">
+            <span className="text-2xl sm:text-3xl font-black text-slate-900 font-mono tracking-tight">
               {isDcc ? pendingDars : deptDars.length}
             </span>
-            <span className="text-xs text-amber-700 font-semibold">
+            <span className="text-xs text-amber-800 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
               {isDcc ? 'Pending Review' : `${deptDars.filter(d => d.status === 'REGISTERED').length} ขึ้นทะเบียนแล้ว`}
             </span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">
+          <p className="text-xs text-slate-400 mt-1.5">
             {isDcc ? 'คำขอยื่นจากทุกแผนก' : 'ยื่นขอจัดทำ / แก้ไข / ยกเลิก'}
           </p>
         </div>
@@ -223,49 +223,49 @@ export const Dashboard: React.FC = () => {
           onClick={() => {
             if (isDcc) setActiveView('distribution');
           }}
-          className={`bg-white rounded-2xl p-5 border border-slate-200 shadow-xs hover:border-cyan-400 hover:shadow-md transition-all ${isDcc ? 'cursor-pointer' : ''} group`}
+          className={`bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs hover:border-cyan-400 hover:shadow-md transition-all ${isDcc ? 'cursor-pointer' : ''} group`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">
+            <span className="text-xs sm:text-sm font-bold text-slate-600">
               {isDcc ? 'การแจกจ่ายที่กำลังดำเนินการ' : 'เอกสารรอรับ (3-Day Limit)'}
             </span>
-            <div className="w-8 h-8 rounded-lg bg-cyan-50 text-cyan-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Send className="w-4 h-4" />
+            <div className="w-9 h-9 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+              <Send className="w-5 h-5" />
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-slate-900 font-mono">
+            <span className="text-2xl sm:text-3xl font-black text-slate-900 font-mono tracking-tight">
               {isDcc ? activeDistributions : deptPendingDownloads.length}
             </span>
-            <span className="text-xs text-cyan-700 font-semibold">
+            <span className="text-xs text-cyan-800 font-bold bg-cyan-50 px-2 py-0.5 rounded-full border border-cyan-100">
               {isDcc ? 'In Progress' : `${deptDistributions.length} ทั้งหมด`}
             </span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">กฎ 1 แผนก = 1 ดาวน์โหลด</p>
+          <p className="text-xs text-slate-400 mt-1.5">กฎ 1 แผนก = 1 ดาวน์โหลด</p>
         </div>
 
         {/* Card 4 */}
         <div
           onClick={() => setActiveView(isDcc ? 'distribution' : 'audit')}
-          className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs hover:border-emerald-400 hover:shadow-md transition-all cursor-pointer group"
+          className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs hover:border-emerald-400 hover:shadow-md transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">
+            <span className="text-xs sm:text-sm font-bold text-slate-600">
               {isDcc ? 'คำร้องขอสำเนาใหม่ (Re-Request)' : `Audit Trail (${currentUser.currentDept})`}
             </span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-              {isDcc ? <Bell className="w-4 h-4" /> : <History className="w-4 h-4" />}
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+              {isDcc ? <Bell className="w-5 h-5" /> : <History className="w-5 h-5" />}
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-slate-900 font-mono">
+            <span className="text-2xl sm:text-3xl font-black text-slate-900 font-mono tracking-tight">
               {isDcc ? pendingReRequests : scopedAuditLogs.length}
             </span>
-            <span className="text-xs text-emerald-700 font-semibold">
+            <span className="text-xs text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
               {isDcc ? 'รอดำเนินการ' : 'ISO 7.5 Verified'}
             </span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">
+          <p className="text-xs text-slate-400 mt-1.5">
             {isDcc ? 'รอ DCC พิจารณา' : `บันทึกกิจกรรมเฉพาะฝ่าย ${currentUser.currentDept}`}
           </p>
         </div>
@@ -399,8 +399,8 @@ export const Dashboard: React.FC = () => {
                       <span className="text-[10px] font-mono text-slate-500">Rev.{dar.proposedRevision}</span>
                     </div>
                     <p className="font-medium text-slate-700">{dar.docNameTh}</p>
-                    <span className="text-[10px] text-slate-400 block">
-                      ขอโดย {dar.requesterName} ({dar.requestDept}) • {new Date(dar.createdAt).toLocaleDateString('th-TH')}
+                    <span className="text-xs text-slate-500 block">
+                      ขอโดย {dar.requesterName || `ฝ่าย ${dar.requestDept}`} • {new Date(dar.createdAt).toLocaleDateString('th-TH')}
                     </span>
                   </div>
 

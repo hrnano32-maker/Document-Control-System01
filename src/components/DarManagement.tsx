@@ -28,6 +28,7 @@ import {
   FileCheck2,
   Printer,
   Upload,
+  Download,
   Image as ImageIcon,
   Trash2,
   Paperclip,
@@ -78,7 +79,7 @@ export const DarManagement: React.FC = () => {
   // DAR Creation Form state
   const [reqType, setReqType] = useState<DarRequestType>('REVISION');
   const [reqDept, setReqDept] = useState<Department>(currentUser.currentDept === 'DCC' ? 'Production 1' : currentUser.currentDept);
-  const [requesterName, setRequesterName] = useState(currentUser.userName);
+  const [requesterName, setRequesterName] = useState('');
   const [requesterTitle, setRequesterTitle] = useState(currentUser.position);
   const [targetEffectiveDate, setTargetEffectiveDate] = useState(
     new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
@@ -94,7 +95,6 @@ export const DarManagement: React.FC = () => {
   const [skippedRevisionReason, setSkippedRevisionReason] = useState('');
   const [showDocSelector, setShowDocSelector] = useState(false);
   const [docSearchKeyword, setDocSearchKeyword] = useState('');
-  const [incomingDriveLink, setIncomingDriveLink] = useState('https://drive.google.com/drive/folders/incoming-temp/DAR_DRAFT_FILE.docx');
   const [isoClause, setIsoClause] = useState('ISO 9001:2015 Clause 7.5.3');
   const [formError, setFormError] = useState('');
 
@@ -128,6 +128,52 @@ export const DarManagement: React.FC = () => {
   const [reviewRemarks, setReviewRemarks] = useState('');
 
   const isDcc = currentUser.currentDept === 'DCC';
+
+  // Helper to download draft file attached by DAR requester
+  const handleDownloadDarDraft = (dar: DarRecord) => {
+    const fileName = dar.attachmentFileName || `${dar.docNo}_Rev${dar.proposedRevision}_DRAFT.docx`;
+    if (dar.attachmentFileDataUrl) {
+      const link = document.createElement('a');
+      link.href = dar.attachmentFileDataUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
+    // Generate fallback draft document text if no binary attached
+    const sampleContent = `================================================================================
+DRAFT DOCUMENT FOR DCC REVIEW (เอกสารร่างสำหรับ DCC ตรวจสอบ)
+Document Control System (ISO 9001:2015 / IATF 16949)
+================================================================================
+DAR No:           ${dar.id}
+Document No:      ${dar.docNo}
+Document Name:    ${dar.docNameTh} (${dar.docNameEn})
+Type:             ${dar.docType}
+Proposed Rev:     Rev.${dar.proposedRevision} (เดิม Rev.${dar.currentRevision})
+Request Dept:     ${dar.requestDept}
+Requester:        ${dar.requesterName} (${dar.requesterTitle})
+Target Date:      ${dar.targetEffectiveDate}
+ISO Clause:       ${dar.isoClause || 'ISO 9001:2015 Clause 7.5.3'}
+--------------------------------------------------------------------------------
+1. เหตุผลความจำเป็นในการขอดำเนินการ:
+${dar.reasonForChange}
+
+2. รายละเอียดการเปลี่ยนแปลงข้อความ / กระบวนการ:
+${dar.changeDetails || 'รายละเอียดและข้อความตามฉบับร่างที่ผู้ร้องขอได้จัดทำ'}
+================================================================================`;
+
+    const blob = new Blob([sampleContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${dar.docNo}_Rev${dar.proposedRevision}_DRAFT.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   // Real-time Revision Sequence Analysis
   const revAnalysis = analyzeRevisionSequence(
@@ -210,7 +256,6 @@ export const DarManagement: React.FC = () => {
       isSkippedRevision: revAnalysis.isSkipped,
       skippedRevisionReason: revAnalysis.isSkipped ? skippedRevisionReason.trim() : undefined,
       systemCurrentRevision: revAnalysis.systemCurrentRev || undefined,
-      incomingDriveLink: incomingDriveLink.trim() || 'https://drive.google.com/drive/folders/incoming-temp',
       isoClause: isoClause.trim(),
       attachmentFileName: attachedFile?.name,
       attachmentFileSize: attachedFile?.size,
@@ -254,7 +299,7 @@ export const DarManagement: React.FC = () => {
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            กระบวนการขอจัดทำเอกสารใหม่ / แก้ไข / ยกเลิก พร้อมแนบไฟล์ Google Drive Incoming ส่งให้ DCC ตรวจสอบ
+            กระบวนการขอจัดทำเอกสารใหม่ / แก้ไข / ยกเลิก: ผู้ออก DAR อัปโหลดไฟล์ร่าง ➔ DCC ดาวน์โหลดตรวจสอบ ➔ DCC อัปโหลดฉบับสมบูรณ์เพื่อแจกจ่าย
           </p>
         </div>
 
@@ -337,17 +382,17 @@ export const DarManagement: React.FC = () => {
               >
                 
                 {/* Header Strip */}
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                    <span className="font-mono font-bold text-xs text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200">
                       {dar.id}
                     </span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${
                       dar.requestType === 'NEW'
-                        ? 'bg-emerald-100 text-emerald-800'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                         : dar.requestType === 'REVISION'
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-rose-100 text-rose-800'
+                          ? 'bg-blue-50 text-blue-800 border-blue-200'
+                          : 'bg-rose-50 text-rose-800 border-rose-200'
                     }`}>
                       {dar.requestType === 'NEW' ? '✨ เอกสารใหม่' : dar.requestType === 'REVISION' ? '✏️ ขอแก้ไข' : '🗑️ ขอยกเลิก'}
                     </span>
@@ -355,18 +400,18 @@ export const DarManagement: React.FC = () => {
 
                   <div>
                     <div className="font-mono font-bold text-sm text-slate-900">{dar.docNo}</div>
-                    <div className="font-bold text-xs text-slate-800 line-clamp-1">{dar.docNameTh}</div>
-                    <div className="text-[11px] text-slate-500 italic line-clamp-1">{dar.docNameEn}</div>
+                    <div className="font-bold text-xs sm:text-sm text-slate-800 line-clamp-1">{dar.docNameTh}</div>
+                    <div className="text-xs text-slate-500 italic line-clamp-1">{dar.docNameEn}</div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-[11px]">
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
                     <div>
                       <span className="text-slate-400">หน่วยงานขอ: </span>
-                      <strong className="text-slate-800">{dar.requestDept}</strong>
+                      <strong className="text-slate-800 font-semibold">{dar.requestDept}</strong>
                     </div>
                     <div>
                       <span className="text-slate-400">Revision: </span>
-                      <strong className="font-mono text-indigo-700">
+                      <strong className="font-mono font-bold text-indigo-700">
                         {dar.currentRevision} ➔ {dar.proposedRevision}
                       </strong>
                     </div>
@@ -375,39 +420,39 @@ export const DarManagement: React.FC = () => {
                   {/* Skipped Revision Warning Indicator on Card */}
                   {(dar.isSkippedRevision || dar.skippedRevisionReason) && (
                     <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl space-y-1">
-                      <div className="flex items-center gap-1 text-[11px] font-bold text-amber-900">
+                      <div className="flex items-center gap-1 text-xs font-bold text-amber-900">
                         <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                         <span>ตรวจพบการข้าม Revision ({dar.currentRevision} ➔ {dar.proposedRevision})</span>
                       </div>
                       {dar.skippedRevisionReason && (
-                        <p className="text-[11px] text-amber-950 font-medium line-clamp-2 pl-4.5">
+                        <p className="text-xs text-amber-950 font-medium line-clamp-2 pl-4.5">
                           <strong>เหตุผลข้าม Rev:</strong> {dar.skippedRevisionReason}
                         </p>
                       )}
                     </div>
                   )}
 
-                  <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100 line-clamp-2">
+                  <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100 line-clamp-2 leading-relaxed">
                     <strong>เหตุผล:</strong> {dar.reasonForChange}
                   </div>
                 </div>
 
                 {/* Footer and Actions */}
-                <div className="space-y-3 pt-2 border-t border-slate-100">
+                <div className="space-y-3 pt-2.5 border-t border-slate-100">
                   
                   {/* Status Badge */}
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400 text-[10px]">สถานะการพิจารณา:</span>
-                    <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                    <span className="text-slate-500 text-xs">สถานะการพิจารณา:</span>
+                    <span className={`px-2.5 py-0.5 rounded-full font-bold text-xs border ${
                       dar.status === 'PENDING_REVIEW'
-                        ? 'bg-amber-100 text-amber-800'
+                        ? 'bg-amber-50 text-amber-800 border-amber-200'
                         : dar.status === 'UNDER_REVIEW'
-                          ? 'bg-cyan-100 text-cyan-800'
+                          ? 'bg-cyan-50 text-cyan-800 border-cyan-200'
                           : dar.status === 'APPROVED'
-                            ? 'bg-blue-100 text-blue-800'
+                            ? 'bg-blue-50 text-blue-800 border-blue-200'
                             : dar.status === 'REGISTERED'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-rose-100 text-rose-800'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : 'bg-rose-50 text-rose-800 border-rose-200'
                     }`}>
                       {dar.status === 'PENDING_REVIEW' && '⏳ รอ DCC ตรวจสอบ'}
                       {dar.status === 'UNDER_REVIEW' && '🔍 อยู่ระหว่างตรวจ'}
@@ -419,31 +464,42 @@ export const DarManagement: React.FC = () => {
 
                   {/* Actions Bar */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => openDocumentViewer({
-                        title: dar.docNameTh,
-                        docNo: dar.docNo,
-                        docNameTh: dar.docNameTh,
-                        docNameEn: dar.docNameEn,
-                        docType: dar.docType,
-                        revision: dar.proposedRevision,
-                        dept: dar.requestDept,
-                        driveLink: dar.incomingDriveLink,
-                        fileName: dar.attachmentFileName,
-                        fileSize: dar.attachmentFileSize,
-                        fileType: dar.attachmentFileType,
-                        fileDataUrl: dar.attachmentFileDataUrl,
-                        darId: dar.id,
-                        reasonForChange: dar.reasonForChange,
-                        changeDetails: dar.changeDetails,
-                        isoClause: dar.isoClause,
-                      })}
-                      className="text-[11px] text-cyan-700 hover:text-cyan-900 font-semibold flex items-center gap-1 cursor-pointer bg-cyan-50 hover:bg-cyan-100 px-2.5 py-1 rounded-lg border border-cyan-200 transition-colors"
-                    >
-                      <FolderSync className="w-3.5 h-3.5 text-cyan-600" />
-                      เปิดดูไฟล์ / Drive
-                    </button>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadDarDraft(dar)}
+                        className="text-[11px] text-indigo-700 hover:text-indigo-900 font-bold flex items-center gap-1 cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 transition-colors"
+                        title="ดาวน์โหลดไฟล์ร่างที่ผู้ออก DAR แนบมาลงเครื่อง"
+                      >
+                        <Download className="w-3.5 h-3.5 text-indigo-600" />
+                        ดาวน์โหลดไฟล์ร่าง
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => openDocumentViewer({
+                          title: dar.docNameTh,
+                          docNo: dar.docNo,
+                          docNameTh: dar.docNameTh,
+                          docNameEn: dar.docNameEn,
+                          docType: dar.docType,
+                          revision: dar.proposedRevision,
+                          dept: dar.requestDept,
+                          fileName: dar.attachmentFileName,
+                          fileSize: dar.attachmentFileSize,
+                          fileType: dar.attachmentFileType,
+                          fileDataUrl: dar.attachmentFileDataUrl,
+                          darId: dar.id,
+                          reasonForChange: dar.reasonForChange,
+                          changeDetails: dar.changeDetails,
+                          isoClause: dar.isoClause,
+                        })}
+                        className="text-[11px] text-slate-700 hover:text-slate-900 font-semibold flex items-center gap-1 cursor-pointer bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg border border-slate-200 transition-colors"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-slate-600" />
+                        เปิดดู
+                      </button>
+                    </div>
 
                     <div className="flex items-center gap-1.5">
                       <button
@@ -585,42 +641,57 @@ export const DarManagement: React.FC = () => {
                 </div>
               )}
 
-              {/* Google Drive Incoming link */}
-              <div className="p-3 bg-cyan-50 border border-cyan-200 rounded-xl flex items-center justify-between">
-                <div className="flex items-center gap-2 min-w-0">
-                  <FolderSync className="w-5 h-5 text-cyan-600 shrink-0" />
+              {/* Draft File Attachment card */}
+              <div className="p-4 bg-indigo-50/70 border-2 border-indigo-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+                    <FileCheck2 className="w-5 h-5" />
+                  </div>
                   <div className="min-w-0">
-                    <span className="font-bold text-cyan-950 block text-xs">ไฟล์ร่างแนบใน Google Drive Incoming:</span>
-                    <span className="text-[10px] text-cyan-700 font-mono truncate max-w-md block">
-                      {selectedDarForReview.incomingDriveLink}
+                    <span className="font-bold text-indigo-950 block text-xs truncate">
+                      {selectedDarForReview.attachmentFileName || `${selectedDarForReview.docNo}_Rev${selectedDarForReview.proposedRevision}_DRAFT.docx`}
+                    </span>
+                    <span className="text-[11px] text-indigo-700 block">
+                      ขนาด: {selectedDarForReview.attachmentFileSize || '1.2 MB'} • ชนิด: {selectedDarForReview.attachmentFileType || 'Document'} • แนบโดยผู้ออก DAR
                     </span>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => openDocumentViewer({
-                    title: selectedDarForReview.docNameTh,
-                    docNo: selectedDarForReview.docNo,
-                    docNameTh: selectedDarForReview.docNameTh,
-                    docNameEn: selectedDarForReview.docNameEn,
-                    docType: selectedDarForReview.docType,
-                    revision: selectedDarForReview.proposedRevision,
-                    dept: selectedDarForReview.requestDept,
-                    driveLink: selectedDarForReview.incomingDriveLink,
-                    fileName: selectedDarForReview.attachmentFileName || selectedDarForReview.incomingDriveLink.split('/').pop(),
-                    fileSize: selectedDarForReview.attachmentFileSize,
-                    fileType: selectedDarForReview.attachmentFileType,
-                    fileDataUrl: selectedDarForReview.attachmentFileDataUrl,
-                    darId: selectedDarForReview.id,
-                    reasonForChange: selectedDarForReview.reasonForChange,
-                    changeDetails: selectedDarForReview.changeDetails,
-                    isoClause: selectedDarForReview.isoClause,
-                  })}
-                  className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-xs cursor-pointer shrink-0 transition-colors"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  เปิดดูไฟล์
-                </button>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadDarDraft(selectedDarForReview)}
+                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-all"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    ดาวน์โหลดไฟล์ร่าง
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => openDocumentViewer({
+                      title: selectedDarForReview.docNameTh,
+                      docNo: selectedDarForReview.docNo,
+                      docNameTh: selectedDarForReview.docNameTh,
+                      docNameEn: selectedDarForReview.docNameEn,
+                      docType: selectedDarForReview.docType,
+                      revision: selectedDarForReview.proposedRevision,
+                      dept: selectedDarForReview.requestDept,
+                      fileName: selectedDarForReview.attachmentFileName,
+                      fileSize: selectedDarForReview.attachmentFileSize,
+                      fileType: selectedDarForReview.attachmentFileType,
+                      fileDataUrl: selectedDarForReview.attachmentFileDataUrl,
+                      darId: selectedDarForReview.id,
+                      reasonForChange: selectedDarForReview.reasonForChange,
+                      changeDetails: selectedDarForReview.changeDetails,
+                      isoClause: selectedDarForReview.isoClause,
+                    })}
+                    className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl font-bold text-xs flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    เปิดดู
+                  </button>
+                </div>
               </div>
 
               {/* ISO Clause */}
@@ -819,15 +890,15 @@ export const DarManagement: React.FC = () => {
               </div>
 
               {/* Requester Details */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 p-4 bg-slate-50 border border-slate-200 rounded-xl">
                 <div>
-                  <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     หน่วยงานผู้ขอ <span className="text-rose-500">*</span>
                   </label>
                   <select
                     value={reqDept}
                     onChange={e => setReqDept(e.target.value as any)}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   >
                     {DEPARTMENTS.filter(d => d.id !== 'DCC').map(d => (
                       <option key={d.id} value={d.id}>{d.id}</option>
@@ -836,56 +907,57 @@ export const DarManagement: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     ชื่อผู้ยื่นคำขอ <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
                     value={requesterName}
                     onChange={e => setRequesterName(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none"
+                    placeholder="ระบุชื่อ-นามสกุลจริงผู้ยื่นคำขอ"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none placeholder-slate-400"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     วันที่มีผลเสนอใช้ <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="date"
                     value={targetEffectiveDate}
                     onChange={e => setTargetEffectiveDate(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     required
                   />
                 </div>
               </div>
 
               {/* Document Identity */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     รหัสเอกสาร (Doc No.) <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
                     value={docNo}
                     onChange={e => setDocNo(e.target.value)}
-                    placeholder="เช่น QP-PD-005 หรือ WI-QA-008 หรือ FM-QS-001-01"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    placeholder="เช่น QP-PD-005 หรือ WI-QA-008"
+                    className="w-full px-3.5 py-2 border border-slate-300 rounded-lg text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     ประเภทเอกสาร (Type ตาม QP-QS-001)
                   </label>
                   <select
                     value={docType}
                     onChange={e => setDocType(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none"
+                    className="w-full px-3.5 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   >
                     {DOCUMENT_TYPES.map(t => (
                       <option key={t.code} value={t.code}>[Level {t.level}] {t.code} - {t.labelTh} ({t.codePattern})</option>
@@ -895,7 +967,7 @@ export const DarManagement: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
                       Rev. เดิม
                     </label>
                     <input
@@ -903,11 +975,11 @@ export const DarManagement: React.FC = () => {
                       value={currentRevision}
                       onChange={e => setCurrentRevision(e.target.value)}
                       disabled={reqType === 'NEW'}
-                      className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-xs font-mono disabled:bg-slate-100"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono disabled:bg-slate-100"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
                       Rev. ที่เสนอ
                     </label>
                     <input
@@ -915,16 +987,16 @@ export const DarManagement: React.FC = () => {
                       value={proposedRevision}
                       onChange={e => setProposedRevision(e.target.value)}
                       disabled={reqType === 'OBSOLETE'}
-                      className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-xs font-mono font-bold text-indigo-700 disabled:bg-slate-100"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono font-bold text-indigo-700 disabled:bg-slate-100"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Names */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     ชื่อเอกสารภาษาไทย <span className="text-rose-500">*</span>
                   </label>
                   <input
@@ -932,13 +1004,13 @@ export const DarManagement: React.FC = () => {
                     value={docNameTh}
                     onChange={e => setDocNameTh(e.target.value)}
                     placeholder="เช่น วิธีปฏิบัติงานการตรวจสอบข้อบกพร่องผลิตภัณฑ์"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    className="w-full px-3.5 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     ชื่อเอกสารภาษาอังกฤษ (English Name)
                   </label>
                   <input
@@ -946,14 +1018,14 @@ export const DarManagement: React.FC = () => {
                     value={docNameEn}
                     onChange={e => setDocNameEn(e.target.value)}
                     placeholder="e.g. Work Instruction for Final Product Defect Inspection"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    className="w-full px-3.5 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   />
                 </div>
               </div>
 
               {/* Reason */}
               <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
                   เหตุผลความจำเป็นในการจัดทำ/แก้ไข/ยกเลิก <span className="text-rose-500">*</span>
                 </label>
                 <textarea
@@ -961,14 +1033,14 @@ export const DarManagement: React.FC = () => {
                   value={reasonForChange}
                   onChange={e => setReasonForChange(e.target.value)}
                   placeholder="ระบุวัตถุประสงค์ เช่น ปรับปรุงให้สอดคล้องกับข้อกำหนดลูกค้าใหม่, แก้ไขข้อผิดพลาดในการทำงาน"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   required
                 />
               </div>
 
               {/* Change details */}
               <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
                   สรุปรายละเอียดการเปลี่ยนแปลงข้อความ / แผนผัง
                 </label>
                 <textarea
@@ -976,7 +1048,7 @@ export const DarManagement: React.FC = () => {
                   value={changeDetails}
                   onChange={e => setChangeDetails(e.target.value)}
                   placeholder="ระบุข้อที่เปลี่ยนแปลง เช่น แก้ไขข้อ 4.2 เพิ่มขั้นตอนตรวจสอบความร้อน, ตัดข้อ 5.3 ออก"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
 
@@ -1039,7 +1111,6 @@ export const DarManagement: React.FC = () => {
                             type: file.type || file.name.split('.').pop() || 'file',
                             dataUrl: ev.target?.result as string,
                           });
-                          setIncomingDriveLink(`https://drive.google.com/drive/folders/incoming-temp/${file.name}`);
                         };
                         reader.readAsDataURL(file);
                       }
@@ -1073,7 +1144,6 @@ export const DarManagement: React.FC = () => {
                                   type: file.type || file.name.split('.').pop() || 'file',
                                   dataUrl: ev.target?.result as string,
                                 });
-                                setIncomingDriveLink(`https://drive.google.com/drive/folders/incoming-temp/${file.name}`);
                               };
                               reader.readAsDataURL(file);
                             }
@@ -1189,25 +1259,6 @@ export const DarManagement: React.FC = () => {
                     </button>
                   </div>
                 </div>
-              </div>
-
-              {/* Google Drive Incoming Link */}
-              <div className="p-3.5 bg-cyan-50 border border-cyan-200 rounded-xl space-y-1.5">
-                <label className="block text-[11px] font-bold text-cyan-900 flex items-center gap-1.5">
-                  <FolderSync className="w-4 h-4 text-cyan-600" />
-                  ลิงก์ไฟล์ร่างใน Google Drive (Incoming / Temporary Folder) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="url"
-                  value={incomingDriveLink}
-                  onChange={e => setIncomingDriveLink(e.target.value)}
-                  placeholder="https://drive.google.com/drive/folders/incoming-temp/..."
-                  className="w-full px-3 py-2 border border-cyan-300 rounded-lg text-xs font-mono bg-white focus:ring-2 focus:ring-cyan-500 focus:outline-none"
-                  required
-                />
-                <p className="text-[10px] text-cyan-700">
-                  ☁️ ระบบ DCS จะไม่เก็บไฟล์หนักไว้ในเซิร์ฟเวอร์ แต่จะใช้อ้างอิงลิงก์ Google Drive นี้เพื่อให้ DCC ตรวจสอบ
-                </p>
               </div>
 
               {/* Distribution Request Selection (FM-QS-001-01 Section 4) */}

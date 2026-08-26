@@ -214,12 +214,12 @@ export const Navbar: React.FC = () => {
                   <div className="hidden sm:block text-left pr-1">
                     <div className="flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                      <span className="font-bold text-xs text-white truncate max-w-[110px]">
+                      <span className="font-bold text-xs text-white truncate max-w-[120px]">
                         {currentUser.currentDept}
                       </span>
                     </div>
-                    <div className="text-[10px] text-slate-400 truncate max-w-[120px]">
-                      {currentUser.userName.split(' ')[0]}
+                    <div className="text-[10px] text-indigo-300 truncate max-w-[120px]">
+                      {currentUser.position || currentUser.roleName}
                     </div>
                   </div>
 
@@ -228,22 +228,27 @@ export const Navbar: React.FC = () => {
 
                 {/* Dropdown Menu Popup */}
                 {isUserMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl py-2 z-50 animate-fadeIn">
+                  <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl py-2 z-50 animate-fadeIn">
                     
                     {/* User Information Header */}
-                    <div className="px-4 py-2.5 border-b border-slate-800">
-                      <div className="flex items-center gap-2 mb-1">
+                    <div className="px-4 py-3 border-b border-slate-800">
+                      <div className="flex items-center gap-2 mb-1.5">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${isDcc ? 'bg-indigo-950 text-indigo-300 border border-indigo-700' : 'bg-cyan-950 text-cyan-300 border border-cyan-700'}`}>
                           {currentUser.roleName}
                         </span>
-                        <span className="text-[10px] text-slate-400 font-mono">{currentUser.userEmpId}</span>
+                        <span className="text-[10px] text-slate-300 font-semibold bg-slate-800 px-2 py-0.5 rounded-md">
+                          แผนก {currentUser.currentDept}
+                        </span>
                       </div>
-                      <p className="text-xs font-bold text-white truncate">{currentUser.userName}</p>
-                      <p className="text-[11px] text-indigo-300 font-medium truncate mt-0.5">
+                      <p className="text-xs font-bold text-white truncate">
+                        {currentUser.position || currentUser.deptDescriptionTh}
+                      </p>
+                      <p className="text-[11px] text-slate-400 font-normal truncate mt-0.5">
                         {currentUser.deptDescriptionTh}
                       </p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">
-                        Username: <code className="text-amber-300 font-mono">{currentUser.username}</code>
+                      <p className="text-[10px] text-slate-400 mt-1 flex items-center justify-between">
+                        <span>บัญชีผู้ใช้:</span>
+                        <code className="text-amber-300 font-mono bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">{currentUser.username}</code>
                       </p>
                     </div>
 
