@@ -26,10 +26,13 @@ interface DcsContextType {
   currentUser: CurrentUserSession;
   setCurrentDept: (dept: Department) => void;
   setUserName: (name: string) => void;
-  login: (username: string, password: string) => { success: boolean; message: string };
+  login: (username: string, password: string, rememberMe?: boolean) => { success: boolean; message: string };
   loginAsDept: (username: string) => void;
   logout: () => void;
   userAccounts: UserAccount[];
+  changePassword: (oldPassword: string, newPassword: string) => { success: boolean; message: string };
+  isChangePasswordOpen: boolean;
+  setIsChangePasswordOpen: (open: boolean) => void;
 
   // Master Documents
   documents: MasterDocument[];
@@ -100,6 +103,7 @@ const STORAGE_KEYS = {
   RE_REQUESTS: 'dcs_prod_re_requests_v2',
   AUDIT_LOGS: 'dcs_prod_audit_logs_v2',
   AUTH_USER: 'dcs_auth_user_v2',
+  CUSTOM_PASSWORDS: 'dcs_custom_passwords_v2',
 };
 
 // Cleanup old mock prototype storage if present
@@ -116,7 +120,15 @@ if (typeof window !== 'undefined') {
 const DcsContext = createContext<DcsContextType | undefined>(undefined);
 
 export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Current user state
+  // Custom passwords state
+  const [customPasswords, setCustomPasswords] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.CUSTOM_PASSWORDS);
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+
+  // Current user state (auto login from saved session)
   const [currentUser, setCurrentUser] = useState<CurrentUserSession>(() => {
     const savedAuth = localStorage.getItem(STORAGE_KEYS.AUTH_USER);
     if (savedAuth) {
@@ -248,7 +260,7 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const login = (usernameInput: string, passwordInput: string): { success: boolean; message: string } => {
+  const login = (usernameInput: string, passwordInput: string, rememberMe = true): { success: boolean; message: string } => {
     const trimmedUser = usernameInput.trim().toLowerCase();
     const trimmedPass = passwordInput.trim();
 
@@ -257,17 +269,24 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         a.username.toLowerCase() === trimmedUser ||
         (a.aliases && a.aliases.some(alias => alias.toLowerCase() === trimmedUser));
       
-      if (!userMatches) return false;
-
-      const passMatches =
-        a.password === trimmedPass ||
-        a.password.toLowerCase() === trimmedPass.toLowerCase() ||
-        (a.altPasswords && a.altPasswords.some(alt => alt === trimmedPass || alt.toLowerCase() === trimmedPass.toLowerCase()));
-
-      return passMatches;
+      return userMatches;
     });
 
     if (!account) {
+      return {
+        success: false,
+        message: 'ชื่อผู้ใช้งาน (Username) หรือรหัสผ่าน (Password) ไม่ถูกต้อง กรุณาตรวจสอบข้อมูลประจำแผนก',
+      };
+    }
+
+    // Check custom changed password first, then default initial password & altPasswords
+    const effectivePass = customPasswords[account.username.toLowerCase()] || account.password;
+    const passMatches =
+      effectivePass === trimmedPass ||
+      effectivePass.toLowerCase() === trimmedPass.toLowerCase() ||
+      (account.altPasswords && account.altPasswords.some(alt => alt === trimmedPass || alt.toLowerCase() === trimmedPass.toLowerCase()));
+
+    if (!passMatches) {
       return {
         success: false,
         message: 'ชื่อผู้ใช้งาน (Username) หรือรหัสผ่าน (Password) ไม่ถูกต้อง กรุณาตรวจสอบข้อมูลประจำแผนก',
@@ -288,7 +307,9 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setCurrentUser(session);
-    localStorage.setItem(STORAGE_KEYS.AUTH_USER, JSON.stringify(session));
+    if (rememberMe) {
+      localStorage.setItem(STORAGE_KEYS.AUTH_USER, JSON.stringify(session));
+    }
     setActiveView('dashboard');
 
     logAudit(
@@ -305,10 +326,49 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   };
 
+  const changePassword = (oldPassword: string, newPassword: string): { success: boolean; message: string } => {
+    const trimmedUser = currentUser.username.toLowerCase();
+    const account = USER_ACCOUNTS.find(a => 
+      a.username.toLowerCase() === trimmedUser || 
+      a.dept === currentUser.currentDept
+    );
+
+    if (!account) {
+      return { success: false, message: 'ไม่พบบัญชีผู้ใช้งานที่เข้าสู่ระบบ' };
+    }
+
+    const effectiveCurrentPass = customPasswords[account.username.toLowerCase()] || account.password;
+    const isOldMatch = 
+      (oldPassword.trim() === effectiveCurrentPass) ||
+      (account.altPasswords && account.altPasswords.includes(oldPassword.trim()));
+
+    if (!isOldMatch) {
+      return { success: false, message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง กรุณาตรวจสอบและลองใหม่อีกครั้ง' };
+    }
+
+    const updated = { ...customPasswords, [account.username.toLowerCase()]: newPassword.trim() };
+    setCustomPasswords(updated);
+    localStorage.setItem(STORAGE_KEYS.CUSTOM_PASSWORDS, JSON.stringify(updated));
+
+    logAudit(
+      'DAR_REVIEWED' as any,
+      'PASSWORD-UPDATE',
+      '00',
+      `ผู้ใช้ ${currentUser.username} (${currentUser.userName}) แผนก ${currentUser.currentDept} ได้เปลี่ยนรหัสผ่านเข้าสู่ระบบสำเร็จ`,
+      { dept: currentUser.currentDept, username: currentUser.username }
+    );
+
+    return {
+      success: true,
+      message: 'เปลี่ยนรหัสผ่านใหม่สำเร็จเรียบร้อยแล้ว!',
+    };
+  };
+
   const loginAsDept = (username: string) => {
     const account = USER_ACCOUNTS.find(a => a.username.toLowerCase() === username.toLowerCase());
     if (account) {
-      login(account.username, account.password);
+      const effectivePass = customPasswords[account.username.toLowerCase()] || account.password;
+      login(account.username, effectivePass);
     }
   };
 
@@ -335,10 +395,6 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const safeSetActiveView = (view: string) => {
-    if (currentUser.currentDept !== 'DCC' && (view === 'masterlist' || view === 'distribution')) {
-      setActiveView('dashboard');
-      return;
-    }
     setActiveView(view);
   };
 
@@ -1007,6 +1063,9 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSelectedDocumentForView,
         openDocumentViewer,
         updateDriveLink,
+        changePassword,
+        isChangePasswordOpen,
+        setIsChangePasswordOpen,
       }}
     >
       {children}

@@ -31,9 +31,9 @@ const MainLayout: React.FC = () => {
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12">
         {activeView === 'dashboard' && <Dashboard />}
-        {activeView === 'masterlist' && (isDcc ? <MasterListView /> : <Dashboard />)}
+        {activeView === 'masterlist' && <MasterListView />}
         {activeView === 'dar' && <DarManagement />}
-        {activeView === 'distribution' && (isDcc ? <DistributionManager /> : <Dashboard />)}
+        {activeView === 'distribution' && <DistributionManager />}
         {activeView === 'audit' && <AuditTrailView />}
       </main>
 

@@ -1,22 +1,24 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useDcs } from '../context/DcsContext';
-import { DEPARTMENTS } from '../types';
+import { ChangePasswordModal } from './ChangePasswordModal';
+import { NanoLogo } from './NanoLogo';
 import {
   FileText,
-  Layers,
   Send,
   History,
+  Layers,
   ShieldCheck,
   RotateCcw,
   LogOut,
-  User,
   KeyRound,
+  Download,
+  ChevronDown,
+  UserCheck,
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const {
     currentUser,
-    setCurrentDept,
     activeView,
     setActiveView,
     distributions,
@@ -24,20 +26,35 @@ export const Navbar: React.FC = () => {
     reRequests,
     resetToDefaultData,
     logout,
-    userAccounts,
+    isChangePasswordOpen,
+    setIsChangePasswordOpen,
   } = useDcs();
+
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   const isDcc = currentUser.currentDept === 'DCC';
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Calculate notifications
-  const pendingDarsCount = dars.filter(d => 
-    isDcc 
-      ? (d.status === 'PENDING_REVIEW' || d.status === 'UNDER_REVIEW')
-      : (d.requestDept === currentUser.currentDept && (d.status === 'PENDING_REVIEW' || d.status === 'UNDER_REVIEW'))
+  const pendingDarsCount = dars.filter(d =>
+    isDcc
+      ? d.status === 'PENDING_REVIEW' || d.status === 'UNDER_REVIEW'
+      : d.requestDept === currentUser.currentDept && (d.status === 'PENDING_REVIEW' || d.status === 'UNDER_REVIEW')
   ).length;
 
   const pendingReRequestsCount = reRequests.filter(r => r.status === 'PENDING').length;
-  
+
   // Pending downloads for current dept
   const pendingDownloadsForMe = distributions.reduce((acc, dist) => {
     const target = dist.targets.find(t => t.dept === currentUser.currentDept);
@@ -48,239 +65,315 @@ export const Navbar: React.FC = () => {
     return acc;
   }, 0);
 
-  const totalNotifications = isDcc 
-    ? pendingDarsCount + pendingReRequestsCount 
+  const totalNotifications = isDcc
+    ? pendingDarsCount + pendingReRequestsCount
     : pendingDownloadsForMe;
 
   return (
-    <header id="dcs-main-header" className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
-      {/* Main Navbar */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-4">
-          
-          {/* Logo & Title */}
-          <div className="flex items-center gap-3">
-            <button
-              id="dcs-logo-btn"
-              onClick={() => setActiveView('dashboard')}
-              className="flex items-center gap-3 text-left group cursor-pointer"
-            >
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-blue-600 to-indigo-700 flex items-center justify-center shadow-inner shadow-white/20 ring-1 ring-white/10 group-hover:scale-105 transition-transform">
-                <ShieldCheck className="w-6 h-6 text-white" />
-              </div>
-              <div>
+    <>
+      <header
+        id="dcs-main-header"
+        className="bg-slate-900/95 backdrop-blur-md text-white border-b border-slate-800 sticky top-0 z-40 shadow-lg"
+      >
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-14 sm:h-16 gap-2 sm:gap-4">
+            
+            {/* 1. Left: Brand & Logo */}
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              <button
+                id="dcs-logo-btn"
+                onClick={() => setActiveView('dashboard')}
+                className="flex items-center gap-2.5 text-left group cursor-pointer focus:outline-none"
+              >
+                {/* NANO Official Logo Badge */}
+                <div className="bg-white/95 px-2 py-0.5 rounded-lg border border-slate-700/60 shadow-md group-hover:scale-105 transition-transform flex items-center justify-center">
+                  <NanoLogo className="h-6 sm:h-7 w-auto" />
+                </div>
+
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-base sm:text-lg tracking-tight text-white group-hover:text-indigo-300 transition-colors">
-                    DCS e-Control
+                  <span className="font-extrabold text-sm sm:text-base tracking-tight text-white group-hover:text-indigo-300 transition-colors whitespace-nowrap">
+                    DCS <span className="text-indigo-400">e-Control</span>
                   </span>
-                  <span className="bg-indigo-900/70 border border-indigo-500/40 text-indigo-200 text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                    ISO/IATF
+                  <span className="hidden md:inline-block bg-indigo-950/80 border border-indigo-500/40 text-indigo-300 text-[10px] font-semibold px-2 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap">
+                    ISO / IATF
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 hidden sm:block">
-                  ระบบควบคุมเอกสารอิเล็กทรอนิกส์ & บันทึกสิทธิ์รายแผนก
-                </p>
-              </div>
-            </button>
-          </div>
+              </button>
+            </div>
 
-          {/* Navigation Links - Role Scoped (DCC: 5 tabs, Departments: 3 tabs only) */}
-          <nav id="dcs-nav-tabs" className="hidden lg:flex items-center gap-1">
-            
-            {/* 1. แดชบอร์ด (All Roles) */}
-            <button
-              id="nav-tab-dashboard"
-              onClick={() => setActiveView('dashboard')}
-              className={`px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
-                activeView === 'dashboard'
-                  ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              <Layers className="w-4 h-4" />
-              แดชบอร์ด
-              {totalNotifications > 0 && (
-                <span className="bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-                  {totalNotifications}
-                </span>
-              )}
-            </button>
+            {/* 2. Middle: Navigation Tabs (Clean, single-line, whitespace-nowrap) */}
+            <nav id="dcs-nav-tabs" className="hidden md:flex items-center gap-1 lg:gap-1.5 overflow-x-auto no-scrollbar">
+              
+              {/* แดชบอร์ด */}
+              <button
+                id="nav-tab-dashboard"
+                onClick={() => setActiveView('dashboard')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                  activeView === 'dashboard'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/50'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>แดชบอร์ด</span>
+                {totalNotifications > 0 && (
+                  <span className="bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full ml-0.5">
+                    {totalNotifications}
+                  </span>
+                )}
+              </button>
 
-            {/* 2. Master List (DCC Admin Only) */}
-            {isDcc && (
+              {/* Master List */}
               <button
                 id="nav-tab-masterlist"
                 onClick={() => setActiveView('masterlist')}
-                className={`px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
                   activeView === 'masterlist'
-                    ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 shadow-sm'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/50'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
                 }`}
               >
-                <FileText className="w-4 h-4" />
-                Master List ทะเบียนเอกสาร
+                <FileText className="w-3.5 h-3.5" />
+                <span>Master List</span>
               </button>
-            )}
 
-            {/* 3. DAR ขอดำเนินการ (All Roles) */}
-            <button
-              id="nav-tab-dar"
-              onClick={() => setActiveView('dar')}
-              className={`px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
-                activeView === 'dar'
-                  ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              <FileText className="w-4 h-4 text-amber-400" />
-              DAR ขอดำเนินการ
-              {pendingDarsCount > 0 && (
-                <span className="bg-amber-500 text-slate-950 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-                  {pendingDarsCount}
-                </span>
-              )}
-            </button>
+              {/* คำขอ DAR */}
+              <button
+                id="nav-tab-dar"
+                onClick={() => setActiveView('dar')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                  activeView === 'dar'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/50'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5 text-amber-400" />
+                <span>คำขอ DAR</span>
+                {pendingDarsCount > 0 && (
+                  <span className="bg-amber-500 text-slate-950 text-[10px] font-bold px-1.5 py-0.2 rounded-full ml-0.5">
+                    {pendingDarsCount}
+                  </span>
+                )}
+              </button>
 
-            {/* 4. การแจกจ่าย & สำเนา (DCC Admin Only) */}
-            {isDcc && (
+              {/* การแจกจ่าย & สำเนา */}
               <button
                 id="nav-tab-distribution"
                 onClick={() => setActiveView('distribution')}
-                className={`px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
                   activeView === 'distribution'
-                    ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 shadow-sm'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/50'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
                 }`}
               >
-                <Send className="w-4 h-4 text-cyan-400" />
-                การแจกจ่าย & สำเนา
+                <Send className="w-3.5 h-3.5 text-cyan-400" />
+                <span>{isDcc ? 'การแจกจ่าย' : 'รับเอกสารแจกจ่าย'}</span>
+                {!isDcc && pendingDownloadsForMe > 0 && (
+                  <span className="bg-cyan-500 text-slate-950 text-[10px] font-bold px-1.5 py-0.2 rounded-full ml-0.5 flex items-center gap-0.5">
+                    <Download className="w-2.5 h-2.5" />
+                    {pendingDownloadsForMe}
+                  </span>
+                )}
               </button>
-            )}
 
-            {/* 5. Audit Trail บันทึกเหตุการณ์ (All Roles - scoped to dept) */}
-            <button
-              id="nav-tab-audit"
-              onClick={() => setActiveView('audit')}
-              className={`px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
-                activeView === 'audit'
-                  ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              <History className="w-4 h-4 text-emerald-400" />
-              Audit Trail {!isDcc && `(${currentUser.currentDept})`}
-            </button>
+              {/* Audit Trail */}
+              <button
+                id="nav-tab-audit"
+                onClick={() => setActiveView('audit')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                  activeView === 'audit'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/50'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                }`}
+              >
+                <History className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Audit Trail</span>
+              </button>
 
-          </nav>
+            </nav>
 
-          {/* User Profile, Dept Switcher & Logout */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            
-            {/* Department Display (Locked to Authenticated Session) */}
-            <div className="flex flex-col items-end">
-              <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                หน่วยงานที่เข้าสู่ระบบ:
-              </span>
-              <div className="flex items-center gap-1.5 bg-slate-800/90 text-white text-xs font-semibold rounded-lg px-2.5 py-1 border border-indigo-500/30">
-                <span className="text-indigo-300 font-bold">{currentUser.currentDept}</span>
-                <span className="text-slate-400 text-[11px] hidden sm:inline">({currentUser.deptDescriptionTh})</span>
+            {/* 3. Right: User Profile & Account Menu Dropdown */}
+            <div className="flex items-center gap-2 shrink-0">
+              
+              {/* Account Dropdown Pill */}
+              <div className="relative" ref={userMenuRef}>
+                <button
+                  type="button"
+                  id="btn-navbar-user-menu"
+                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                  className="flex items-center gap-2 p-1 sm:px-2.5 sm:py-1.5 bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 rounded-xl text-left transition-all cursor-pointer shadow-xs focus:outline-none"
+                >
+                  <div
+                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center font-bold text-xs shadow-xs text-white ${
+                      isDcc ? 'bg-indigo-600' : 'bg-cyan-600'
+                    }`}
+                  >
+                    {currentUser.currentDept.substring(0, 3)}
+                  </div>
+                  
+                  <div className="hidden sm:block text-left pr-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                      <span className="font-bold text-xs text-white truncate max-w-[110px]">
+                        {currentUser.currentDept}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 truncate max-w-[120px]">
+                      {currentUser.userName.split(' ')[0]}
+                    </div>
+                  </div>
+
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isUserMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {/* Dropdown Menu Popup */}
+                {isUserMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl py-2 z-50 animate-fadeIn">
+                    
+                    {/* User Information Header */}
+                    <div className="px-4 py-2.5 border-b border-slate-800">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${isDcc ? 'bg-indigo-950 text-indigo-300 border border-indigo-700' : 'bg-cyan-950 text-cyan-300 border border-cyan-700'}`}>
+                          {currentUser.roleName}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">{currentUser.userEmpId}</span>
+                      </div>
+                      <p className="text-xs font-bold text-white truncate">{currentUser.userName}</p>
+                      <p className="text-[11px] text-indigo-300 font-medium truncate mt-0.5">
+                        {currentUser.deptDescriptionTh}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Username: <code className="text-amber-300 font-mono">{currentUser.username}</code>
+                      </p>
+                    </div>
+
+                    {/* Actions List */}
+                    <div className="p-1 space-y-0.5">
+                      
+                      {/* Change Password */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
+                          setIsChangePasswordOpen(true);
+                        }}
+                        className="w-full px-3 py-2 text-left text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
+                      >
+                        <div className="w-6 h-6 rounded-lg bg-indigo-950/80 border border-indigo-700/50 flex items-center justify-center text-indigo-400">
+                          <KeyRound className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <div className="font-semibold">เปลี่ยนรหัสผ่าน</div>
+                          <div className="text-[10px] text-slate-400">ตั้งรหัสผ่านใหม่ประจำแผนก</div>
+                        </div>
+                      </button>
+
+                      {/* Reset Demo Data (DCC only or Admin) */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
+                          if (window.confirm('ต้องการรีเซ็ตข้อมูลตัวอย่างกลับเป็นค่าเริ่มต้นทั้งหมดหรือไม่?')) {
+                            resetToDefaultData();
+                          }
+                        }}
+                        className="w-full px-3 py-2 text-left text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
+                      >
+                        <div className="w-6 h-6 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400">
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <div className="font-semibold">รีเซ็ตข้อมูลระบบ</div>
+                          <div className="text-[10px] text-slate-400">ล้างข้อมูลเป็นค่าเริ่มต้น</div>
+                        </div>
+                      </button>
+
+                    </div>
+
+                    {/* Logout Button */}
+                    <div className="pt-1 mt-1 border-t border-slate-800 p-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
+                          logout();
+                        }}
+                        className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-300 hover:text-white hover:bg-rose-600 rounded-xl flex items-center gap-2.5 transition-colors cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4 text-rose-400 group-hover:text-white" />
+                        <span>ออกจากระบบ (Logout)</span>
+                      </button>
+                    </div>
+
+                  </div>
+                )}
               </div>
+
             </div>
 
-            {/* Department Badge */}
-            <div
-              id="dcs-dept-avatar-badge"
-              className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shadow-inner ring-1 shrink-0 ${
-                isDcc
-                  ? 'bg-indigo-600 text-white ring-indigo-400'
-                  : 'bg-cyan-600 text-white ring-cyan-400'
-              }`}
-              title={`บัญชี: ${currentUser.username} | หน่วยงาน: ${currentUser.currentDept} (${currentUser.roleName})`}
-            >
-              {currentUser.currentDept.substring(0, 3)}
-            </div>
-
-            {/* Logout / Switch Account Button */}
-            <button
-              type="button"
-              id="btn-navbar-logout"
-              onClick={logout}
-              className="p-2 sm:px-3 sm:py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
-              title="ออกจากระบบ เพื่อเข้าสู่ระบบด้วยแผนกอื่น"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">ออกจากระบบ</span>
-            </button>
-
-            {/* Reset Data Button */}
-            <button
-              id="dcs-btn-reset-demo"
-              onClick={() => {
-                if (window.confirm('ต้องการรีเซ็ตข้อมูลตัวอย่างกลับเป็นค่าเริ่มต้นทั้งหมดหรือไม่?')) {
-                  resetToDefaultData();
-                }
-              }}
-              className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-              title="รีเซ็ตข้อมูลตัวอย่างระบบ"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
           </div>
-        </div>
 
-        {/* Mobile Sub-Navigation Bar (Role Scoped) */}
-        <div className="lg:hidden flex items-center justify-start overflow-x-auto py-2 gap-2 border-t border-slate-800 no-scrollbar">
-          <button
-            onClick={() => setActiveView('dashboard')}
-            className={`px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap cursor-pointer ${
-              activeView === 'dashboard' ? 'bg-indigo-600 text-white' : 'text-slate-300'
-            }`}
-          >
-            แดชบอร์ด
-          </button>
+          {/* Mobile Bottom Sub-Navigation (Icons + labels scrollable) */}
+          <div className="md:hidden flex items-center justify-between py-1.5 gap-1 border-t border-slate-800/80 overflow-x-auto no-scrollbar">
+            <button
+              onClick={() => setActiveView('dashboard')}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-center text-xs font-medium whitespace-nowrap cursor-pointer flex items-center justify-center gap-1 ${
+                activeView === 'dashboard' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-300'
+              }`}
+            >
+              <Layers className="w-3 h-3" />
+              <span>แดชบอร์ด</span>
+            </button>
 
-          {isDcc && (
             <button
               onClick={() => setActiveView('masterlist')}
-              className={`px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap cursor-pointer ${
-                activeView === 'masterlist' ? 'bg-indigo-600 text-white' : 'text-slate-300'
+              className={`flex-1 py-1.5 px-2 rounded-lg text-center text-xs font-medium whitespace-nowrap cursor-pointer flex items-center justify-center gap-1 ${
+                activeView === 'masterlist' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-300'
               }`}
             >
-              Master List
+              <FileText className="w-3 h-3" />
+              <span>Master</span>
             </button>
-          )}
 
-          <button
-            onClick={() => setActiveView('dar')}
-            className={`px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap cursor-pointer ${
-              activeView === 'dar' ? 'bg-indigo-600 text-white' : 'text-slate-300'
-            }`}
-          >
-            DAR ({pendingDarsCount})
-          </button>
+            <button
+              onClick={() => setActiveView('dar')}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-center text-xs font-medium whitespace-nowrap cursor-pointer flex items-center justify-center gap-1 ${
+                activeView === 'dar' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-300'
+              }`}
+            >
+              <FileText className="w-3 h-3 text-amber-400" />
+              <span>DAR {pendingDarsCount > 0 && `(${pendingDarsCount})`}</span>
+            </button>
 
-          {isDcc && (
             <button
               onClick={() => setActiveView('distribution')}
-              className={`px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap cursor-pointer ${
-                activeView === 'distribution' ? 'bg-indigo-600 text-white' : 'text-slate-300'
+              className={`flex-1 py-1.5 px-2 rounded-lg text-center text-xs font-medium whitespace-nowrap cursor-pointer flex items-center justify-center gap-1 ${
+                activeView === 'distribution' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-300'
               }`}
             >
-              การแจกจ่าย
+              <Send className="w-3 h-3 text-cyan-400" />
+              <span>แจกจ่าย</span>
             </button>
-          )}
 
-          <button
-            onClick={() => setActiveView('audit')}
-            className={`px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap cursor-pointer ${
-              activeView === 'audit' ? 'bg-indigo-600 text-white' : 'text-slate-300'
-            }`}
-          >
-            Audit Trail
-          </button>
+            <button
+              onClick={() => setActiveView('audit')}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-center text-xs font-medium whitespace-nowrap cursor-pointer flex items-center justify-center gap-1 ${
+                activeView === 'audit' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-300'
+              }`}
+            >
+              <History className="w-3 h-3 text-emerald-400" />
+              <span>Audit</span>
+            </button>
+          </div>
+
         </div>
-      </div>
-    </header>
+      </header>
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+      />
+    </>
   );
 };

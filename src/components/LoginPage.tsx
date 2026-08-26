@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useDcs } from '../context/DcsContext';
+import { USER_ACCOUNTS } from '../data/userCredentials';
+import { NanoLogo } from './NanoLogo';
 import {
   ShieldCheck,
   Lock,
@@ -9,6 +11,10 @@ import {
   LogIn,
   CheckCircle2,
   AlertCircle,
+  KeyRound,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSuccessfulLogin }) => {
@@ -17,9 +23,11 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showHelpGuide, setShowHelpGuide] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,7 +45,7 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
 
     setIsSubmitting(true);
     setTimeout(() => {
-      const res = login(username, password);
+      const res = login(username, password, rememberMe);
       setIsSubmitting(false);
       if (res.success) {
         setSuccessMessage(res.message);
@@ -48,8 +56,14 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
     }, 200);
   };
 
+  const handleSelectAccount = (u: string, p: string) => {
+    setUsername(u);
+    setPassword(p);
+    setErrorMessage('');
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between py-8 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
       
       {/* Background Subtle Ambient Glows */}
       <div className="absolute -top-32 -left-32 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none"></div>
@@ -57,10 +71,15 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
       <div className="absolute -bottom-32 left-1/3 w-96 h-96 bg-cyan-600/10 rounded-full blur-3xl pointer-events-none"></div>
 
       {/* Main Content Area */}
-      <div className="max-w-md w-full mx-auto space-y-6 relative z-10 my-auto">
+      <div className="max-w-md w-full mx-auto space-y-5 relative z-10 my-auto">
         
         {/* Top Header Branding */}
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-2.5">
+          <div className="flex justify-center mb-1">
+            <div className="bg-white/95 px-4 py-1.5 rounded-2xl shadow-lg border border-slate-700/50 inline-flex items-center justify-center">
+              <NanoLogo className="h-10 w-auto" />
+            </div>
+          </div>
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-950/80 border border-indigo-500/40 rounded-full text-indigo-300 text-xs font-semibold shadow-inner">
             <ShieldCheck className="w-4 h-4 text-indigo-400" />
             <span>Document Control System • ISO 9001:2015 & IATF 16949</span>
@@ -69,20 +88,20 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
             เข้าสู่ระบบ <span className="text-indigo-400">DCC e-Control</span>
           </h1>
           <p className="text-slate-400 text-xs sm:text-sm">
-            ระบบควบคุมเอกสารอิเล็คทรอนิกส์
+            ระบบควบคุมเอกสารอิเล็คทรอนิกส์ & ควบคุมสิทธิ์แจกจ่าย
           </p>
         </div>
 
         {/* Sign-in Form Card */}
-        <div className="bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+        <div className="bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-5">
           
-          <div className="border-b border-slate-800 pb-4">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+          <div className="border-b border-slate-800 pb-3">
+            <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
               <LogIn className="w-5 h-5 text-indigo-400" />
               เข้าสู่ระบบตามแผนก (Sign In)
             </h2>
-            <p className="text-xs text-slate-400 mt-1">
-              กรอก Username และ Password ประจำหน่วยงาน
+            <p className="text-xs text-slate-400 mt-0.5">
+              กรอก Username และ Password ประจำหน่วยงานของคุณ
             </p>
           </div>
 
@@ -155,6 +174,19 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
               </div>
             </div>
 
+            {/* Remember Me Option (Auto-login on next visit) */}
+            <div className="flex items-center justify-between text-xs pt-1">
+              <label className="flex items-center gap-2 text-slate-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={e => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 bg-slate-950 cursor-pointer"
+                />
+                <span>จดจำการเข้าสู่ระบบ (เข้าสู่ระบบอัตโนมัติในครั้งถัดไป)</span>
+              </label>
+            </div>
+
             {/* Submit Button */}
             <button
               type="submit"
@@ -177,12 +209,54 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
 
           </form>
 
+          {/* Quick Department Accounts Reference Guide */}
+          <div className="pt-2 border-t border-slate-800/80">
+            <button
+              type="button"
+              onClick={() => setShowHelpGuide(!showHelpGuide)}
+              className="w-full flex items-center justify-between text-xs text-slate-400 hover:text-indigo-300 py-1.5 transition-colors cursor-pointer"
+            >
+              <span className="flex items-center gap-1.5 font-medium">
+                <KeyRound className="w-3.5 h-3.5 text-indigo-400" />
+                ดูรายชื่อบัญชี & รหัสผ่านเริ่มต้นทุกแผนก
+              </span>
+              {showHelpGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+
+            {showHelpGuide && (
+              <div className="mt-3 p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-[11px] max-h-60 overflow-y-auto space-y-1.5 divide-y divide-slate-800/60 animate-fadeIn">
+                {USER_ACCOUNTS.map(acc => (
+                  <div
+                    key={acc.username}
+                    onClick={() => handleSelectAccount(acc.username, acc.password)}
+                    className="pt-1.5 first:pt-0 flex items-center justify-between hover:bg-slate-900/80 p-1.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <div>
+                      <div className="font-bold text-slate-200">{acc.dept} ({acc.deptDescriptionTh})</div>
+                      <div className="text-slate-400 text-[10px]">
+                        User: <code className="text-indigo-300 font-mono font-bold">{acc.username}</code>
+                        {acc.aliases && acc.aliases.length > 0 && (
+                          <span className="text-slate-500 ml-1">({acc.aliases.join(', ')})</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <code className="text-amber-300 font-mono bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-[10px]">
+                        {acc.password}
+                      </code>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
         </div>
 
       </div>
 
       {/* Footer info */}
-      <div className="text-center text-xs text-slate-500 py-4 border-t border-slate-800/80 relative z-10">
+      <div className="text-center text-xs text-slate-500 py-3 border-t border-slate-800/80 relative z-10">
         ระบบควบคุมเอกสารอิเล็กทรอนิกส์ (DCC e-Control) • ISO 9001:2015 ข้อ 7.5.3 & IATF 16949
       </div>
 
