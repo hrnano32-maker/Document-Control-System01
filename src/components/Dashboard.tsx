@@ -96,26 +96,26 @@ export const Dashboard: React.FC = () => {
               {isDcc ? 'ศูนย์ควบคุมเอกสาร (DCC Portal)' : `แดชบอร์ดฝ่าย ${currentUser.currentDept}`}
             </h1>
             
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+            <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
               {isDcc
                 ? 'ระบบบริหารจัดการ Metadata, ควบคุมรอบ Revision, อนุมัติ DAR และติดตามการแจกจ่ายเอกสารควบคุมไปยังทุกหน่วยงาน'
                 : `ระบบตรวจสอบเอกสารควบคุมที่ได้รับมอบหมาย, ลงนามรับทราบ และติดตามสถานะคำขอ DAR ของหน่วยงาน`}
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-3">
             {isDcc ? (
               <>
                 <button
                   onClick={() => setIsStamperOpen(true)}
-                  className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-rose-950/40"
+                  className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-rose-950/40"
                 >
                   <Stamp className="w-4 h-4" />
                   ตราประทับ Controlled
                 </button>
                 <button
                   onClick={() => setActiveView('dar')}
-                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-indigo-950/40"
+                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-indigo-950/40"
                 >
                   <Sparkles className="w-4 h-4" />
                   ตรวจ DAR ({pendingDars})
@@ -124,7 +124,7 @@ export const Dashboard: React.FC = () => {
             ) : (
               <button
                 onClick={() => setActiveView('dar')}
-                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-indigo-950/40"
+                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-indigo-950/40"
               >
                 <Sparkles className="w-4 h-4" />
                 ยื่น DAR ขอจัดทำ/แก้ไข
@@ -136,16 +136,16 @@ export const Dashboard: React.FC = () => {
 
       {/* Urgent Alert Banner for Non-DCC if Pending Downloads */}
       {!isDcc && deptPendingDownloads.length > 0 && (
-        <div className="bg-amber-500/10 border-2 border-amber-400/80 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in duration-200">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5 sm:mt-0">
+        <div className="bg-amber-500/10 border-2 border-amber-400/80 rounded-2xl p-5 sm:p-6 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in duration-200">
+          <div className="flex items-start gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5 sm:mt-0">
               <Clock className="w-6 h-6 animate-pulse" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-sm">
+              <h3 className="font-bold text-slate-900 text-base">
                 มีเอกสารควบคุมใหม่รอฝ่าย {currentUser.currentDept} ดาวน์โหลด ({deptPendingDownloads.length} รายการ)
               </h3>
-              <p className="text-xs text-slate-600 mt-0.5">
+              <p className="text-sm text-slate-600 mt-1">
                 กรุณาลงนามดิจิทัลและดาวน์โหลด Controlled Copy (Copy 1/1) ภายในกำหนดเวลา 3 วัน
               </p>
             </div>
@@ -153,7 +153,7 @@ export const Dashboard: React.FC = () => {
 
           <button
             onClick={() => setActiveView('distribution')}
-            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap"
+            className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm rounded-xl flex items-center gap-2 shadow-sm cursor-pointer whitespace-nowrap"
           >
             <Download className="w-4 h-4" />
             ไปที่รายการรับเอกสาร
@@ -162,32 +162,32 @@ export const Dashboard: React.FC = () => {
       )}
 
       {/* KPI Cards Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-5">
         
         {/* Card 1 */}
         <div
           onClick={() => {
             if (isDcc) setActiveView('masterlist');
           }}
-          className={`bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs hover:border-indigo-400 hover:shadow-md transition-all ${isDcc ? 'cursor-pointer' : ''} group`}
+          className={`bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-xs hover:border-indigo-400 hover:shadow-md transition-all ${isDcc ? 'cursor-pointer' : ''} group`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs sm:text-sm font-bold text-slate-600">
+            <span className="text-sm sm:text-base font-bold text-slate-700">
               {isDcc ? 'ทะเบียนเอกสาร Master List' : `เอกสารของฝ่าย ${currentUser.currentDept}`}
             </span>
-            <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
               <FileText className="w-5 h-5" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-slate-900 font-mono tracking-tight">
+          <div className="mt-3.5 flex items-baseline gap-2.5">
+            <span className="text-3xl sm:text-4xl font-black text-slate-900 font-mono tracking-tight">
               {isDcc ? totalDocs : deptOwnedDocs.length}
             </span>
-            <span className="text-xs text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+            <span className="text-xs font-bold bg-emerald-50 text-emerald-800 px-2.5 py-1 rounded-full border border-emerald-200">
               {isDcc ? `Active ${activeDocs} ฉบับ` : `${deptOwnedDocs.filter(d => d.status === 'ACTIVE').length} Active`}
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-1.5">
+          <p className="text-xs sm:text-sm text-slate-500 mt-2">
             {isDcc ? 'อัปเดตอัตโนมัติตาม DAR' : 'เอกสารที่หน่วยงานเป็นเจ้าของ'}
           </p>
         </div>
@@ -195,25 +195,25 @@ export const Dashboard: React.FC = () => {
         {/* Card 2 */}
         <div
           onClick={() => setActiveView('dar')}
-          className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs hover:border-amber-400 hover:shadow-md transition-all cursor-pointer group"
+          className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-xs hover:border-amber-400 hover:shadow-md transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs sm:text-sm font-bold text-slate-600">
+            <span className="text-sm sm:text-base font-bold text-slate-700">
               {isDcc ? 'DAR รอพิจารณา' : `DAR ฝ่าย ${currentUser.currentDept}`}
             </span>
-            <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
               <Sparkles className="w-5 h-5" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-slate-900 font-mono tracking-tight">
+          <div className="mt-3.5 flex items-baseline gap-2.5">
+            <span className="text-3xl sm:text-4xl font-black text-slate-900 font-mono tracking-tight">
               {isDcc ? pendingDars : deptDars.length}
             </span>
-            <span className="text-xs text-amber-800 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
+            <span className="text-xs font-bold bg-amber-50 text-amber-800 px-2.5 py-1 rounded-full border border-amber-200">
               {isDcc ? 'Pending Review' : `${deptDars.filter(d => d.status === 'REGISTERED').length} ขึ้นทะเบียนแล้ว`}
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-1.5">
+          <p className="text-xs sm:text-sm text-slate-500 mt-2">
             {isDcc ? 'คำขอยื่นจากทุกแผนก' : 'ยื่นขอจัดทำ / แก้ไข / ยกเลิก'}
           </p>
         </div>
@@ -223,49 +223,49 @@ export const Dashboard: React.FC = () => {
           onClick={() => {
             if (isDcc) setActiveView('distribution');
           }}
-          className={`bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs hover:border-cyan-400 hover:shadow-md transition-all ${isDcc ? 'cursor-pointer' : ''} group`}
+          className={`bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-xs hover:border-cyan-400 hover:shadow-md transition-all ${isDcc ? 'cursor-pointer' : ''} group`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs sm:text-sm font-bold text-slate-600">
+            <span className="text-sm sm:text-base font-bold text-slate-700">
               {isDcc ? 'การแจกจ่ายที่กำลังดำเนินการ' : 'เอกสารรอรับ (3-Day Limit)'}
             </span>
-            <div className="w-9 h-9 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
               <Send className="w-5 h-5" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-slate-900 font-mono tracking-tight">
+          <div className="mt-3.5 flex items-baseline gap-2.5">
+            <span className="text-3xl sm:text-4xl font-black text-slate-900 font-mono tracking-tight">
               {isDcc ? activeDistributions : deptPendingDownloads.length}
             </span>
-            <span className="text-xs text-cyan-800 font-bold bg-cyan-50 px-2 py-0.5 rounded-full border border-cyan-100">
+            <span className="text-xs font-bold bg-cyan-50 text-cyan-800 px-2.5 py-1 rounded-full border border-cyan-200">
               {isDcc ? 'In Progress' : `${deptDistributions.length} ทั้งหมด`}
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-1.5">กฎ 1 แผนก = 1 ดาวน์โหลด</p>
+          <p className="text-xs sm:text-sm text-slate-500 mt-2">กฎ 1 แผนก = 1 ดาวน์โหลด</p>
         </div>
 
         {/* Card 4 */}
         <div
           onClick={() => setActiveView(isDcc ? 'distribution' : 'audit')}
-          className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs hover:border-emerald-400 hover:shadow-md transition-all cursor-pointer group"
+          className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-xs hover:border-emerald-400 hover:shadow-md transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs sm:text-sm font-bold text-slate-600">
+            <span className="text-sm sm:text-base font-bold text-slate-700">
               {isDcc ? 'คำร้องขอสำเนาใหม่ (Re-Request)' : `Audit Trail (${currentUser.currentDept})`}
             </span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
               {isDcc ? <Bell className="w-5 h-5" /> : <History className="w-5 h-5" />}
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-slate-900 font-mono tracking-tight">
+          <div className="mt-3.5 flex items-baseline gap-2.5">
+            <span className="text-3xl sm:text-4xl font-black text-slate-900 font-mono tracking-tight">
               {isDcc ? pendingReRequests : scopedAuditLogs.length}
             </span>
-            <span className="text-xs text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+            <span className="text-xs font-bold bg-emerald-50 text-emerald-800 px-2.5 py-1 rounded-full border border-emerald-200">
               {isDcc ? 'รอดำเนินการ' : 'ISO 7.5 Verified'}
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-1.5">
+          <p className="text-xs sm:text-sm text-slate-500 mt-2">
             {isDcc ? 'รอ DCC พิจารณา' : `บันทึกกิจกรรมเฉพาะฝ่าย ${currentUser.currentDept}`}
           </p>
         </div>
@@ -279,23 +279,23 @@ export const Dashboard: React.FC = () => {
         <div className="lg:col-span-2 space-y-6">
           
           {/* Active Distributions Section */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Send className="w-4 h-4 text-cyan-600" />
-                <h2 className="font-bold text-sm text-slate-900">
+                <Send className="w-5 h-5 text-cyan-600" />
+                <h2 className="font-bold text-base sm:text-lg text-slate-900">
                   {isDcc ? 'รายการแจกจ่ายล่าสุด (Controlled Copy Distributions)' : `รายการแจกจ่ายถึงฝ่าย ${currentUser.currentDept}`}
                 </h2>
               </div>
               <button
                 onClick={() => setActiveView('distribution')}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                className="text-xs sm:text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1.5 cursor-pointer"
               >
-                ดูทั้งหมด <ArrowRight className="w-3.5 h-3.5" />
+                ดูทั้งหมด <ArrowRight className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3.5">
               {(isDcc ? distributions : deptDistributions).slice(0, 3).map(dist => {
                 const myTarget = dist.targets.find(t => t.dept === currentUser.currentDept);
                 const downloadedCount = dist.targets.filter(t => t.isDownloaded).length;
@@ -305,22 +305,22 @@ export const Dashboard: React.FC = () => {
                 return (
                   <div
                     key={dist.id}
-                    className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-colors space-y-2"
+                    className="p-4 sm:p-5 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-colors space-y-2.5"
                   >
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-xs text-indigo-900 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                        <div className="flex items-center gap-2.5">
+                          <span className="font-mono font-bold text-sm text-indigo-900 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200">
                             {dist.docNo}
                           </span>
-                          <span className="text-xs font-bold text-slate-800">
+                          <span className="text-sm font-bold text-slate-800">
                             Rev.{dist.revision}
                           </span>
-                          <span className="text-[11px] text-slate-500 font-mono">
+                          <span className="text-xs text-slate-500 font-mono">
                             ({dist.distributionNo})
                           </span>
                         </div>
-                        <h4 className="font-semibold text-xs text-slate-900 mt-1">{dist.docNameTh}</h4>
+                        <h4 className="font-bold text-sm sm:text-base text-slate-900 mt-1.5">{dist.docNameTh}</h4>
                       </div>
 
                       {/* Download or Sheet Button */}
@@ -328,39 +328,39 @@ export const Dashboard: React.FC = () => {
                         {isDcc ? (
                           <button
                             onClick={() => setSelectedDistributionForSheet(dist)}
-                            className="px-2.5 py-1 text-[11px] font-bold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg shadow-xs cursor-pointer"
+                            className="px-3.5 py-1.5 text-xs font-bold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl shadow-xs cursor-pointer"
                           >
                             ดูใบแจกจ่าย A4
                           </button>
                         ) : myTarget?.isDownloaded ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-lg">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> รับสำเนาแล้ว (Copy 1/1)
+                          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-200">
+                            <CheckCircle2 className="w-4 h-4" /> รับสำเนาแล้ว (Copy 1/1)
                           </span>
                         ) : isExpired ? (
                           <button
                             onClick={() => setSelectedDistributionForReRequest({ distribution: dist, dept: currentUser.currentDept })}
-                            className="px-2.5 py-1 text-[11px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300 rounded-lg cursor-pointer"
+                            className="px-3 py-1.5 text-xs font-bold bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300 rounded-xl cursor-pointer"
                           >
                             🔔 ร้องขอ DCC
                           </button>
                         ) : (
                           <button
                             onClick={() => setSelectedDistributionForDownload({ distribution: dist, dept: currentUser.currentDept })}
-                            className="px-3 py-1 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-xs flex items-center gap-1 cursor-pointer animate-pulse"
+                            className="px-3.5 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer animate-pulse"
                           >
-                            <Download className="w-3.5 h-3.5" />
+                            <Download className="w-4 h-4" />
                             ดาวน์โหลด & ลงนาม
                           </button>
                         )}
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-200/60">
+                    <div className="flex items-center justify-between text-xs text-slate-600 pt-2 border-t border-slate-200/80">
                       <span>
-                        สถานะการรับ: <strong>{downloadedCount}/{totalTargets} หน่วยงาน</strong>
+                        สถานะการรับ: <strong className="text-slate-800">{downloadedCount}/{totalTargets} หน่วยงาน</strong>
                       </span>
                       <span>
-                        วันสิ้นสุดสิทธิ์: <strong>{new Date(dist.expirationDate).toLocaleDateString('th-TH')}</strong>
+                        วันสิ้นสุดสิทธิ์: <strong className="text-slate-800">{new Date(dist.expirationDate).toLocaleDateString('th-TH')}</strong>
                       </span>
                     </div>
                   </div>
@@ -370,42 +370,42 @@ export const Dashboard: React.FC = () => {
           </div>
 
           {/* Pending DARs Section */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-600" />
-                <h2 className="font-bold text-sm text-slate-900">
+                <Sparkles className="w-5 h-5 text-amber-600" />
+                <h2 className="font-bold text-base sm:text-lg text-slate-900">
                   {isDcc ? 'รายการ DAR รอดำเนินการ / อนุมัติ' : `ใบคำขอ DAR ของฝ่าย ${currentUser.currentDept}`}
                 </h2>
               </div>
               <button
                 onClick={() => setActiveView('dar')}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                className="text-xs sm:text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1.5 cursor-pointer"
               >
-                ดูทั้งหมด <ArrowRight className="w-3.5 h-3.5" />
+                ดูทั้งหมด <ArrowRight className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3.5">
               {(isDcc ? dars : deptDars).slice(0, 3).map(dar => (
                 <div
                   key={dar.id}
-                  className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 flex items-center justify-between gap-3 text-xs"
+                  className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 flex items-center justify-between gap-3.5 text-sm"
                 >
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-indigo-900">{dar.id}</span>
-                      <span className="font-bold text-slate-800">{dar.docNo}</span>
-                      <span className="text-[10px] font-mono text-slate-500">Rev.{dar.proposedRevision}</span>
+                    <div className="flex items-center gap-2.5">
+                      <span className="font-mono font-bold text-indigo-900 text-sm">{dar.id}</span>
+                      <span className="font-bold text-slate-800 text-sm">{dar.docNo}</span>
+                      <span className="text-xs font-mono text-slate-500">Rev.{dar.proposedRevision}</span>
                     </div>
-                    <p className="font-medium text-slate-700">{dar.docNameTh}</p>
+                    <p className="font-semibold text-slate-800">{dar.docNameTh}</p>
                     <span className="text-xs text-slate-500 block">
                       ขอโดย {dar.requesterName || `ฝ่าย ${dar.requestDept}`} • {new Date(dar.createdAt).toLocaleDateString('th-TH')}
                     </span>
                   </div>
 
-                  <div className="text-right space-y-1.5 shrink-0">
-                    <span className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] block text-center ${
+                  <div className="text-right space-y-2 shrink-0">
+                    <span className={`px-3 py-1 rounded-full font-bold text-xs block text-center ${
                       dar.status === 'REGISTERED'
                         ? 'bg-emerald-100 text-emerald-800'
                         : dar.status === 'PENDING_REVIEW'
@@ -416,7 +416,7 @@ export const Dashboard: React.FC = () => {
                     </span>
                     <button
                       onClick={() => setActiveView('dar')}
-                      className="text-[11px] text-indigo-600 hover:underline font-semibold"
+                      className="text-xs text-indigo-600 hover:underline font-bold"
                     >
                       เปิดดู DAR ➔
                     </button>
@@ -425,13 +425,13 @@ export const Dashboard: React.FC = () => {
               ))}
 
               {(isDcc ? dars : deptDars).length === 0 && (
-                <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-200 space-y-2">
+                <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200 space-y-2">
                   <FileText className="w-8 h-8 text-slate-400 mx-auto" />
-                  <p className="text-xs text-slate-500 font-medium">ยังไม่มีคำขอดำเนินการเอกสาร (DAR) ในระบบ</p>
+                  <p className="text-sm text-slate-600 font-medium">ยังไม่มีคำขอดำเนินการเอกสาร (DAR) ในระบบ</p>
                   <button
                     type="button"
                     onClick={() => setActiveView('dar')}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
                   >
                     + สร้างคำขอ DAR แรกของคุณ
                   </button>
@@ -446,44 +446,44 @@ export const Dashboard: React.FC = () => {
         <div className="space-y-6">
           
           {/* Operational Status & Quick Actions Card */}
-          <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-xs space-y-4 border border-slate-800">
+          <div className="bg-slate-900 text-white rounded-2xl p-5 sm:p-6 shadow-xs space-y-4 border border-slate-800">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-indigo-400" />
-                <h3 className="font-bold text-sm">
+                <h3 className="font-bold text-base">
                   {isDcc ? 'การดำเนินงาน DCC วันนี้' : `สรุปงานฝ่าย ${currentUser.currentDept}`}
                 </h3>
               </div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                 {isDcc ? 'DCC Admin' : 'Operation'}
               </span>
             </div>
 
-            <div className="space-y-2 text-xs">
+            <div className="space-y-2.5 text-sm">
               {isDcc ? (
                 <>
-                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/80 border border-slate-700/60">
                     <span className="text-slate-300">DAR รอดำเนินการตรวจ:</span>
-                    <span className="font-bold font-mono text-amber-400">{pendingDars} รายการ</span>
+                    <span className="font-bold font-mono text-amber-400 text-base">{pendingDars} รายการ</span>
                   </div>
-                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/80 border border-slate-700/60">
                     <span className="text-slate-300">คำขอสำเนาใหม่ (Re-request):</span>
-                    <span className="font-bold font-mono text-cyan-400">{pendingReRequests} คำขอ</span>
+                    <span className="font-bold font-mono text-cyan-400 text-base">{pendingReRequests} คำขอ</span>
                   </div>
-                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/80 border border-slate-700/60">
                     <span className="text-slate-300">การแจกจ่ายที่กำลังดำเนินการ:</span>
-                    <span className="font-bold font-mono text-emerald-400">{activeDistributions} ชุด</span>
+                    <span className="font-bold font-mono text-emerald-400 text-base">{activeDistributions} ชุด</span>
                   </div>
-                  <div className="pt-2 grid grid-cols-2 gap-2">
+                  <div className="pt-2 grid grid-cols-2 gap-2.5">
                     <button
                       onClick={() => setActiveView('dar')}
-                      className="py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] rounded-xl transition-colors text-center cursor-pointer"
+                      className="py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm rounded-xl transition-colors text-center cursor-pointer"
                     >
                       จัดการ DAR
                     </button>
                     <button
                       onClick={() => setActiveView('distribution')}
-                      className="py-2 px-3 bg-slate-750 hover:bg-slate-700 text-slate-200 border border-slate-600 font-bold text-[11px] rounded-xl transition-colors text-center cursor-pointer"
+                      className="py-2.5 px-3 bg-slate-750 hover:bg-slate-700 text-slate-200 border border-slate-600 font-bold text-xs sm:text-sm rounded-xl transition-colors text-center cursor-pointer"
                     >
                       ดูการแจกจ่าย
                     </button>
@@ -491,24 +491,24 @@ export const Dashboard: React.FC = () => {
                 </>
               ) : (
                 <>
-                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/80 border border-slate-700/60">
                     <span className="text-slate-300">เอกสารในความดูแลของฝ่าย:</span>
-                    <span className="font-bold font-mono text-white">{deptOwnedDocs.length} ฉบับ</span>
+                    <span className="font-bold font-mono text-white text-base">{deptOwnedDocs.length} ฉบับ</span>
                   </div>
-                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/80 border border-slate-700/60">
                     <span className="text-slate-300">สำเนาที่รอลงนามรับมอบ:</span>
-                    <span className={`font-bold font-mono ${deptPendingDownloads.length > 0 ? 'text-amber-400 animate-pulse' : 'text-emerald-400'}`}>
+                    <span className={`font-bold font-mono text-base ${deptPendingDownloads.length > 0 ? 'text-amber-400 animate-pulse' : 'text-emerald-400'}`}>
                       {deptPendingDownloads.length} ชุด
                     </span>
                   </div>
-                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/80 border border-slate-700/60">
                     <span className="text-slate-300">คำขอ DAR ของฝ่าย:</span>
-                    <span className="font-bold font-mono text-indigo-300">{deptDars.length} คำขอ</span>
+                    <span className="font-bold font-mono text-indigo-300 text-base">{deptDars.length} คำขอ</span>
                   </div>
                   <div className="pt-2">
                     <button
                       onClick={() => setActiveView('dar')}
-                      className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-colors text-center cursor-pointer"
+                      className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl transition-colors text-center cursor-pointer"
                     >
                       + ยื่นคำขอ DAR ใหม่
                     </button>
@@ -519,35 +519,35 @@ export const Dashboard: React.FC = () => {
           </div>
 
           {/* Real-time Audit Trail Snippet */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-3">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-3.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <History className="w-4 h-4 text-slate-700" />
-                <h3 className="font-bold text-sm text-slate-900">Audit Trail ล่าสุด</h3>
+                <History className="w-5 h-5 text-slate-700" />
+                <h3 className="font-bold text-base text-slate-900">Audit Trail ล่าสุด</h3>
               </div>
               <button
                 onClick={() => setActiveView('audit')}
-                className="text-[11px] font-semibold text-indigo-600 hover:underline cursor-pointer"
+                className="text-xs sm:text-sm font-bold text-indigo-600 hover:underline cursor-pointer"
               >
                 ดูทั้งหมด
               </button>
             </div>
 
-            <div className="space-y-2.5">
+            <div className="space-y-3">
               {scopedAuditLogs.slice(0, 4).map(log => (
-                <div key={log.id} className="text-xs p-2.5 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
-                  <div className="flex items-center justify-between text-[10px]">
+                <div key={log.id} className="text-sm p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+                  <div className="flex items-center justify-between text-xs">
                     <span className="font-mono font-bold text-indigo-900">{log.docNo}</span>
                     <span className="text-slate-400 font-mono">
                       {new Date(log.timestamp).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
-                  <p className="text-slate-700 line-clamp-1">{log.description}</p>
-                  <span className="text-[10px] text-slate-400 block">โดย {log.actor} ({log.actorDept})</span>
+                  <p className="text-slate-800 font-medium line-clamp-1">{log.description}</p>
+                  <span className="text-xs text-slate-500 block">โดย {log.actor} ({log.actorDept})</span>
                 </div>
               ))}
               {scopedAuditLogs.length === 0 && (
-                <div className="text-center py-4 text-xs text-slate-400">
+                <div className="text-center py-4 text-sm text-slate-400">
                   ไม่มีรายการเหตุการณ์ล่าสุดของฝ่าย {currentUser.currentDept}
                 </div>
               )}

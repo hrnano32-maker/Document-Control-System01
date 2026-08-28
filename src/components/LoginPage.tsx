@@ -112,13 +112,13 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
           <form onSubmit={handleSubmit} className="space-y-4">
             
             {/* Username Field */}
-            <div className="space-y-1.5">
-              <label htmlFor="login-username-input" className="block text-xs font-semibold text-slate-300">
+            <div className="space-y-2">
+              <label htmlFor="login-username-input" className="block text-sm font-bold text-slate-200">
                 ชื่อผู้ใช้งาน (Username)
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <User className="w-4 h-4" />
+                  <User className="w-5 h-5" />
                 </div>
                 <input
                   type="text"
@@ -126,7 +126,7 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
                   value={username}
                   onChange={e => setUsername(e.target.value)}
                   placeholder="เช่น dcc, qa, production_1, hr..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-11 pr-4 py-3 text-base text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all font-medium"
                   autoComplete="username"
                   autoFocus
                 />
@@ -134,13 +134,13 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
             </div>
 
             {/* Password Field */}
-            <div className="space-y-1.5">
-              <label htmlFor="login-password-input" className="block text-xs font-semibold text-slate-300">
+            <div className="space-y-2">
+              <label htmlFor="login-password-input" className="block text-sm font-bold text-slate-200">
                 รหัสผ่าน (Password)
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="w-4 h-4" />
+                  <Lock className="w-5 h-5" />
                 </div>
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -148,28 +148,28 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="ระบุรหัสผ่านประจำแผนก..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-10 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-11 pr-11 py-3 text-base text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all font-medium"
                   autoComplete="current-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-200 cursor-pointer transition-colors"
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-200 cursor-pointer transition-colors"
                   title={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
             </div>
 
             {/* Remember Me Option (Auto-login on next visit) */}
-            <div className="flex items-center justify-between text-xs pt-1">
-              <label className="flex items-center gap-2 text-slate-300 cursor-pointer select-none">
+            <div className="flex items-center justify-between text-sm pt-1">
+              <label className="flex items-center gap-2.5 text-slate-300 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={rememberMe}
                   onChange={e => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 bg-slate-950 cursor-pointer"
+                  className="w-4.5 h-4.5 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 bg-slate-950 cursor-pointer"
                 />
                 <span>จดจำการเข้าสู่ระบบ (เข้าสู่ระบบอัตโนมัติในครั้งถัดไป)</span>
               </label>
@@ -180,17 +180,17 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
               type="submit"
               id="btn-login-submit"
               disabled={isSubmitting}
-              className="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
+              className="w-full py-3.5 px-4 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-extrabold text-base rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
             >
               {isSubmitting ? (
                 <>
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  กำลังตรวจสอบสิทธิ์...
+                  <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  <span>กำลังตรวจสอบสิทธิ์...</span>
                 </>
               ) : (
                 <>
-                  <LogIn className="w-4 h-4" />
-                  เข้าสู่ระบบ DCC e-Control
+                  <LogIn className="w-5 h-5" />
+                  <span>เข้าสู่ระบบ DCC e-Control</span>
                 </>
               )}
             </button>

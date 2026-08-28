@@ -209,23 +209,23 @@ export const DistributionManager: React.FC = () => {
       )}
 
       {/* Filter and Search */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3">
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3.5">
         <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             placeholder="ค้นหาเลขที่แจกจ่าย (DC-DIS-...), รหัสเอกสาร, ชื่อ..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:outline-none bg-slate-50/50"
+            className="w-full pl-10 pr-3.5 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:outline-none bg-slate-50/50"
           />
         </div>
 
-        <div className="w-full sm:w-60">
+        <div className="w-full sm:w-64">
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
-            className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:outline-none bg-white"
+            className="w-full px-3.5 py-2.5 text-sm font-medium border border-slate-300 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:outline-none bg-white"
           >
             <option value="ALL">📋 ทุกสถานะการแจกจ่าย</option>
             <option value="IN_PROGRESS">🟡 อยู่ระหว่างดาวน์โหลด (In Progress)</option>
@@ -238,8 +238,8 @@ export const DistributionManager: React.FC = () => {
       {/* Distribution Cards List */}
       <div className="space-y-4">
         {filteredDistributions.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200">
-            <Send className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+          <div className="p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 text-base">
+            <Send className="w-10 h-10 mx-auto mb-2 text-slate-300" />
             ไม่พบรายการแจกจ่ายเอกสาร
           </div>
         ) : (
@@ -258,18 +258,18 @@ export const DistributionManager: React.FC = () => {
               >
                 
                 {/* Header Strip */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="font-mono font-black text-sm text-indigo-900 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200">
                       {dist.distributionNo}
                     </span>
-                    <span className="font-mono font-bold text-slate-800 text-sm">
+                    <span className="font-mono font-bold text-slate-800 text-base">
                       {dist.docNo}
                     </span>
-                    <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 font-mono font-bold text-xs">
+                    <span className="px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-800 font-mono font-bold text-xs">
                       Rev.{dist.revision}
                     </span>
-                    <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${timeInfo.color}`}>
+                    <span className={`text-xs font-bold px-3 py-1 rounded-full border ${timeInfo.color}`}>
                       {timeInfo.text}
                     </span>
                   </div>
@@ -290,14 +290,14 @@ export const DistributionManager: React.FC = () => {
                         effectiveDate: dist.effectiveDate,
                         isControlledCopy: true,
                       })}
-                      className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
+                      className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
                     >
                       <Eye className="w-4 h-4 text-indigo-600" />
                       ดูเอกสารฉบับนี้
                     </button>
                     <button
                       onClick={() => setSelectedDistributionForSheet(dist)}
-                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
+                      className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
                     >
                       <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
                       ใบแจกจ่าย-เรียกคืน (FM-QS-003-00) / พิมพ์
@@ -308,29 +308,29 @@ export const DistributionManager: React.FC = () => {
                 {/* Body Details */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   
-                  <div className="lg:col-span-2 space-y-2">
-                    <h3 className="font-bold text-sm text-slate-900">{dist.docNameTh}</h3>
-                    <p className="text-xs text-slate-500 italic">{dist.docNameEn}</p>
+                  <div className="lg:col-span-2 space-y-2.5">
+                    <h3 className="font-bold text-base text-slate-900">{dist.docNameTh}</h3>
+                    <p className="text-sm text-slate-500 italic">{dist.docNameEn}</p>
                     
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600 pt-1">
-                      <span>วันที่แจกจ่าย: <strong>{new Date(dist.distributedDate).toLocaleDateString('th-TH')}</strong></span>
-                      <span>วันที่มีผลบังคับใช้: <strong>{dist.effectiveDate}</strong></span>
-                      <span>ผู้แจกจ่าย: <strong>{dist.distributedBy}</strong></span>
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs sm:text-sm text-slate-600 pt-1">
+                      <span>วันที่แจกจ่าย: <strong className="text-slate-800">{new Date(dist.distributedDate).toLocaleDateString('th-TH')}</strong></span>
+                      <span>วันที่มีผลบังคับใช้: <strong className="text-slate-800">{dist.effectiveDate}</strong></span>
+                      <span>ผู้แจกจ่าย: <strong className="text-slate-800">{dist.distributedBy}</strong></span>
                     </div>
 
-                    <p className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      <strong>คำสั่งการแจกจ่าย:</strong> {dist.instructions}
+                    <p className="text-xs sm:text-sm text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-200/80 leading-relaxed">
+                      <strong className="text-slate-900">คำสั่งการแจกจ่าย:</strong> {dist.instructions}
                     </p>
                   </div>
 
                   {/* Progress & Quick My Dept Action */}
                   <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 flex flex-col justify-between space-y-3">
                     <div>
-                      <div className="flex items-center justify-between text-xs mb-1">
+                      <div className="flex items-center justify-between text-xs sm:text-sm mb-1.5">
                         <span className="font-bold text-slate-700">ความคืบหน้าการรับเอกสาร:</span>
-                        <span className="font-black text-indigo-900 font-mono">{downloadedCount}/{totalTargets} ({percent}%)</span>
+                        <span className="font-black text-indigo-900 font-mono text-sm">{downloadedCount}/{totalTargets} ({percent}%)</span>
                       </div>
-                      <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                      <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
                         <div
                           className={`h-full transition-all duration-500 ${
                             percent === 100 ? 'bg-emerald-500' : 'bg-cyan-500'
@@ -344,24 +344,24 @@ export const DistributionManager: React.FC = () => {
                     {myTarget && (
                       <div className="pt-2 border-t border-slate-200">
                         {myTarget.isDownloaded ? (
-                          <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-emerald-800 flex items-center gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+                            <span className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                               {currentUser.currentDept}: รับสำเนาแล้ว (Copy 1/1)
                             </span>
-                            <span className="text-[10px] text-emerald-600 font-mono">
+                            <span className="text-xs text-emerald-700 font-mono font-medium">
                               {new Date(myTarget.downloadTimestamp!).toLocaleDateString('th-TH')}
                             </span>
                           </div>
                         ) : timeInfo.isExpired ? (
-                          <div className="p-2 bg-rose-50 border border-rose-200 rounded-lg flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-rose-800 flex items-center gap-1">
-                              <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                          <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between">
+                            <span className="text-xs font-bold text-rose-800 flex items-center gap-1.5">
+                              <AlertCircle className="w-4 h-4 text-rose-600" />
                               ลิงก์ของแผนกหมดอายุแล้ว
                             </span>
                             <button
                               onClick={() => setSelectedDistributionForReRequest({ distribution: dist, dept: currentUser.currentDept })}
-                              className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors shadow-xs"
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors shadow-xs"
                             >
                               🔔 ร้องขอ DCC
                             </button>
@@ -369,7 +369,7 @@ export const DistributionManager: React.FC = () => {
                         ) : (
                           <button
                             onClick={() => setSelectedDistributionForDownload({ distribution: dist, dept: currentUser.currentDept })}
-                            className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition-all animate-pulse"
+                            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition-all animate-pulse"
                           >
                             <Download className="w-4 h-4" />
                             ดาวน์โหลด Controlled Copy สำหรับ {currentUser.currentDept}
@@ -383,10 +383,10 @@ export const DistributionManager: React.FC = () => {
                 </div>
 
                 {/* Target Departments Matrix Chips */}
-                <div className="pt-3 border-t border-slate-100">
-                  <div className="text-xs font-bold text-slate-800 mb-2 flex items-center justify-between">
+                <div className="pt-3.5 border-t border-slate-100">
+                  <div className="text-xs sm:text-sm font-bold text-slate-800 mb-2.5 flex items-center justify-between">
                     <span>รายชื่อหน่วยงานผู้รับและการลงนามรับทราบ:</span>
-                    <span className="text-[11px] text-slate-500 font-normal">ระบบจำกัด 1 แผนก = 1 ดาวน์โหลด</span>
+                    <span className="text-xs text-slate-500 font-normal">ระบบจำกัด 1 แผนก = 1 ดาวน์โหลด</span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
@@ -395,7 +395,7 @@ export const DistributionManager: React.FC = () => {
                       return (
                         <div
                           key={target.dept}
-                          className={`p-3 rounded-xl border text-xs flex flex-col justify-between space-y-1.5 transition-colors ${
+                          className={`p-3.5 rounded-xl border text-xs flex flex-col justify-between space-y-2 transition-colors ${
                             target.isDownloaded
                               ? 'bg-emerald-50/60 border-emerald-200/90 text-slate-800'
                               : isExpired
@@ -404,23 +404,23 @@ export const DistributionManager: React.FC = () => {
                           }`}
                         >
                           <div className="flex items-center justify-between">
-                            <span className="font-bold text-slate-900 text-xs sm:text-sm">{target.dept}</span>
-                            <span className="text-[11px] font-mono text-slate-500 font-semibold bg-white/80 px-1.5 py-0.5 rounded border border-slate-200/60">{target.copyNo}</span>
+                            <span className="font-bold text-slate-900 text-sm">{target.dept}</span>
+                            <span className="text-xs font-mono text-slate-600 font-semibold bg-white/90 px-2 py-0.5 rounded-md border border-slate-200/60">{target.copyNo}</span>
                           </div>
 
                           {target.isDownloaded ? (
                             <div className="space-y-0.5 pt-1.5 border-t border-emerald-200/60">
-                              <div className="flex items-center gap-1 text-xs text-emerald-900 font-semibold">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <div className="flex items-center gap-1.5 text-xs text-emerald-900 font-bold">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                                 <span className="truncate">{target.downloaderName}</span>
                               </div>
-                              <span className="text-[11px] text-slate-500 block font-mono">
+                              <span className="text-xs text-slate-500 block font-mono">
                                 {new Date(target.downloadTimestamp!).toLocaleString('th-TH')}
                               </span>
                             </div>
                           ) : isExpired ? (
                             <div className="flex items-center justify-between pt-1.5 border-t border-rose-200/60">
-                              <span className="text-[11px] text-rose-700 font-bold">🔴 หมดเวลา 3 วัน</span>
+                              <span className="text-xs text-rose-700 font-bold">🔴 หมดเวลา 3 วัน</span>
                               <button
                                 onClick={() => setSelectedDistributionForReRequest({ distribution: dist, dept: target.dept })}
                                 className="text-xs text-amber-700 hover:underline font-bold cursor-pointer"
@@ -430,7 +430,7 @@ export const DistributionManager: React.FC = () => {
                             </div>
                           ) : (
                             <div className="flex items-center justify-between pt-1.5 border-t border-slate-200">
-                              <span className="text-[11px] text-amber-700 font-semibold flex items-center gap-1">
+                              <span className="text-xs text-amber-700 font-semibold flex items-center gap-1">
                                 <Clock className="w-3.5 h-3.5" /> รอดาวน์โหลด
                               </span>
                               {currentUser.currentDept === target.dept && (
@@ -438,16 +438,16 @@ export const DistributionManager: React.FC = () => {
                                   onClick={() => setSelectedDistributionForDownload({ distribution: dist, dept: target.dept })}
                                   className="text-xs text-indigo-600 hover:underline font-bold cursor-pointer"
                                 >
-                                  กดรับไฟล์ ➔
+                                  ดาวน์โหลด
                                 </button>
                               )}
                             </div>
                           )}
+
                         </div>
                       );
                     })}
                   </div>
-
                 </div>
 
               </div>
@@ -459,3 +459,4 @@ export const DistributionManager: React.FC = () => {
     </div>
   );
 };
+

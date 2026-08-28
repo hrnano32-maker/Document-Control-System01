@@ -121,17 +121,17 @@ export const AuditTrailView: React.FC = () => {
       </div>
 
       {/* Filter and Search */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3.5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
           
           <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="ค้นหารหัสเอกสาร, ชื่อผู้กระทำ, รายละเอียด..."
+              placeholder="ค้นหารหัสเอกสาร, ผู้กระทำ, รายละเอียด..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-slate-50/50"
+              className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-slate-50/50"
             />
           </div>
 
@@ -139,7 +139,7 @@ export const AuditTrailView: React.FC = () => {
             <select
               value={selectedAction}
               onChange={e => setSelectedAction(e.target.value)}
-              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white"
+              className="w-full px-3.5 py-2.5 text-sm font-medium border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white"
             >
               <option value="ALL">📋 ทุกประเภทเหตุการณ์ (All Events)</option>
               <option value="DAR_CREATED">📝 DAR สร้างขึ้น</option>
@@ -159,7 +159,7 @@ export const AuditTrailView: React.FC = () => {
               <select
                 value={selectedDept}
                 onChange={e => setSelectedDept(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white"
+                className="w-full px-3.5 py-2.5 text-sm font-medium border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white"
               >
                 <option value="ALL">🏢 ทุกหน่วยงาน (All Departments)</option>
                 {DEPARTMENTS.map(d => (
@@ -167,9 +167,9 @@ export const AuditTrailView: React.FC = () => {
                 ))}
               </select>
             ) : (
-              <div className="w-full px-3 py-2 text-xs border border-amber-300 rounded-xl bg-amber-50 text-amber-900 font-semibold flex items-center justify-between">
+              <div className="w-full px-3.5 py-2.5 text-sm border border-amber-300 rounded-xl bg-amber-50 text-amber-900 font-semibold flex items-center justify-between">
                 <span>🏢 สังกัด: {currentUser.currentDept}</span>
-                <span className="text-[10px] bg-amber-200/80 px-2 py-0.5 rounded text-amber-800 font-normal">ล็อกตามฝ่าย</span>
+                <span className="text-xs bg-amber-200/80 px-2.5 py-0.5 rounded-md text-amber-800 font-normal">ล็อกตามฝ่าย</span>
               </div>
             )}
           </div>
@@ -180,8 +180,8 @@ export const AuditTrailView: React.FC = () => {
       {/* Timeline List */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4">
         {filteredLogs.length === 0 ? (
-          <div className="p-8 text-center text-slate-400">
-            <History className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+          <div className="p-10 text-center text-slate-400 text-base">
+            <History className="w-10 h-10 mx-auto mb-2 text-slate-300" />
             ไม่พบบันทึกเหตุการณ์ตามเงื่อนไข
           </div>
         ) : (
@@ -196,41 +196,41 @@ export const AuditTrailView: React.FC = () => {
                   {/* Timeline Dot */}
                   <div className="absolute -left-[27px] top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white bg-indigo-600 shadow-xs group-hover:scale-125 transition-transform"></div>
 
-                  <div className="bg-slate-50/70 hover:bg-slate-50 border border-slate-200 rounded-2xl p-4 transition-colors space-y-2">
+                  <div className="bg-slate-50/70 hover:bg-slate-50 border border-slate-200 rounded-2xl p-5 transition-colors space-y-2.5">
                     
                     {/* Event Header */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${badge.color}`}>
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${badge.color}`}>
                           {badge.label}
                         </span>
-                        <span className="font-mono font-bold text-xs text-indigo-900 bg-white px-2 py-0.5 rounded border border-slate-200">
+                        <span className="font-mono font-bold text-sm text-indigo-900 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
                           {log.docNo}
                         </span>
                         {log.revision && (
-                          <span className="font-mono font-semibold text-xs text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                          <span className="font-mono font-bold text-xs text-slate-700 bg-white px-2 py-1 rounded-lg border border-slate-200">
                             Rev.{log.revision}
                           </span>
                         )}
-                        <span className="text-xs font-semibold text-slate-800 flex items-center gap-1">
-                          <User className="w-3.5 h-3.5 text-slate-500" />
+                        <span className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                          <User className="w-4 h-4 text-slate-500" />
                           {log.actor}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono">
+                      <div className="flex items-center gap-3 text-xs text-slate-500 font-mono">
                         <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-slate-400" />
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
                           {new Date(log.timestamp).toLocaleString('th-TH')}
                         </span>
-                        <span className="text-[10px] text-slate-400">
+                        <span className="text-xs text-slate-400">
                           IP: {log.ipAddress}
                         </span>
                       </div>
                     </div>
 
                     {/* Description */}
-                    <p className="text-xs text-slate-800 leading-relaxed font-medium">
+                    <p className="text-sm text-slate-800 leading-relaxed font-medium">
                       {log.description}
                     </p>
 
@@ -239,14 +239,14 @@ export const AuditTrailView: React.FC = () => {
                       <div className="pt-2">
                         <button
                           onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
-                          className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 cursor-pointer"
+                          className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1.5 cursor-pointer"
                         >
-                          <Database className="w-3 h-3" />
+                          <Database className="w-3.5 h-3.5" />
                           {isExpanded ? 'ซ่อน Metadata ละเอียด' : 'ดู Metadata & ลายเซ็นที่บันทึก'}
                         </button>
 
                         {isExpanded && (
-                          <div className="mt-2 p-3 bg-slate-900 text-slate-200 rounded-xl font-mono text-[11px] overflow-x-auto shadow-inner">
+                          <div className="mt-2.5 p-4 bg-slate-900 text-slate-200 rounded-xl font-mono text-xs overflow-x-auto shadow-inner">
                             <pre>{JSON.stringify(log.details, null, 2)}</pre>
                           </div>
                         )}
