@@ -208,53 +208,9 @@ export const Navbar: React.FC = () => {
 
             </nav>
 
-            {/* 3. Right: Font Size Quick Switcher & User Profile */}
+            {/* 3. Right: User Profile & Account Menu Dropdown */}
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               
-              {/* Font Size Quick Zoom Pill */}
-              <div className="hidden sm:flex items-center bg-slate-800/90 border border-slate-700/80 rounded-xl p-1 shadow-xs">
-                <span className="text-xs font-bold text-slate-400 px-2 flex items-center gap-1">
-                  <Type className="w-3.5 h-3.5 text-indigo-400" />
-                  ตัวหนังสือ:
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleSetFontSize('normal')}
-                  title="ขนาดปกติ (16px)"
-                  className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    fontSize === 'normal'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-700'
-                  }`}
-                >
-                  ปกติ
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSetFontSize('large')}
-                  title="ขนาดใหญ่ (18px - แนะนำสำหรับผู้ปฏิบัติงาน)"
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    fontSize === 'large'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-700'
-                  }`}
-                >
-                  ใหญ่ (18px)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSetFontSize('extra-large')}
-                  title="ขนาดใหญ่พิเศษ (20px - สบายตา ชัดเจน)"
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    fontSize === 'extra-large'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-700'
-                  }`}
-                >
-                  ใหญ่พิเศษ (20px)
-                </button>
-              </div>
-
               {/* Account Dropdown Pill */}
               <div className="relative" ref={userMenuRef}>
                 <button
