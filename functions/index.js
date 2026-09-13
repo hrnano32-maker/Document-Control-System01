@@ -24,7 +24,10 @@ async function purgeDistribution(snapshot, reason) {
   }
 }
 
-exports.purgeCompletedDistribution = onDocumentUpdated('dcs_distributions/{distributionId}', async event => {
+exports.purgeCompletedDistribution = onDocumentUpdated({
+  document: 'dcs_distributions/{distributionId}',
+  region: 'asia-southeast1',
+}, async event => {
   const before = event.data.before.data();
   const after = event.data.after.data();
   if (before.status !== 'COMPLETED' && after.status === 'COMPLETED') {
@@ -39,7 +42,11 @@ exports.purgeCompletedDistribution = onDocumentUpdated('dcs_distributions/{distr
   }
 });
 
-exports.purgeExpiredDistributions = onSchedule({ schedule: 'every 30 minutes', timeZone: 'Asia/Bangkok' }, async () => {
+exports.purgeExpiredDistributions = onSchedule({
+  schedule: 'every 30 minutes',
+  timeZone: 'Asia/Bangkok',
+  region: 'asia-southeast1',
+}, async () => {
   const now = Date.now();
   const snapshots = await getFirestore().collection('dcs_distributions')
     .where('expirationEpoch', '<=', now)
