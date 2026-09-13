@@ -1,19 +1,24 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# DCS e-Control
 
-# Run and deploy your AI Studio app
+ระบบควบคุม DAR, Master List และ Controlled Copy สำหรับการใช้งานจริง โดยใช้ Firebase project `dar-online-form`
 
-This contains everything you need to run your app locally.
+## Deploy
 
-View your app in AI Studio: https://ai.studio/apps/2e447060-88b4-42ac-b8f2-aa8f90b51622
+```bash
+npm ci
+npm run lint
+npm run build
+npx firebase-tools deploy --project dar-online-form --only firestore,storage,functions
+```
 
-## Run Locally
+GitHub Pages deploy เฉพาะ React client ส่วนคำสั่ง Firebase ด้านบน deploy Firestore Rules, indexes, Storage Rules และ Cloud Functions สำหรับลบไฟล์อัตโนมัติ
 
-**Prerequisites:** Node.js
+## ขั้นตอนการทำงาน
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+1. หน่วยงานสร้าง DAR พร้อมแนบไฟล์ร่างจริง และระบุหน่วยงาน/จำนวนสำเนาที่ต้องแจกจ่าย
+2. DCC ตรวจ อนุมัติ และขึ้นทะเบียน Master List
+3. DCC อัปโหลด Controlled Copy จริง โดยรายชื่อผู้รับถูกล็อกจาก DAR
+4. ผู้รับแต่ละหน่วยงานลงชื่อและดาวน์โหลดได้ครั้งเดียวภายใน 72 ชั่วโมง
+5. ใบแจกจ่ายจะพิมพ์ไม่ได้จนกว่าหน่วยงานและจำนวนสำเนาจะรับครบตาม DAR
+6. เมื่อรับครบหรือพ้น 72 ชั่วโมง ระบบลบไฟล์จาก Storage แต่เก็บ Audit/ประวัติการรับใน Firestore
+7. ผู้ที่หมดเวลาต้องยื่นคำขอใหม่ และ DCC ต้องอัปโหลดไฟล์ใหม่เพื่อออกเลขแจกจ่ายใหม่พร้อมเวลา 72 ชั่วโมงรอบใหม่
