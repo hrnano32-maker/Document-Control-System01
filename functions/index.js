@@ -1,7 +1,6 @@
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
-const { onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 
 initializeApp();
@@ -24,33 +23,23 @@ async function purgeDistribution(snapshot, reason) {
   }
 }
 
-exports.purgeCompletedDistribution = onDocumentUpdated({
-  document: 'dcs_distributions/{distributionId}',
-  region: 'asia-southeast1',
-}, async event => {
-  const before = event.data.before.data();
-  const after = event.data.after.data();
-  if (before.status !== 'COMPLETED' && after.status === 'COMPLETED') {
-    const allDownloaded = Array.isArray(after.targetDepartments)
-      && after.targetDepartments.length > 0
-      && after.targetDepartments.every(dept => after.receipts?.[dept]?.downloadedAt);
-    if (!allDownloaded) {
-      await event.data.after.ref.update({ status: 'IN_PROGRESS', storageStatus: 'AVAILABLE', allDownloadedAt: null });
-      return;
-    }
-    await purgeDistribution(event.data.after, 'ALL_DEPARTMENTS_DOWNLOADED');
-  }
-});
-
 exports.purgeExpiredDistributions = onSchedule({
-  schedule: 'every 30 minutes',
+  schedule: 'every 15 minutes',
   timeZone: 'Asia/Bangkok',
   region: 'asia-southeast1',
 }, async () => {
   const now = Date.now();
-  const snapshots = await getFirestore().collection('dcs_distributions')
+  const db = getFirestore();
+  const [completed, expired] = await Promise.all([
+    db.collection('dcs_distributions').where('storageStatus', '==', 'PURGE_PENDING').get(),
+    db.collection('dcs_distributions')
     .where('expirationEpoch', '<=', now)
     .where('storageStatus', 'in', ['AVAILABLE', 'PURGE_PENDING'])
-    .get();
-  await Promise.all(snapshots.docs.map(snapshot => purgeDistribution(snapshot, 'DOWNLOAD_WINDOW_EXPIRED')));
+    .get(),
+  ]);
+  const completedIds = new Set(completed.docs.map(snapshot => snapshot.id));
+  await Promise.all([
+    ...completed.docs.map(snapshot => purgeDistribution(snapshot, 'ALL_DEPARTMENTS_DOWNLOADED')),
+    ...expired.docs.filter(snapshot => !completedIds.has(snapshot.id)).map(snapshot => purgeDistribution(snapshot, 'DOWNLOAD_WINDOW_EXPIRED')),
+  ]);
 });
