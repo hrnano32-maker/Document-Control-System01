@@ -367,10 +367,10 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
           >
             
             {/* 1. Header with NANO Logo & Form Title */}
-            <div className="relative mb-4 flex items-center justify-center min-h-[50px]">
+            <div className="mb-4 grid grid-cols-[100px_1fr_100px] items-center gap-2 min-h-[48px]">
               {/* NANO Logo (Red Oval) on the left */}
-              <div className="absolute left-0 top-0 flex items-center">
-                <div className="w-24 h-10 border-2 border-red-600 rounded-[50%] flex items-center justify-center bg-white shadow-xs">
+              <div className="flex items-center justify-start">
+                <div className="w-24 h-9 border-2 border-red-600 rounded-[50%] flex items-center justify-center bg-white shadow-xs">
                   <span className="text-red-600 font-black text-lg tracking-wider" style={{ fontFamily: 'Arial, sans-serif' }}>
                     NANO
                   </span>
@@ -378,10 +378,15 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
               </div>
 
               {/* Centered Form Title */}
-              <div className="text-center">
-                <h1 className="text-xl sm:text-2xl font-bold text-black tracking-normal">
+              <div className="text-center px-1">
+                <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-black tracking-normal whitespace-nowrap">
                   ใบขอดำเนินการจัดการด้านเอกสาร (DAR.)
                 </h1>
+              </div>
+
+              {/* Right Balancer / Form Ref Code */}
+              <div className="text-right text-[11px] font-mono text-slate-500 hidden sm:block">
+                FM-QS-001
               </div>
             </div>
 
