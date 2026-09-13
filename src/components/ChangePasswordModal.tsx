@@ -30,7 +30,7 @@ export const ChangePasswordModal: React.FC<{
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
@@ -57,8 +57,8 @@ export const ChangePasswordModal: React.FC<{
     }
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      const res = changePassword(oldPassword, newPassword);
+    try {
+      const res = await changePassword(oldPassword, newPassword);
       setIsSubmitting(false);
       if (res.success) {
         setSuccessMessage(res.message);
@@ -77,7 +77,10 @@ export const ChangePasswordModal: React.FC<{
       } else {
         setErrorMessage(res.message);
       }
-    }, 200);
+    } catch {
+      setIsSubmitting(false);
+      setErrorMessage('ไม่สามารถเปลี่ยนรหัสผ่านได้ กรุณาลองใหม่');
+    }
   };
 
   return (

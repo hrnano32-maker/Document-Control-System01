@@ -1,0 +1,32 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function profile() { return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data; }
+    function activeUser() { return signedIn() && profile().active == true; }
+    function isDcc() { return activeUser() && profile().role == 'DCC_ADMIN'; }
+
+    match /dcs/documents/{documentId}/{fileName} {
+      allow read: if activeUser();
+      allow write: if isDcc() && request.resource.size < 25 * 1024 * 1024;
+    }
+
+    match /dcs/dar-attachments/{uid}/{fileName} {
+      allow read: if activeUser();
+      allow create: if activeUser() && request.auth.uid == uid && request.resource.size < 25 * 1024 * 1024;
+      allow update, delete: if false;
+    }
+
+    match /dcs/signatures/{uid}/{fileName} {
+      allow read: if activeUser();
+      allow create: if activeUser() && request.auth.uid == uid && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow update, delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

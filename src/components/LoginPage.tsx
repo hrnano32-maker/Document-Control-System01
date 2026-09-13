@@ -23,7 +23,7 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
@@ -38,8 +38,8 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
     }
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      const res = login(username, password, rememberMe);
+    try {
+      const res = await login(username, password, rememberMe);
       setIsSubmitting(false);
       if (res.success) {
         setSuccessMessage(res.message);
@@ -47,7 +47,10 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
       } else {
         setErrorMessage(res.message);
       }
-    }, 200);
+    } catch {
+      setIsSubmitting(false);
+      setErrorMessage('ไม่สามารถเชื่อมต่อระบบยืนยันตัวตนได้ กรุณาลองใหม่');
+    }
   };
 
   return (

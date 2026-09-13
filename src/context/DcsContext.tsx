@@ -19,18 +19,20 @@ import {
   INITIAL_RE_REQUESTS,
   INITIAL_AUDIT_LOGS,
 } from '../data/initialData';
-import { USER_ACCOUNTS, UserAccount } from '../data/userCredentials';
+import {
+  changeDcsPassword,
+  observeDcsAuth,
+  signInDcsUser,
+  signOutDcsUser,
+} from '../services/authService';
 
 interface DcsContextType {
   // Session & Authentication
   currentUser: CurrentUserSession;
-  setCurrentDept: (dept: Department) => void;
   setUserName: (name: string) => void;
-  login: (username: string, password: string, rememberMe?: boolean) => { success: boolean; message: string };
-  loginAsDept: (username: string) => void;
+  login: (username: string, password: string, rememberMe?: boolean) => Promise<{ success: boolean; message: string }>;
   logout: () => void;
-  userAccounts: UserAccount[];
-  changePassword: (oldPassword: string, newPassword: string) => { success: boolean; message: string };
+  changePassword: (oldPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
   isChangePasswordOpen: boolean;
   setIsChangePasswordOpen: (open: boolean) => void;
 
@@ -112,8 +114,6 @@ const STORAGE_KEYS = {
   DISTRIBUTIONS: 'dcs_prod_distributions_v2',
   RE_REQUESTS: 'dcs_prod_re_requests_v2',
   AUDIT_LOGS: 'dcs_prod_audit_logs_v2',
-  AUTH_USER: 'dcs_auth_user_v2',
-  CUSTOM_PASSWORDS: 'dcs_custom_passwords_v2',
 };
 
 // Cleanup old mock prototype storage if present
@@ -129,54 +129,25 @@ if (typeof window !== 'undefined') {
 
 const DcsContext = createContext<DcsContextType | undefined>(undefined);
 
-export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Custom passwords state
-  const [customPasswords, setCustomPasswords] = useState<Record<string, string>>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CUSTOM_PASSWORDS);
-    return saved ? JSON.parse(saved) : {};
-  });
+const prevUnauthenticatedSession = (): CurrentUserSession => ({
+  currentDept: 'DCC', username: '', userName: '', userEmpId: '',
+  userRole: 'STAFF', roleName: 'Department User', deptDescriptionTh: '',
+  position: '', isAuthenticated: false, allowedViews: [],
+});
 
+export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
-  // Current user state (auto login from saved session)
-  const [currentUser, setCurrentUser] = useState<CurrentUserSession>(() => {
-    const savedAuth = localStorage.getItem(STORAGE_KEYS.AUTH_USER);
-    if (savedAuth) {
-      try {
-        const parsed = JSON.parse(savedAuth);
-        if (parsed && parsed.currentDept && parsed.isAuthenticated) {
-          const account = USER_ACCOUNTS.find(a => a.dept === parsed.currentDept) || USER_ACCOUNTS[0];
-          return {
-            currentDept: account.dept,
-            username: account.username,
-            userName: account.nameTh,
-            userEmpId: account.empId,
-            userRole: account.role,
-            roleName: account.roleName,
-            deptDescriptionTh: account.deptDescriptionTh,
-            position: account.position,
-            isAuthenticated: true,
-            allowedViews: account.allowedViews,
-          };
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    const defaultAccount = USER_ACCOUNTS[0];
-    return {
-      currentDept: defaultAccount.dept,
-      username: defaultAccount.username,
-      userName: defaultAccount.nameTh,
-      userEmpId: defaultAccount.empId,
-      userRole: defaultAccount.role,
-      roleName: defaultAccount.roleName,
-      deptDescriptionTh: defaultAccount.deptDescriptionTh,
-      position: defaultAccount.position,
-      isAuthenticated: false,
-      allowedViews: defaultAccount.allowedViews,
-    };
+  const [currentUser, setCurrentUser] = useState<CurrentUserSession>({
+    currentDept: 'DCC', username: '', userName: '', userEmpId: '',
+    userRole: 'STAFF', roleName: 'Department User', deptDescriptionTh: '',
+    position: '', isAuthenticated: false, allowedViews: [],
   });
+
+  useEffect(() => observeDcsAuth(session => {
+    setCurrentUser(session || prevUnauthenticatedSession());
+    if (!session) setActiveView('dashboard');
+  }), []);
 
   // Main state with localStorage fallback
   const [documents, setDocuments] = useState<MasterDocument[]>(() => {
@@ -249,136 +220,24 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(auditLogs));
   }, [auditLogs]);
 
-  const setCurrentDept = (dept: Department) => {
-    const account = USER_ACCOUNTS.find(a => a.dept === dept) || USER_ACCOUNTS[0];
-    const session: CurrentUserSession = {
-      currentDept: account.dept,
-      username: account.username,
-      userName: account.nameTh,
-      userEmpId: account.empId,
-      userRole: account.role,
-      roleName: account.roleName,
-      deptDescriptionTh: account.deptDescriptionTh,
-      position: account.position,
-      isAuthenticated: true,
-      allowedViews: account.allowedViews,
-    };
-    setCurrentUser(session);
-    localStorage.setItem(STORAGE_KEYS.AUTH_USER, JSON.stringify(session));
-    if (dept !== 'DCC' && (activeView === 'masterlist' || activeView === 'distribution')) {
-      setActiveView('dashboard');
-    }
-  };
-
-  const login = (usernameInput: string, passwordInput: string, rememberMe = true): { success: boolean; message: string } => {
-    const trimmedUser = usernameInput.trim().toLowerCase();
-    const trimmedPass = passwordInput.trim();
-
-    const account = USER_ACCOUNTS.find(a => {
-      const userMatches =
-        a.username.toLowerCase() === trimmedUser ||
-        (a.aliases && a.aliases.some(alias => alias.toLowerCase() === trimmedUser));
-      
-      return userMatches;
-    });
-
-    if (!account) {
-      return {
-        success: false,
-        message: 'ชื่อผู้ใช้งาน (Username) หรือรหัสผ่าน (Password) ไม่ถูกต้อง กรุณาตรวจสอบข้อมูลประจำแผนก',
-      };
-    }
-
-    // Check custom changed password first, then default initial password & altPasswords
-    const effectivePass = customPasswords[account.username.toLowerCase()] || account.password;
-    const passMatches =
-      effectivePass === trimmedPass ||
-      effectivePass.toLowerCase() === trimmedPass.toLowerCase() ||
-      (account.altPasswords && account.altPasswords.some(alt => alt === trimmedPass || alt.toLowerCase() === trimmedPass.toLowerCase()));
-
-    if (!passMatches) {
-      return {
-        success: false,
-        message: 'ชื่อผู้ใช้งาน (Username) หรือรหัสผ่าน (Password) ไม่ถูกต้อง กรุณาตรวจสอบข้อมูลประจำแผนก',
-      };
-    }
-
-    const session: CurrentUserSession = {
-      currentDept: account.dept,
-      username: account.username,
-      userName: account.nameTh,
-      userEmpId: account.empId,
-      userRole: account.role,
-      roleName: account.roleName,
-      deptDescriptionTh: account.deptDescriptionTh,
-      position: account.position,
-      isAuthenticated: true,
-      allowedViews: account.allowedViews,
-    };
-
-    setCurrentUser(session);
-    if (rememberMe) {
-      localStorage.setItem(STORAGE_KEYS.AUTH_USER, JSON.stringify(session));
-    }
+  const login = async (usernameInput: string, passwordInput: string, rememberMe = true) => {
+    try {
+      const session = await signInDcsUser(usernameInput, passwordInput, rememberMe);
+      setCurrentUser(session);
     setActiveView('dashboard');
-
-    logAudit(
-      'DAR_REVIEWED' as any,
-      'AUTH-LOGIN',
-      '00',
-      `ผู้ใช้ ${account.username} (${account.nameTh}) เข้าสู่ระบบสำเร็จในฐานะ [${account.dept} - ${account.roleName}]`,
-      { dept: account.dept, username: account.username }
-    );
-
-    return {
-      success: true,
-      message: `เข้าสู่ระบบสำเร็จ! ยินดีต้อนรับ ${account.nameTh} (${account.dept})`,
-    };
+      return { success: true, message: `เข้าสู่ระบบสำเร็จ ยินดีต้อนรับ ${session.userName}` };
+    } catch (error) {
+      console.error(error);
+      return { success: false, message: 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง หรือบัญชีไม่มีสิทธิ์ใช้งานระบบ' };
+    }
   };
 
-  const changePassword = (oldPassword: string, newPassword: string): { success: boolean; message: string } => {
-    const trimmedUser = currentUser.username.toLowerCase();
-    const account = USER_ACCOUNTS.find(a => 
-      a.username.toLowerCase() === trimmedUser || 
-      a.dept === currentUser.currentDept
-    );
-
-    if (!account) {
-      return { success: false, message: 'ไม่พบบัญชีผู้ใช้งานที่เข้าสู่ระบบ' };
-    }
-
-    const effectiveCurrentPass = customPasswords[account.username.toLowerCase()] || account.password;
-    const isOldMatch = 
-      (oldPassword.trim() === effectiveCurrentPass) ||
-      (account.altPasswords && account.altPasswords.includes(oldPassword.trim()));
-
-    if (!isOldMatch) {
-      return { success: false, message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง กรุณาตรวจสอบและลองใหม่อีกครั้ง' };
-    }
-
-    const updated = { ...customPasswords, [account.username.toLowerCase()]: newPassword.trim() };
-    setCustomPasswords(updated);
-    localStorage.setItem(STORAGE_KEYS.CUSTOM_PASSWORDS, JSON.stringify(updated));
-
-    logAudit(
-      'DAR_REVIEWED' as any,
-      'PASSWORD-UPDATE',
-      '00',
-      `ผู้ใช้ ${currentUser.username} (${currentUser.userName}) แผนก ${currentUser.currentDept} ได้เปลี่ยนรหัสผ่านเข้าสู่ระบบสำเร็จ`,
-      { dept: currentUser.currentDept, username: currentUser.username }
-    );
-
-    return {
-      success: true,
-      message: 'เปลี่ยนรหัสผ่านใหม่สำเร็จเรียบร้อยแล้ว!',
-    };
-  };
-
-  const loginAsDept = (username: string) => {
-    const account = USER_ACCOUNTS.find(a => a.username.toLowerCase() === username.toLowerCase());
-    if (account) {
-      const effectivePass = customPasswords[account.username.toLowerCase()] || account.password;
-      login(account.username, effectivePass);
+  const changePassword = async (oldPassword: string, newPassword: string) => {
+    try {
+      await changeDcsPassword(oldPassword, newPassword.trim());
+      return { success: true, message: 'เปลี่ยนรหัสผ่านใหม่สำเร็จเรียบร้อยแล้ว' };
+    } catch {
+      return { success: false, message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง หรือเซสชันหมดอายุ' };
     }
   };
 
@@ -392,7 +251,7 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setCurrentUser(unauthenticatedSession);
-    localStorage.removeItem(STORAGE_KEYS.AUTH_USER);
+    void signOutDcsUser();
     setActiveView('dashboard');
 
     logAudit(
@@ -405,7 +264,9 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const safeSetActiveView = (view: string) => {
-    setActiveView(view);
+    if (currentUser.allowedViews.includes(view as CurrentUserSession['allowedViews'][number])) {
+      setActiveView(view);
+    }
   };
 
   const setUserName = (name: string) => {
@@ -1047,19 +908,16 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDistributions(INITIAL_DISTRIBUTIONS);
     setReRequests(INITIAL_RE_REQUESTS);
     setAuditLogs(INITIAL_AUDIT_LOGS);
-    setCurrentDept('DCC');
+    setActiveView('dashboard');
   };
 
   return (
     <DcsContext.Provider
       value={{
         currentUser,
-        setCurrentDept,
         setUserName,
         login,
-        loginAsDept,
         logout,
-        userAccounts: USER_ACCOUNTS,
         documents,
         addDocument,
         updateDocumentRevision,
