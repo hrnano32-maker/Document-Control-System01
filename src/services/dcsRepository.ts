@@ -11,8 +11,9 @@ import {
   Timestamp,
   updateDoc,
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { getBlob, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { db, storage } from '../lib/firebase';
+import { db, firebaseFunctions, storage } from '../lib/firebase';
 import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionRecord, MasterDocument } from '../types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -134,7 +135,7 @@ export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord
   const darRef = doc(db, 'dcs_dars', dar.id);
   const today = new Date().toISOString().slice(0, 10);
   const reviewDue = new Date(Date.now() + 365 * DAY_MS).toISOString().slice(0, 10);
-  await runTransaction(db, async tx => {
+  const previousFile = await runTransaction(db, async tx => {
     const [darSnap, masterSnap] = await Promise.all([tx.get(darRef), tx.get(masterRef)]);
     if (darSnap.data()?.status !== 'APPROVED') throw new Error('สถานะ DAR ถูกเปลี่ยน กรุณารีเฟรชและตรวจสอบใหม่');
     const previous = masterSnap.data() as MasterDocument | undefined;
@@ -168,7 +169,11 @@ export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord
     });
     tx.set(masterRef, next);
     tx.update(darRef, { status: 'REGISTERED', updatedAt: new Date().toISOString() });
+    return previous?.currentFileStoragePath ? { path: previous.currentFileStoragePath, revision: previous.currentRevision, newRevision: revision } : null;
   });
+  if (previousFile && (previousFile.revision !== previousFile.newRevision || dar.requestType === 'OBSOLETE')) {
+    await httpsCallable(firebaseFunctions, 'cancelPreviousRevision')({ docId: masterRef.id, previousPath: previousFile.path, previousRevision: previousFile.revision, newRevision: previousFile.newRevision });
+  }
   await writeAudit(user, 'DOCUMENT_REGISTERED', dar.docNo, dar.proposedRevision, `ขึ้นทะเบียนจาก ${dar.id} เข้า Master List`, { darId: dar.id });
 };
 
@@ -177,13 +182,14 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
   const allocation = master.distributionDepartments || [];
   if (!allocation.length) throw new Error('DAR ต้นทางไม่ได้ระบุหน่วยงานแจกจ่าย');
   if (!file?.dataUrl) throw new Error('ต้องอัปโหลดไฟล์ Controlled Copy ฉบับจริงก่อนแจกจ่าย');
+  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) throw new Error('ไฟล์ Controlled Copy ต้องเป็น PDF เท่านั้น');
   const seq = await nextNumber('distribution');
   const year = new Date().getFullYear();
   const distributionNo = `DC-DIS-${year}-${String(seq).padStart(4, '0')}`;
   const id = distributionNo;
   const now = new Date();
-  const path = `dcs/distributions/${id}/${safeName(file.name)}`;
-  await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl), { contentType: file.type });
+  const path = `dcs/distributions/${id}/source/${safeName(file.name)}`;
+  await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl), { contentType: 'application/pdf' });
   const targets = allocation.map(item => ({ dept: item.dept, allocatedCopies: item.copies, copyNo: `${item.copies} สำเนา`, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' as const }));
   const allocationByDepartment = Object.fromEntries(allocation.map(item => [item.dept, item.copies]));
   const record: DistributionRecord & { createdAt: string; receipts: Record<string, unknown> } = clean({
@@ -192,11 +198,17 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
     effectiveDate: master.effectiveDate, distributedBy: user.userName, distributedDate: now.toISOString(),
     expirationDate: new Date(now.getTime() + 3 * DAY_MS).toISOString(), expirationEpoch: now.getTime() + 3 * DAY_MS, status: 'IN_PROGRESS',
     darReferenceId: master.darReferenceId, targetDepartments: targets.map(t => t.dept), allocationByDepartment, targets, receipts: {},
-    instructions, fileName: file.name, fileSize: file.size, fileType: file.type,
-    fileStoragePath: path, storageStatus: 'AVAILABLE', allDownloadedAt: null, fileDeletedAt: null,
+    instructions, fileName: file.name, fileSize: file.size, fileType: 'application/pdf',
+    sourceStoragePath: path, storageStatus: 'PROCESSING', stampStatus: 'PROCESSING', allDownloadedAt: null, fileDeletedAt: null,
     createdAt: now.toISOString(),
   });
   await setDoc(doc(db, 'dcs_distributions', id), { ...record, expirationAt: Timestamp.fromMillis(record.expirationEpoch) });
+  try {
+    await httpsCallable(firebaseFunctions, 'stampControlledCopies')({ distributionId: id });
+  } catch (error) {
+    await updateDoc(doc(db, 'dcs_distributions', id), { stampStatus: 'FAILED', storageStatus: 'PURGE_PENDING', updatedAt: new Date().toISOString() });
+    throw error;
+  }
   await writeAudit(user, 'DISTRIBUTION_INITIATED', master.docNo, master.currentRevision, `แจกจ่าย ${distributionNo} ตามรายชื่อหน่วยงานใน ${master.darReferenceId}`, { targets: record.targetDepartments });
   return distributionNo;
 };
@@ -204,8 +216,9 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
 export const acknowledgeDownload = async (user: CurrentUserSession, distribution: DistributionRecord, dept: Department, person: { name: string; empId: string; position: string; signatureDataUrl: string }) => {
   if (user.currentDept !== dept) throw new Error('บัญชีนี้ไม่ตรงกับหน่วยงานผู้รับเอกสาร');
   const distRef = doc(db, 'dcs_distributions', distribution.id);
-  if (!distribution.fileStoragePath) throw new Error('ไม่พบไฟล์ Controlled Copy');
-  const controlledFile = await getBlob(ref(storage, distribution.fileStoragePath));
+  const departmentPath = distribution.departmentFiles?.[dept];
+  if (!departmentPath || distribution.stampStatus !== 'COMPLETED') throw new Error('ไฟล์ Controlled Copy ของหน่วยงานยังไม่พร้อม กรุณาติดต่อ DCC');
+  const controlledFile = await getBlob(ref(storage, departmentPath));
   const signaturePath = `dcs/signatures/${user.uid}/${distribution.id}/${Date.now()}.png`;
   await uploadBytes(ref(storage, signaturePath), await dataUrlBlob(person.signatureDataUrl), { contentType: 'image/png' });
   await runTransaction(db, async tx => {
@@ -243,12 +256,14 @@ export const decideCopyRequest = async (user: CurrentUserSession, request: CopyR
     const old = oldSnap.data() as DistributionRecord;
     const seq = await nextNumber('distribution');
     const id = `DC-DIS-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
-    const path = `dcs/distributions/${id}/${safeName(file.name)}`;
-    await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl), { contentType: file.type });
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) throw new Error('ไฟล์ Controlled Copy ต้องเป็น PDF เท่านั้น');
+    const path = `dcs/distributions/${id}/source/${safeName(file.name)}`;
+    await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl), { contentType: 'application/pdf' });
     const copies = old.allocationByDepartment?.[request.dept] || 1;
     const now = new Date();
-    const reissued = clean({ ...old, id, distributionNo: id, distributedBy: user.userName, distributedDate: now.toISOString(), expirationDate: new Date(now.getTime() + 3 * DAY_MS).toISOString(), expirationEpoch: now.getTime() + 3 * DAY_MS, status: 'IN_PROGRESS', targetDepartments: [request.dept], allocationByDepartment: { [request.dept]: copies }, targets: [{ dept: request.dept, allocatedCopies: copies, copyNo: `${copies} สำเนา`, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' }], receipts: {}, fileName: file.name, fileSize: file.size, fileType: file.type, fileStoragePath: path, storageStatus: 'AVAILABLE', allDownloadedAt: null, fileDeletedAt: null, reissueOf: old.id, createdAt: now.toISOString(), updatedAt: now.toISOString() });
+    const reissued = clean({ ...old, id, distributionNo: id, distributedBy: user.userName, distributedDate: now.toISOString(), expirationDate: new Date(now.getTime() + 3 * DAY_MS).toISOString(), expirationEpoch: now.getTime() + 3 * DAY_MS, status: 'IN_PROGRESS', targetDepartments: [request.dept], allocationByDepartment: { [request.dept]: copies }, targets: [{ dept: request.dept, allocatedCopies: copies, copyNo: `${copies} สำเนา`, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' }], receipts: {}, departmentFiles: {}, departmentFileKeys: {}, fileName: file.name, fileSize: file.size, fileType: 'application/pdf', fileStoragePath: null, sourceStoragePath: path, stampStatus: 'PROCESSING', storageStatus: 'PROCESSING', allDownloadedAt: null, fileDeletedAt: null, reissueOf: old.id, createdAt: now.toISOString(), updatedAt: now.toISOString() });
     await setDoc(doc(db, 'dcs_distributions', id), { ...reissued, expirationAt: Timestamp.fromMillis(now.getTime() + 3 * DAY_MS) });
+    await httpsCallable(firebaseFunctions, 'stampControlledCopies')({ distributionId: id });
     reissuedDistributionId = id;
   }
   await updateDoc(doc(db, 'dcs_copy_requests', request.id), clean({ status: approve ? 'APPROVED' : 'REJECTED', dccDecisionBy: user.userName, dccDecisionDate: new Date().toISOString(), dccDecisionNote: note, reissuedDistributionId, updatedAt: new Date().toISOString() }));
@@ -270,4 +285,7 @@ export const reviseMasterDocument = async (user: CurrentUserSession, master: Mas
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่แก้ไข Master List ได้');
   const history = [...master.revisionHistory.map(item => ({ ...item, status: 'SUPERSEDED' as const })), { rev: newRev, effectiveDate, darNo, reason, registeredBy: user.userName, registeredDate: new Date().toISOString().slice(0, 10), status: 'ACTIVE' as const, controlledDriveLink: driveLink }];
   await updateDoc(doc(db, 'dcs_documents', master.id), clean({ currentRevision: newRev, effectiveDate, controlledDriveLink: driveLink, revisionHistory: history, updatedAt: new Date().toISOString() }));
+  if (master.currentFileStoragePath && master.currentRevision !== newRev) {
+    await httpsCallable(firebaseFunctions, 'cancelPreviousRevision')({ docId: master.id, previousPath: master.currentFileStoragePath, previousRevision: master.currentRevision, newRevision: newRev });
+  }
 };

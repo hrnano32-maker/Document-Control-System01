@@ -753,11 +753,13 @@ export const MasterListView: React.FC = () => {
 
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">ไฟล์ Controlled Copy ฉบับจริง <span className="text-rose-600">*</span></label>
-                    <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" onChange={event => {
+                    <input type="file" accept="application/pdf,.pdf" onChange={event => {
                       const file = event.target.files?.[0]; if (!file) return;
+                      if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) { setDistError('ไฟล์ Controlled Copy ต้องเป็น PDF เท่านั้น'); event.target.value = ''; return; }
                       if (file.size > 25 * 1024 * 1024) { setDistError('ไฟล์ต้องมีขนาดไม่เกิน 25 MB'); return; }
                       const reader = new FileReader(); reader.onload = () => setDistFile({ name: file.name, size: `${(file.size / 1024 / 1024).toFixed(2)} MB`, type: file.type || 'application/octet-stream', dataUrl: String(reader.result) }); reader.readAsDataURL(file);
                     }} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white" />
+                    <p className="mt-1 text-[10px] text-slate-500">ระบบจะประทับตราสีแดง CONTROLLED COPY และชื่อแผนกบนทุกหน้าโดยอัตโนมัติ</p>
                   </div>
 
                   <div>

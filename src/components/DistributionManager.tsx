@@ -169,7 +169,7 @@ export const DistributionManager: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-                  <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" onChange={event => { const file = event.target.files?.[0]; if (!file) return; if (file.size > 25 * 1024 * 1024) { alert('ไฟล์ต้องไม่เกิน 25 MB'); return; } const reader = new FileReader(); reader.onload = () => setReissueFiles(prev => ({ ...prev, [req.id]: { name: file.name, size: `${(file.size / 1024 / 1024).toFixed(2)} MB`, type: file.type || 'application/octet-stream', dataUrl: String(reader.result) } })); reader.readAsDataURL(file); }} className="max-w-52 text-[11px]" title="ไฟล์ Controlled Copy ฉบับใหม่" />
+                  <input type="file" accept="application/pdf,.pdf" onChange={event => { const file = event.target.files?.[0]; if (!file) return; if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) { alert('ไฟล์ Controlled Copy ต้องเป็น PDF เท่านั้น'); event.target.value = ''; return; } if (file.size > 25 * 1024 * 1024) { alert('ไฟล์ต้องไม่เกิน 25 MB'); return; } const reader = new FileReader(); reader.onload = () => setReissueFiles(prev => ({ ...prev, [req.id]: { name: file.name, size: `${(file.size / 1024 / 1024).toFixed(2)} MB`, type: file.type || 'application/pdf', dataUrl: String(reader.result) } })); reader.readAsDataURL(file); }} className="max-w-52 text-[11px]" title="ไฟล์ Controlled Copy ฉบับใหม่ (PDF)" />
                   <button
                     onClick={() => handleApproveReRequest(req.id)}
                     disabled={!reissueFiles[req.id]}

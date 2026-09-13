@@ -206,6 +206,8 @@ export interface MasterDocument {
   revisionHistory: RevisionHistoryItem[];
   retentionPeriodYears: number;
   distributionDepartments?: { dept: Department; copies: number; position: string }[];
+  currentFileStoragePath?: string;
+  cancelledFileStoragePaths?: Record<string, string>;
 
   // Attached File Data
   fileName?: string;
@@ -252,9 +254,13 @@ export interface DistributionRecord {
   darReferenceId: string;
   targetDepartments: Department[];
   allocationByDepartment: Record<string, number>;
+  departmentFiles?: Record<string, string>;
+  departmentFileKeys?: Record<string, string>;
   allDownloadedAt?: string | null;
   fileDeletedAt?: string | null;
-  storageStatus?: 'AVAILABLE' | 'PURGE_PENDING' | 'PURGED';
+  storageStatus?: 'PROCESSING' | 'AVAILABLE' | 'PURGE_PENDING' | 'PURGED';
+  stampStatus?: 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  sourceStoragePath?: string | null;
   fileStoragePath?: string;
   controlledDriveLink?: string;
   instructions: string;
