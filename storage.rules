@@ -39,9 +39,9 @@ service firebase.storage {
       allow update, delete: if false;
     }
 
-    match /dcs/distributions/{distributionId}/controlled/{department}.pdf {
+    match /dcs/distributions/{distributionId}/controlled/{fileName} {
       allow read: if activeUser() && (isDcc() || (
-        firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.departmentFileKeys[profile().department] == department
+        firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.departmentFileKeys[profile().department] + '.pdf' == fileName
         &&
         firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.targetDepartments.hasAny([profile().department])
         && request.time <= firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.expirationAt
