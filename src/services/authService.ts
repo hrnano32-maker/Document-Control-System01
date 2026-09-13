@@ -39,6 +39,7 @@ export const loadDcsProfile = async (user: User): Promise<CurrentUserSession> =>
       : ['dashboard', 'masterlist', 'dar', 'distribution', 'audit'];
 
   return {
+    uid: user.uid,
     currentDept: profile.department,
     username: profile.username,
     userName: profile.displayName,

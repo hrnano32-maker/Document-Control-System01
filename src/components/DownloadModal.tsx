@@ -146,7 +146,7 @@ export const DownloadModal: React.FC = () => {
     }
   };
 
-  const handleConfirmDownload = () => {
+  const handleConfirmDownload = async () => {
     setErrorMsg('');
 
     if (isExpired) {
@@ -171,7 +171,7 @@ export const DownloadModal: React.FC = () => {
 
     setIsSubmitting(true);
 
-    const result = downloadControlledCopy(
+    const result = await downloadControlledCopy(
       distribution.id,
       dept,
       downloaderName.trim(),
@@ -188,10 +188,10 @@ export const DownloadModal: React.FC = () => {
         origin: { y: 0.6 },
       });
 
-      // If binary fileDataUrl is present, download the actual attached file directly
-      if (distribution.fileDataUrl) {
+      // Download the real controlled file from Firebase Storage after the receipt transaction succeeds.
+      if (result.downloadUrl) {
         const link = document.createElement('a');
-        link.href = distribution.fileDataUrl;
+        link.href = result.downloadUrl;
         const baseName = distribution.fileName || `${distribution.docNo}_Rev${distribution.revision}_CONTROLLED.pdf`;
         link.download = `CONTROLLED_${dept}_${baseName}`;
         document.body.appendChild(link);

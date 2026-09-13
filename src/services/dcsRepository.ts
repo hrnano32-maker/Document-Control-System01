@@ -1,0 +1,273 @@
+import {
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
+  runTransaction,
+  setDoc,
+  Timestamp,
+  updateDoc,
+} from 'firebase/firestore';
+import { getBlob, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { db, storage } from '../lib/firebase';
+import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionRecord, MasterDocument } from '../types';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
+
+const dataUrlBlob = async (dataUrl: string) => (await fetch(dataUrl)).blob();
+const safeName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+export const subscribeCollection = <T,>(name: string, callback: (rows: T[]) => void) =>
+  onSnapshot(query(collection(db, name), orderBy('createdAt', 'desc')), snap => {
+    callback(snap.docs.map(item => item.data() as T));
+  });
+
+export const subscribeAudit = (callback: (rows: AuditLogEntry[]) => void) =>
+  onSnapshot(query(collection(db, 'dcs_audit_logs'), orderBy('timestamp', 'desc')), snap => {
+    callback(snap.docs.map(item => item.data() as AuditLogEntry));
+  });
+
+export const subscribeDars = (user: CurrentUserSession, callback: (rows: DarRecord[]) => void) => {
+  const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('createdAt', 'desc')] : [where('requestDept', '==', user.currentDept), orderBy('createdAt', 'desc')];
+  return onSnapshot(query(collection(db, 'dcs_dars'), ...constraints), snap => callback(snap.docs.map(item => item.data() as DarRecord)));
+};
+export const subscribeDistributions = (user: CurrentUserSession, callback: (rows: DistributionRecord[]) => void) => {
+  const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('createdAt', 'desc')] : [where('targetDepartments', 'array-contains', user.currentDept), orderBy('createdAt', 'desc')];
+  return onSnapshot(query(collection(db, 'dcs_distributions'), ...constraints), snap => callback(snap.docs.map(item => item.data() as DistributionRecord)));
+};
+export const subscribeCopyRequests = (user: CurrentUserSession, callback: (rows: CopyReRequest[]) => void) => {
+  const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('createdAt', 'desc')] : [where('dept', '==', user.currentDept), orderBy('createdAt', 'desc')];
+  return onSnapshot(query(collection(db, 'dcs_copy_requests'), ...constraints), snap => callback(snap.docs.map(item => item.data() as CopyReRequest)));
+};
+export const subscribeAuditForUser = (user: CurrentUserSession, callback: (rows: AuditLogEntry[]) => void) => {
+  const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('timestamp', 'desc')] : [where('actorDept', '==', user.currentDept), orderBy('timestamp', 'desc')];
+  return onSnapshot(query(collection(db, 'dcs_audit_logs'), ...constraints), snap => callback(snap.docs.map(item => item.data() as AuditLogEntry)));
+};
+
+const actorFields = (user: CurrentUserSession) => ({
+  actor: `${user.userName} (${user.currentDept})`,
+  actorDept: user.currentDept,
+  actorUid: user.uid,
+});
+
+export const writeAudit = async (
+  user: CurrentUserSession,
+  actionType: AuditActionType,
+  docNo: string,
+  revision: string,
+  description: string,
+  details?: Record<string, unknown>,
+) => {
+  const logRef = doc(collection(db, 'dcs_audit_logs'));
+  const entry = clean({
+    id: logRef.id,
+    timestamp: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    ...actorFields(user),
+    actionType,
+    docNo,
+    revision,
+    description,
+    details: details || {},
+  });
+  await setDoc(logRef, entry);
+};
+
+const nextNumber = async (kind: 'dar' | 'distribution' | 'request') => {
+  const year = new Date().getFullYear();
+  const counterRef = doc(db, 'dcs_counters', `${kind}-${year}`);
+  return runTransaction(db, async tx => {
+    const snapshot = await tx.get(counterRef);
+    const next = (snapshot.data()?.value || 0) + 1;
+    tx.set(counterRef, { value: next, kind, year, updatedAt: new Date().toISOString() });
+    return next;
+  });
+};
+
+export const createDarRecord = async (user: CurrentUserSession, input: Omit<DarRecord, 'id' | 'requestDate' | 'status'>) => {
+  if (input.requestDept !== user.currentDept && user.userRole !== 'DCC_ADMIN') throw new Error('ไม่มีสิทธิ์สร้าง DAR แทนหน่วยงานอื่น');
+  if (!input.distributionHolders?.some(item => item.checked)) throw new Error('ต้องระบุหน่วยงานผู้รับเอกสารอย่างน้อย 1 หน่วยงาน');
+  if (!input.attachmentFileDataUrl || !input.attachmentFileName) throw new Error('ต้องแนบไฟล์ร่างเอกสารจริงก่อนส่ง DAR');
+  const seq = await nextNumber('dar');
+  const year = new Date().getFullYear();
+  const id = `DAR-${year}-${String(seq).padStart(4, '0')}`;
+  const createdAt = new Date().toISOString();
+  const record: DarRecord & { createdAt: string; attachmentStoragePath?: string } = clean({
+    ...input,
+    id,
+    requestDate: createdAt.slice(0, 10),
+    status: 'PENDING_REVIEW',
+    createdAt,
+  });
+  const dataUrl = record.attachmentFileDataUrl;
+  delete record.attachmentFileDataUrl;
+  if (dataUrl && record.attachmentFileName) {
+    const path = `dcs/dar-attachments/${user.uid}/${id}/${safeName(record.attachmentFileName)}`;
+    await uploadBytes(ref(storage, path), await dataUrlBlob(dataUrl), { contentType: record.attachmentFileType });
+    record.attachmentStoragePath = path;
+  }
+  await setDoc(doc(db, 'dcs_dars', id), record);
+  await writeAudit(user, 'DAR_CREATED', record.docNo, record.proposedRevision, `สร้างคำขอ ${id} และส่งถึง DCC`, { darId: id });
+  return id;
+};
+
+export const patchDarRecord = async (id: string, updates: Partial<DarRecord>) => {
+  await updateDoc(doc(db, 'dcs_dars', id), clean({ ...updates, updatedAt: new Date().toISOString() }));
+};
+
+export const reviewDarRecord = async (user: CurrentUserSession, dar: DarRecord, status: 'APPROVED' | 'REJECTED' | 'UNDER_REVIEW', remarks: string) => {
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่ตรวจสอบ DAR ได้');
+  await patchDarRecord(dar.id, { status, dccReviewer: user.userName, dccReviewDate: new Date().toISOString().slice(0, 10), dccRemarks: remarks });
+  await writeAudit(user, 'DAR_REVIEWED', dar.docNo, dar.proposedRevision, `ตรวจสอบ ${dar.id}: ${status}`, { remarks });
+};
+
+const documentKey = (docNo: string) => encodeURIComponent(docNo.trim().toUpperCase()).replace(/%/g, '_');
+
+export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord) => {
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่ขึ้นทะเบียนเอกสารได้');
+  if (dar.status !== 'APPROVED') throw new Error('DAR ต้องได้รับอนุมัติก่อนขึ้นทะเบียน Master List');
+  const masterRef = doc(db, 'dcs_documents', documentKey(dar.docNo));
+  const darRef = doc(db, 'dcs_dars', dar.id);
+  const today = new Date().toISOString().slice(0, 10);
+  const reviewDue = new Date(Date.now() + 365 * DAY_MS).toISOString().slice(0, 10);
+  await runTransaction(db, async tx => {
+    const [darSnap, masterSnap] = await Promise.all([tx.get(darRef), tx.get(masterRef)]);
+    if (darSnap.data()?.status !== 'APPROVED') throw new Error('สถานะ DAR ถูกเปลี่ยน กรุณารีเฟรชและตรวจสอบใหม่');
+    const previous = masterSnap.data() as MasterDocument | undefined;
+    const history = previous?.revisionHistory || [];
+    const revision = dar.proposedRevision || dar.currentRevision || '00';
+    const distributionDepartments = (dar.distributionHolders || []).filter(x => x.checked).map(x => ({ dept: x.dept, copies: Math.max(1, Number(x.copies) || 1), position: x.position }));
+    const next: MasterDocument = clean({
+      ...(previous || {}),
+      id: masterRef.id,
+      docNo: dar.docNo,
+      docNameTh: dar.docNameTh,
+      docNameEn: dar.docNameEn,
+      docType: dar.docType,
+      ownerDept: dar.requestDept,
+      currentRevision: revision,
+      effectiveDate: dar.targetEffectiveDate || today,
+      reviewDueDate: reviewDue,
+      status: dar.requestType === 'OBSOLETE' ? 'OBSOLETE' : 'ACTIVE',
+      darReferenceId: dar.id,
+      createdAt: previous?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      retentionPeriodYears: previous?.retentionPeriodYears || 5,
+      distributionDepartments,
+      fileName: dar.attachmentFileName,
+      fileSize: dar.attachmentFileSize,
+      fileType: dar.attachmentFileType,
+      revisionHistory: [
+        ...history.map(item => ({ ...item, status: 'SUPERSEDED' as const })),
+        { rev: revision, effectiveDate: dar.targetEffectiveDate || today, darNo: dar.id, reason: dar.reasonForChange, registeredBy: user.userName, registeredDate: today, status: dar.requestType === 'OBSOLETE' ? 'OBSOLETE' as const : 'ACTIVE' as const, controlledDriveLink: '' },
+      ],
+    });
+    tx.set(masterRef, next);
+    tx.update(darRef, { status: 'REGISTERED', updatedAt: new Date().toISOString() });
+  });
+  await writeAudit(user, 'DOCUMENT_REGISTERED', dar.docNo, dar.proposedRevision, `ขึ้นทะเบียนจาก ${dar.id} เข้า Master List`, { darId: dar.id });
+};
+
+export const createDistributionRecord = async (user: CurrentUserSession, master: MasterDocument, instructions: string, file?: { name: string; size: string; type: string; dataUrl?: string }) => {
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่แจกจ่ายเอกสารได้');
+  const allocation = master.distributionDepartments || [];
+  if (!allocation.length) throw new Error('DAR ต้นทางไม่ได้ระบุหน่วยงานแจกจ่าย');
+  if (!file?.dataUrl) throw new Error('ต้องอัปโหลดไฟล์ Controlled Copy ฉบับจริงก่อนแจกจ่าย');
+  const seq = await nextNumber('distribution');
+  const year = new Date().getFullYear();
+  const distributionNo = `DC-DIS-${year}-${String(seq).padStart(4, '0')}`;
+  const id = distributionNo;
+  const now = new Date();
+  const path = `dcs/distributions/${id}/${safeName(file.name)}`;
+  await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl), { contentType: file.type });
+  const targets = allocation.map(item => ({ dept: item.dept, allocatedCopies: item.copies, copyNo: `${item.copies} สำเนา`, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' as const }));
+  const allocationByDepartment = Object.fromEntries(allocation.map(item => [item.dept, item.copies]));
+  const record: DistributionRecord & { createdAt: string; receipts: Record<string, unknown> } = clean({
+    id, distributionNo, docId: master.id, docNo: master.docNo, docNameTh: master.docNameTh,
+    docNameEn: master.docNameEn, docType: master.docType, revision: master.currentRevision,
+    effectiveDate: master.effectiveDate, distributedBy: user.userName, distributedDate: now.toISOString(),
+    expirationDate: new Date(now.getTime() + 3 * DAY_MS).toISOString(), expirationEpoch: now.getTime() + 3 * DAY_MS, status: 'IN_PROGRESS',
+    darReferenceId: master.darReferenceId, targetDepartments: targets.map(t => t.dept), allocationByDepartment, targets, receipts: {},
+    instructions, fileName: file.name, fileSize: file.size, fileType: file.type,
+    fileStoragePath: path, storageStatus: 'AVAILABLE', allDownloadedAt: null, fileDeletedAt: null,
+    createdAt: now.toISOString(),
+  });
+  await setDoc(doc(db, 'dcs_distributions', id), { ...record, expirationAt: Timestamp.fromMillis(record.expirationEpoch) });
+  await writeAudit(user, 'DISTRIBUTION_INITIATED', master.docNo, master.currentRevision, `แจกจ่าย ${distributionNo} ตามรายชื่อหน่วยงานใน ${master.darReferenceId}`, { targets: record.targetDepartments });
+  return distributionNo;
+};
+
+export const acknowledgeDownload = async (user: CurrentUserSession, distribution: DistributionRecord, dept: Department, person: { name: string; empId: string; position: string; signatureDataUrl: string }) => {
+  if (user.currentDept !== dept) throw new Error('บัญชีนี้ไม่ตรงกับหน่วยงานผู้รับเอกสาร');
+  const distRef = doc(db, 'dcs_distributions', distribution.id);
+  if (!distribution.fileStoragePath) throw new Error('ไม่พบไฟล์ Controlled Copy');
+  const controlledFile = await getBlob(ref(storage, distribution.fileStoragePath));
+  const signaturePath = `dcs/signatures/${user.uid}/${distribution.id}/${Date.now()}.png`;
+  await uploadBytes(ref(storage, signaturePath), await dataUrlBlob(person.signatureDataUrl), { contentType: 'image/png' });
+  await runTransaction(db, async tx => {
+    const snapshot = await tx.get(distRef);
+    const current = snapshot.data() as DistributionRecord & { receipts?: Record<string, any> };
+    if (!current) throw new Error('ไม่พบรายการแจกจ่าย');
+    if (!current.targetDepartments.includes(dept)) throw new Error('หน่วยงานนี้ไม่อยู่ในรายชื่อแจกจ่าย');
+    if (Date.now() > new Date(current.expirationDate).getTime()) throw new Error('สิทธิ์ดาวน์โหลดหมดอายุ กรุณาขอไฟล์ใหม่จาก DCC');
+    if (current.receipts?.[dept]?.downloadedAt) throw new Error('หน่วยงานนี้ดาวน์โหลดฉบับนี้ไปแล้ว');
+    const receipt = { dept, receivedCopies: current.allocationByDepartment[dept], downloadedAt: new Date().toISOString(), downloaderName: person.name, downloaderEmpId: person.empId, downloaderPosition: person.position, signatureStoragePath: signaturePath };
+    const receipts = { ...(current.receipts || {}), [dept]: receipt };
+    const allDownloaded = current.targetDepartments.every(targetDept => Boolean(receipts[targetDept]?.downloadedAt));
+    tx.update(distRef, clean({ receipts, status: allDownloaded ? 'COMPLETED' : 'IN_PROGRESS', allDownloadedAt: allDownloaded ? new Date().toISOString() : null, storageStatus: allDownloaded ? 'PURGE_PENDING' : 'AVAILABLE', updatedAt: new Date().toISOString() }));
+  });
+  await writeAudit(user, 'CONTROLLED_COPY_DOWNLOADED', distribution.docNo, distribution.revision, `หน่วยงาน ${dept} รับและดาวน์โหลด Controlled Copy`, { distributionNo: distribution.distributionNo });
+  return URL.createObjectURL(controlledFile);
+};
+
+export const createCopyRequestRecord = async (user: CurrentUserSession, distribution: DistributionRecord, dept: Department, requestedBy: string, empId: string, reasonType: CopyReRequest['reasonType'], reasonDetails: string) => {
+  if (user.currentDept !== dept) throw new Error('ไม่มีสิทธิ์ยื่นคำขอแทนหน่วยงานอื่น');
+  const seq = await nextNumber('request');
+  const id = `REQ-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
+  const record: CopyReRequest & { createdAt: string } = { id, distributionId: distribution.id, distributionNo: distribution.distributionNo, docNo: distribution.docNo, docNameTh: distribution.docNameTh, revision: distribution.revision, dept, requestedBy, empId, reasonType, reasonDetails, requestDate: new Date().toISOString(), createdAt: new Date().toISOString(), status: 'PENDING' };
+  await setDoc(doc(db, 'dcs_copy_requests', id), clean(record));
+  await writeAudit(user, 'COPY_RE_REQUESTED', record.docNo, record.revision, `ยื่นคำขอไฟล์ใหม่ ${id}`, { distributionNo: record.distributionNo, dept });
+};
+
+export const decideCopyRequest = async (user: CurrentUserSession, request: CopyReRequest, approve: boolean, note: string, file?: { name: string; size: string; type: string; dataUrl: string }) => {
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่พิจารณาคำขอได้');
+  let reissuedDistributionId = '';
+  if (approve) {
+    if (!file?.dataUrl) throw new Error('กรุณาอัปโหลดไฟล์ Controlled Copy ฉบับใหม่ก่อนอนุมัติ');
+    const oldSnap = await getDoc(doc(db, 'dcs_distributions', request.distributionId));
+    if (!oldSnap.exists()) throw new Error('ไม่พบรายการแจกจ่ายต้นทาง');
+    const old = oldSnap.data() as DistributionRecord;
+    const seq = await nextNumber('distribution');
+    const id = `DC-DIS-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
+    const path = `dcs/distributions/${id}/${safeName(file.name)}`;
+    await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl), { contentType: file.type });
+    const copies = old.allocationByDepartment?.[request.dept] || 1;
+    const now = new Date();
+    const reissued = clean({ ...old, id, distributionNo: id, distributedBy: user.userName, distributedDate: now.toISOString(), expirationDate: new Date(now.getTime() + 3 * DAY_MS).toISOString(), expirationEpoch: now.getTime() + 3 * DAY_MS, status: 'IN_PROGRESS', targetDepartments: [request.dept], allocationByDepartment: { [request.dept]: copies }, targets: [{ dept: request.dept, allocatedCopies: copies, copyNo: `${copies} สำเนา`, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' }], receipts: {}, fileName: file.name, fileSize: file.size, fileType: file.type, fileStoragePath: path, storageStatus: 'AVAILABLE', allDownloadedAt: null, fileDeletedAt: null, reissueOf: old.id, createdAt: now.toISOString(), updatedAt: now.toISOString() });
+    await setDoc(doc(db, 'dcs_distributions', id), { ...reissued, expirationAt: Timestamp.fromMillis(now.getTime() + 3 * DAY_MS) });
+    reissuedDistributionId = id;
+  }
+  await updateDoc(doc(db, 'dcs_copy_requests', request.id), clean({ status: approve ? 'APPROVED' : 'REJECTED', dccDecisionBy: user.userName, dccDecisionDate: new Date().toISOString(), dccDecisionNote: note, reissuedDistributionId, updatedAt: new Date().toISOString() }));
+  await writeAudit(user, 'RE_REQUEST_APPROVED', request.docNo, request.revision, `${approve ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอ ${request.id}`, { note });
+};
+
+export const getStorageFileUrl = (path: string) => getDownloadURL(ref(storage, path));
+
+export const saveMasterDocument = async (user: CurrentUserSession, input: Omit<MasterDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'>) => {
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่แก้ไข Master List ได้');
+  const id = documentKey(input.docNo);
+  const now = new Date().toISOString();
+  const record: MasterDocument = clean({ ...input, id, createdAt: now, updatedAt: now, revisionHistory: [{ rev: input.currentRevision, effectiveDate: input.effectiveDate, darNo: input.darReferenceId, reason: 'ขึ้นทะเบียนโดย DCC', registeredBy: user.userName, registeredDate: now.slice(0, 10), status: 'ACTIVE', controlledDriveLink: input.controlledDriveLink || '' }] });
+  await setDoc(doc(db, 'dcs_documents', id), record);
+  await writeAudit(user, 'DOCUMENT_REGISTERED', record.docNo, record.currentRevision, 'ขึ้นทะเบียนเอกสารโดย DCC');
+};
+
+export const reviseMasterDocument = async (user: CurrentUserSession, master: MasterDocument, newRev: string, effectiveDate: string, darNo: string, reason: string, driveLink: string) => {
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่แก้ไข Master List ได้');
+  const history = [...master.revisionHistory.map(item => ({ ...item, status: 'SUPERSEDED' as const })), { rev: newRev, effectiveDate, darNo, reason, registeredBy: user.userName, registeredDate: new Date().toISOString().slice(0, 10), status: 'ACTIVE' as const, controlledDriveLink: driveLink }];
+  await updateDoc(doc(db, 'dcs_documents', master.id), clean({ currentRevision: newRev, effectiveDate, controlledDriveLink: driveLink, revisionHistory: history, updatedAt: new Date().toISOString() }));
+};

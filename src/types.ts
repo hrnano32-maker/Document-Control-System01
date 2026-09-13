@@ -154,6 +154,7 @@ export interface DarRecord {
   attachmentFileSize?: string;
   attachmentFileType?: string;
   attachmentFileDataUrl?: string;
+  attachmentStoragePath?: string;
 
   // DAR Signatures & Approvals (with Drag & Drop Image or Digital Sign)
   requesterSignature?: string; // Data URL or Image URL
@@ -170,7 +171,7 @@ export interface DarRecord {
 
   // Review Items & Distribution for standard NANO DAR Form
   reviewItems?: string[]; // e.g. ['QP', 'PQCT', 'SD', 'WI', 'FMEA', 'BOM']
-  distributionHolders?: { checked: boolean; position: string; copies: string }[];
+  distributionHolders?: { checked: boolean; dept: Department; position: string; copies: string }[];
 }
 
 export interface RevisionHistoryItem {
@@ -204,6 +205,7 @@ export interface MasterDocument {
   updatedAt: string;
   revisionHistory: RevisionHistoryItem[];
   retentionPeriodYears: number;
+  distributionDepartments?: { dept: Department; copies: number; position: string }[];
 
   // Attached File Data
   fileName?: string;
@@ -217,6 +219,7 @@ export type TargetDownloadStatus = 'PENDING' | 'DOWNLOADED' | 'EXPIRED' | 'RE_RE
 export interface DepartmentDistributionTarget {
   dept: Department;
   copyNo: string; // "Copy 1/1"
+  allocatedCopies: number;
   isDownloaded: boolean;
   downloadTimestamp: string | null;
   downloaderName: string | null;
@@ -244,7 +247,15 @@ export interface DistributionRecord {
   distributedBy: string;
   distributedDate: string; // ISO string
   expirationDate: string; // ISO string (3 days from distributedDate)
+  expirationEpoch: number;
   status: DistributionStatus;
+  darReferenceId: string;
+  targetDepartments: Department[];
+  allocationByDepartment: Record<string, number>;
+  allDownloadedAt?: string | null;
+  fileDeletedAt?: string | null;
+  storageStatus?: 'AVAILABLE' | 'PURGE_PENDING' | 'PURGED';
+  fileStoragePath?: string;
   controlledDriveLink?: string;
   instructions: string;
   targets: DepartmentDistributionTarget[];
@@ -303,6 +314,7 @@ export interface AuditLogEntry {
 }
 
 export interface CurrentUserSession {
+  uid: string;
   currentDept: Department;
   username: string;
   userName: string;
@@ -328,6 +340,7 @@ export interface DocumentViewPayload {
   fileSize?: string;
   fileType?: string;
   fileDataUrl?: string;
+  fileStoragePath?: string;
   darId?: string;
   docId?: string;
   reasonForChange?: string;
@@ -336,4 +349,3 @@ export interface DocumentViewPayload {
   effectiveDate?: string;
   isControlledCopy?: boolean;
 }
-

@@ -46,6 +46,9 @@ export const MasterListView: React.FC = () => {
   const [targetDepts, setTargetDepts] = useState<string[]>([]);
   const [distInstructions, setDistInstructions] = useState('');
   const [distSuccessMsg, setDistSuccessMsg] = useState('');
+  const [distError, setDistError] = useState('');
+  const [distFile, setDistFile] = useState<{ name: string; size: string; type: string; dataUrl: string } | null>(null);
+  const [isDistributing, setIsDistributing] = useState(false);
 
   // Close modals on Escape key press
   useEffect(() => {
@@ -79,23 +82,21 @@ export const MasterListView: React.FC = () => {
 
   const handleOpenQuickDistribute = (doc: MasterDocument) => {
     setQuickDistributeDoc(doc);
-    // Pre-select some typical departments or all
-    setTargetDepts(DEPARTMENTS.filter(d => d.id !== 'DCC').map(d => d.id));
+    setTargetDepts((doc.distributionDepartments || []).map(item => item.dept));
     setDistInstructions(`แจกจ่ายเอกสารควบคุม ${doc.docNo} Rev.${doc.currentRevision} กรุณาดาวน์โหลดภายใน 3 วัน`);
     setDistSuccessMsg('');
   };
 
-  const handleConfirmDistribution = () => {
-    if (!quickDistributeDoc || targetDepts.length === 0) return;
-
-    const distNo = createDistribution(
-      quickDistributeDoc.id,
-      targetDepts as any,
-      distInstructions,
-      quickDistributeDoc.controlledDriveLink
-    );
-
-    setDistSuccessMsg(`สร้างใบแจกจ่ายเลขที่ ${distNo} สำเร็จเรียบร้อย!`);
+  const handleConfirmDistribution = async () => {
+    if (!quickDistributeDoc || targetDepts.length === 0 || !distFile) return;
+    setDistError(''); setIsDistributing(true);
+    try {
+      const distNo = await createDistribution(quickDistributeDoc.id, targetDepts as any, distInstructions, distFile);
+      setDistSuccessMsg(`สร้างใบแจกจ่ายเลขที่ ${distNo} สำเร็จเรียบร้อย!`);
+    } catch (error) {
+      setDistError(error instanceof Error ? error.message : 'สร้างรายการแจกจ่ายไม่สำเร็จ');
+      setIsDistributing(false); return;
+    }
     setTimeout(() => {
       setQuickDistributeDoc(null);
       setDistSuccessMsg('');
@@ -722,25 +723,9 @@ export const MasterListView: React.FC = () => {
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="font-bold text-slate-900 text-xs">
-                        เลือกหน่วยงานที่ต้องการแจกจ่าย ({targetDepts.length}/12 หน่วยงาน)
+                        หน่วยงานผู้รับตามใบ DAR ({targetDepts.length} หน่วยงาน)
                       </label>
-                      <div className="flex gap-1 text-[10px]">
-                        <button
-                          type="button"
-                          onClick={() => setTargetDepts(DEPARTMENTS.filter(d => d.id !== 'DCC').map(d => d.id))}
-                          className="text-indigo-600 hover:underline font-semibold cursor-pointer"
-                        >
-                          เลือกทั้งหมด
-                        </button>
-                        <span>|</span>
-                        <button
-                          type="button"
-                          onClick={() => setTargetDepts(['Production 1', 'Production 2/3', 'QA'])}
-                          className="text-indigo-600 hover:underline font-semibold cursor-pointer"
-                        >
-                          เฉพาะฝ่ายผลิต+QA
-                        </button>
-                      </div>
+                      <span className="text-[10px] text-slate-500">แก้ไขรายชื่อได้จาก DAR ต้นทางเท่านั้น</span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto p-2 border border-slate-200 rounded-xl bg-slate-50/50">
@@ -756,13 +741,7 @@ export const MasterListView: React.FC = () => {
                             <input
                               type="checkbox"
                               checked={isChecked}
-                              onChange={e => {
-                                if (e.target.checked) {
-                                  setTargetDepts(prev => [...prev, dept.id]);
-                                } else {
-                                  setTargetDepts(prev => prev.filter(id => id !== dept.id));
-                                }
-                              }}
+                              disabled
                               className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
                             />
                             <span className="truncate">{dept.id}</span>
@@ -770,6 +749,15 @@ export const MasterListView: React.FC = () => {
                         );
                       })}
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">ไฟล์ Controlled Copy ฉบับจริง <span className="text-rose-600">*</span></label>
+                    <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" onChange={event => {
+                      const file = event.target.files?.[0]; if (!file) return;
+                      if (file.size > 25 * 1024 * 1024) { setDistError('ไฟล์ต้องมีขนาดไม่เกิน 25 MB'); return; }
+                      const reader = new FileReader(); reader.onload = () => setDistFile({ name: file.name, size: `${(file.size / 1024 / 1024).toFixed(2)} MB`, type: file.type || 'application/octet-stream', dataUrl: String(reader.result) }); reader.readAsDataURL(file);
+                    }} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white" />
                   </div>
 
                   <div>
@@ -790,6 +778,7 @@ export const MasterListView: React.FC = () => {
                       เมื่อกดแจกจ่าย ระบบจะออกรหัสใบแจกจ่ายอัตโนมัติ (DC-DIS) และตั้งเวลานับถอยหลัง 3 วันสำหรับแต่ละหน่วยงานในการดาวน์โหลด Controlled Copy (Copy 1/1)
                     </p>
                   </div>
+                  {distError && <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 font-semibold">{distError}</div>}
                 </>
               )}
 
@@ -808,12 +797,12 @@ export const MasterListView: React.FC = () => {
                 <button
                   type="button"
                   id="btn-confirm-quick-distribute"
-                  disabled={targetDepts.length === 0}
+                  disabled={targetDepts.length === 0 || !distFile || isDistributing}
                   onClick={handleConfirmDistribution}
                   className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 rounded-lg shadow-sm flex items-center gap-1.5 cursor-pointer transition-all"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  ยืนยันการแจกจ่าย ({targetDepts.length} แผนก)
+                  {isDistributing ? 'กำลังอัปโหลด...' : `ยืนยันการแจกจ่าย (${targetDepts.length} แผนก)`}
                 </button>
               </div>
             )}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useDcs } from '../context/DcsContext';
+import { getStorageFileUrl } from '../services/dcsRepository';
 import {
   DarRecord,
   DarRequestType,
@@ -109,20 +110,14 @@ export const DarManagement: React.FC = () => {
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
   // Distribution Holders requested in DAR (ตามแบบฟอร์ม FM-QS-001-01)
-  const [darDistributionHolders, setDarDistributionHolders] = useState<{ checked: boolean; position: string; copies: string }[]>([
-    { checked: true, position: 'ผู้จัดการฝ่ายผลิต (Production Mgr.)', copies: '1' },
-    { checked: true, position: 'ผู้จัดการฝ่ายประกันคุณภาพ (QA Mgr.)', copies: '1' },
-    { checked: true, position: 'ผู้จัดการฝ่ายควบคุมคุณภาพ (QC Mgr.)', copies: '1' },
-    { checked: false, position: 'ผู้จัดการฝ่ายวิศวกรรม (Engineering Mgr.)', copies: '1' },
-    { checked: false, position: 'หัวหน้าแผนกคลังสินค้า (Warehouse)', copies: '1' },
-    { checked: false, position: 'หัวหน้าแผนกจัดซื้อ (Purchasing)', copies: '1' },
-    { checked: false, position: 'หัวหน้าแผนกซ่อมบำรุง (Maintenance)', copies: '1' },
-    { checked: false, position: 'หัวหน้าแผนกความปลอดภัย (SHE/Safety)', copies: '1' },
-    { checked: false, position: 'หัวหน้าแผนกบุคคลและธุรการ (HR & Admin)', copies: '1' },
-    { checked: false, position: 'หัวหน้าฝ่ายวางแผนการผลิต (PMC)', copies: '1' },
-    { checked: false, position: 'หัวหน้าฝ่ายขายและการตลาด (Sales)', copies: '1' },
-    { checked: false, position: 'ผู้บริหารตัวแทนระบบ (QMR)', copies: '1' },
-  ]);
+  const [darDistributionHolders, setDarDistributionHolders] = useState<{ checked: boolean; dept: Department; position: string; copies: string }[]>(
+    DEPARTMENTS.filter(item => item.id !== 'DCC').map(item => ({
+      checked: false,
+      dept: item.id,
+      position: `ผู้รับผิดชอบเอกสารประจำ ${item.nameTh}`,
+      copies: '1',
+    }))
+  );
 
   // DCC Review remarks state
   const [reviewRemarks, setReviewRemarks] = useState('');
@@ -130,11 +125,11 @@ export const DarManagement: React.FC = () => {
   const isDcc = currentUser.currentDept === 'DCC';
 
   // Helper to download draft file attached by DAR requester
-  const handleDownloadDarDraft = (dar: DarRecord) => {
+  const handleDownloadDarDraft = async (dar: DarRecord) => {
     const fileName = dar.attachmentFileName || `${dar.docNo}_Rev${dar.proposedRevision}_DRAFT.docx`;
-    if (dar.attachmentFileDataUrl) {
+    if (dar.attachmentStoragePath) {
       const link = document.createElement('a');
-      link.href = dar.attachmentFileDataUrl;
+      link.href = await getStorageFileUrl(dar.attachmentStoragePath);
       link.download = fileName;
       document.body.appendChild(link);
       link.click();
@@ -142,37 +137,7 @@ export const DarManagement: React.FC = () => {
       return;
     }
 
-    // Generate fallback draft document text if no binary attached
-    const sampleContent = `================================================================================
-DRAFT DOCUMENT FOR DCC REVIEW (เอกสารร่างสำหรับ DCC ตรวจสอบ)
-Document Control System (ISO 9001:2015 / IATF 16949)
-================================================================================
-DAR No:           ${dar.id}
-Document No:      ${dar.docNo}
-Document Name:    ${dar.docNameTh} (${dar.docNameEn})
-Type:             ${dar.docType}
-Proposed Rev:     Rev.${dar.proposedRevision} (เดิม Rev.${dar.currentRevision})
-Request Dept:     ${dar.requestDept}
-Requester:        ${dar.requesterName} (${dar.requesterTitle})
-Target Date:      ${dar.targetEffectiveDate}
-ISO Clause:       ${dar.isoClause || 'ISO 9001:2015 Clause 7.5.3'}
---------------------------------------------------------------------------------
-1. เหตุผลความจำเป็นในการขอดำเนินการ:
-${dar.reasonForChange}
-
-2. รายละเอียดการเปลี่ยนแปลงข้อความ / กระบวนการ:
-${dar.changeDetails || 'รายละเอียดและข้อความตามฉบับร่างที่ผู้ร้องขอได้จัดทำ'}
-================================================================================`;
-
-    const blob = new Blob([sampleContent], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${dar.docNo}_Rev${dar.proposedRevision}_DRAFT.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    alert('DAR รายการนี้ไม่มีไฟล์ร่างแนบ');
   };
 
   // Real-time Revision Sequence Analysis
@@ -217,7 +182,7 @@ ${dar.changeDetails || 'รายละเอียดและข้อคว�
     return matchSearch && matchStatus && matchType;
   });
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
 
@@ -239,7 +204,8 @@ ${dar.changeDetails || 'รายละเอียดและข้อคว�
       return;
     }
 
-    const createdId = createDar({
+    try {
+      await createDar({
       requestType: reqType,
       requestDept: reqDept,
       requesterName: requesterName.trim(),
@@ -263,7 +229,11 @@ ${dar.changeDetails || 'รายละเอียดและข้อคว�
       attachmentFileDataUrl: attachedFile?.dataUrl,
       requesterSignature: requesterSignature,
       distributionHolders: darDistributionHolders,
-    });
+      });
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'ส่งใบ DAR ไม่สำเร็จ');
+      return;
+    }
 
     confetti({
       particleCount: 50,
@@ -274,8 +244,8 @@ ${dar.changeDetails || 'รายละเอียดและข้อคว�
     setIsCreateModalOpen(false);
   };
 
-  const handleRegisterToMasterList = (darId: string) => {
-    registerDarToMasterList(darId);
+  const handleRegisterToMasterList = async (darId: string) => {
+    try { await registerDarToMasterList(darId); } catch (error) { alert(error instanceof Error ? error.message : 'ขึ้นทะเบียนไม่สำเร็จ'); return; }
     confetti({
       particleCount: 80,
       spread: 70,
@@ -489,6 +459,7 @@ ${dar.changeDetails || 'รายละเอียดและข้อคว�
                           fileSize: dar.attachmentFileSize,
                           fileType: dar.attachmentFileType,
                           fileDataUrl: dar.attachmentFileDataUrl,
+                          fileStoragePath: dar.attachmentStoragePath,
                           darId: dar.id,
                           reasonForChange: dar.reasonForChange,
                           changeDetails: dar.changeDetails,
@@ -681,6 +652,7 @@ ${dar.changeDetails || 'รายละเอียดและข้อคว�
                       fileSize: selectedDarForReview.attachmentFileSize,
                       fileType: selectedDarForReview.attachmentFileType,
                       fileDataUrl: selectedDarForReview.attachmentFileDataUrl,
+                      fileStoragePath: selectedDarForReview.attachmentStoragePath,
                       darId: selectedDarForReview.id,
                       reasonForChange: selectedDarForReview.reasonForChange,
                       changeDetails: selectedDarForReview.changeDetails,
@@ -723,19 +695,16 @@ ${dar.changeDetails || 'รายละเอียดและข้อคว�
                   <div className="flex flex-wrap items-center gap-2 pt-1">
                     
                     {/* Auto Register button */}
-                    <button
+                    {selectedDarForReview.status === 'APPROVED' && <button
                       onClick={() => handleRegisterToMasterList(selectedDarForReview.id)}
                       className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md cursor-pointer transition-all"
                     >
                       <Sparkles className="w-4 h-4 text-amber-300" />
-                      🚀 อนุมัติ & ขึ้นทะเบียน Master List ทันที
-                    </button>
+                      ขึ้นทะเบียน Master List
+                    </button>}
 
                     <button
-                      onClick={() => {
-                        reviewDar(selectedDarForReview.id, 'APPROVED', reviewRemarks);
-                        setSelectedDarForReview(null);
-                      }}
+                      onClick={async () => { try { await reviewDar(selectedDarForReview.id, 'APPROVED', reviewRemarks); setSelectedDarForReview(null); } catch (error) { alert(error instanceof Error ? error.message : 'ดำเนินการไม่สำเร็จ'); } }}
                       className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-1 cursor-pointer"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
@@ -743,20 +712,14 @@ ${dar.changeDetails || 'รายละเอียดและข้อคว�
                     </button>
 
                     <button
-                      onClick={() => {
-                        reviewDar(selectedDarForReview.id, 'UNDER_REVIEW', reviewRemarks);
-                        setSelectedDarForReview(null);
-                      }}
+                      onClick={async () => { try { await reviewDar(selectedDarForReview.id, 'UNDER_REVIEW', reviewRemarks); setSelectedDarForReview(null); } catch (error) { alert(error instanceof Error ? error.message : 'ดำเนินการไม่สำเร็จ'); } }}
                       className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs flex items-center gap-1 cursor-pointer"
                     >
                       ขอเอกสารเพิ่มเติม
                     </button>
 
                     <button
-                      onClick={() => {
-                        reviewDar(selectedDarForReview.id, 'REJECTED', reviewRemarks);
-                        setSelectedDarForReview(null);
-                      }}
+                      onClick={async () => { try { await reviewDar(selectedDarForReview.id, 'REJECTED', reviewRemarks); setSelectedDarForReview(null); } catch (error) { alert(error instanceof Error ? error.message : 'ดำเนินการไม่สำเร็จ'); } }}
                       className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold text-xs flex items-center gap-1 cursor-pointer"
                     >
                       ไม่อนุมัติ (Reject)

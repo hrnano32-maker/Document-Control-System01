@@ -7,6 +7,19 @@ service cloud.firestore {
     function activeUser() { return signedIn() && profile().active == true; }
     function isDcc() { return activeUser() && profile().role == 'DCC_ADMIN'; }
     function sameDepartment(department) { return activeUser() && profile().department == department; }
+    function recipientReceiptUpdate() {
+      let dept = profile().department;
+      return activeUser()
+        && resource.data.targetDepartments.hasAny([dept])
+        && request.time <= resource.data.expirationAt
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receipts', 'status', 'allDownloadedAt', 'storageStatus', 'updatedAt'])
+        && request.resource.data.receipts.diff(resource.data.receipts).affectedKeys().hasOnly([dept])
+        && !(dept in resource.data.receipts)
+        && request.resource.data.receipts[dept].dept == dept
+        && request.resource.data.receipts[dept].receivedCopies == resource.data.allocationByDepartment[dept]
+        && request.resource.data.receipts[dept].downloaderName is string
+        && request.resource.data.receipts[dept].downloadedAt is string;
+    }
 
     match /users/{uid} {
       allow read: if activeUser() && (request.auth.uid == uid || isDcc());
@@ -22,11 +35,19 @@ service cloud.firestore {
 
     match /dcs_dars/{id} {
       allow read: if isDcc() || sameDepartment(resource.data.requestDept);
-      allow create: if activeUser() && sameDepartment(request.resource.data.requestDept);
+      allow create: if activeUser()
+        && sameDepartment(request.resource.data.requestDept)
+        && request.resource.data.status == 'PENDING_REVIEW'
+        && request.resource.data.requesterName is string;
       allow update: if isDcc() || (
         sameDepartment(resource.data.requestDept) &&
         resource.data.status in ['PENDING_REVIEW', 'UNDER_REVIEW'] &&
-        request.resource.data.requestDept == resource.data.requestDept
+        request.resource.data.requestDept == resource.data.requestDept &&
+        request.resource.data.status == resource.data.status &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'requesterSignature', 'deptApproverName', 'deptApproverTitle', 'deptApproverDate',
+          'deptApproverSignature', 'reviewItems', 'distributionHolders', 'updatedAt'
+        ])
       );
       allow delete: if false;
     }
@@ -34,13 +55,16 @@ service cloud.firestore {
     match /dcs_distributions/{id} {
       allow read: if isDcc() || resource.data.targetDepartments.hasAny([profile().department]);
       allow create: if isDcc();
-      allow update: if isDcc();
+      allow update: if isDcc() || recipientReceiptUpdate();
       allow delete: if false;
     }
 
     match /dcs_copy_requests/{id} {
       allow read: if isDcc() || sameDepartment(resource.data.dept);
-      allow create: if activeUser() && sameDepartment(request.resource.data.dept);
+      allow create: if activeUser()
+        && sameDepartment(request.resource.data.dept)
+        && request.resource.data.status == 'PENDING'
+        && get(/databases/$(database)/documents/dcs_distributions/$(request.resource.data.distributionId)).data.targetDepartments.hasAny([profile().department]);
       allow update: if isDcc();
       allow delete: if false;
     }
@@ -52,7 +76,14 @@ service cloud.firestore {
     }
 
     match /dcs_counters/{id} {
-      allow read, write: if isDcc();
+      allow read: if activeUser();
+      allow create: if activeUser() && request.resource.data.value == 1;
+      allow update: if activeUser()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['value', 'kind', 'year', 'updatedAt'])
+        && request.resource.data.value == resource.data.value + 1
+        && request.resource.data.kind == resource.data.kind
+        && request.resource.data.year == resource.data.year;
+      allow delete: if false;
     }
 
     match /{document=**} {

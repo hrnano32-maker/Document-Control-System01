@@ -8,7 +8,6 @@ import {
   History,
   Layers,
   ShieldCheck,
-  RotateCcw,
   LogOut,
   KeyRound,
   Download,
@@ -26,7 +25,6 @@ export const Navbar: React.FC = () => {
     distributions,
     dars,
     reRequests,
-    resetToDefaultData,
     logout,
     isChangePasswordOpen,
     setIsChangePasswordOpen,
@@ -323,26 +321,6 @@ export const Navbar: React.FC = () => {
                         <div>
                           <div className="font-bold text-sm text-white">เปลี่ยนรหัสผ่าน</div>
                           <div className="text-xs text-slate-400">ตั้งรหัสผ่านใหม่ประจำแผนก</div>
-                        </div>
-                      </button>
-
-                      {/* Reset Demo Data (DCC only or Admin) */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsUserMenuOpen(false);
-                          if (window.confirm('ต้องการรีเซ็ตข้อมูลตัวอย่างกลับเป็นค่าเริ่มต้นทั้งหมดหรือไม่?')) {
-                            resetToDefaultData();
-                          }
-                        }}
-                        className="w-full px-3 py-2.5 text-left text-sm font-medium text-slate-200 hover:text-white hover:bg-slate-800 rounded-xl flex items-center gap-3 transition-colors cursor-pointer"
-                      >
-                        <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 shrink-0">
-                          <RotateCcw className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="font-bold text-sm text-white">รีเซ็ตข้อมูลระบบ</div>
-                          <div className="text-xs text-slate-400">ล้างข้อมูลเป็นค่าเริ่มต้น</div>
                         </div>
                       </button>
 

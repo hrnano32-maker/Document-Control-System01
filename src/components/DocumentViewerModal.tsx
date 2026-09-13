@@ -26,6 +26,7 @@ import {
   FileBox,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { getStorageFileUrl } from '../services/dcsRepository';
 
 export const DocumentViewerModal: React.FC = () => {
   const {
@@ -38,6 +39,7 @@ export const DocumentViewerModal: React.FC = () => {
   const [zoomLevel, setZoomLevel] = useState(100);
   const [rotation, setRotation] = useState(0);
   const [activeTab, setActiveTab] = useState<'preview' | 'file-info' | 'properties'>('preview');
+  const [resolvedFileUrl, setResolvedFileUrl] = useState('');
 
   useEffect(() => {
     if (selectedDocumentForView) {
@@ -47,15 +49,23 @@ export const DocumentViewerModal: React.FC = () => {
     }
   }, [selectedDocumentForView]);
 
+  useEffect(() => {
+    setResolvedFileUrl('');
+    if (selectedDocumentForView?.fileStoragePath) {
+      void getStorageFileUrl(selectedDocumentForView.fileStoragePath).then(setResolvedFileUrl).catch(() => setResolvedFileUrl(''));
+    }
+  }, [selectedDocumentForView?.fileStoragePath]);
+
   if (!selectedDocumentForView) return null;
 
   const doc = selectedDocumentForView;
+  const fileSource = resolvedFileUrl || doc.fileDataUrl || '';
 
   const fileExt = (doc.fileName || '').split('.').pop()?.toLowerCase() || '';
   const isPdf = fileExt === 'pdf' || (doc.fileType && doc.fileType.includes('pdf'));
   const isImage = ['png', 'jpg', 'jpeg', 'svg', 'webp', 'gif'].includes(fileExt) || 
     (doc.fileType && doc.fileType.startsWith('image/')) ||
-    Boolean(doc.fileDataUrl && doc.fileDataUrl.startsWith('data:image/'));
+    Boolean(fileSource && (fileSource.startsWith('data:image/') || doc.fileType?.startsWith('image/')));
 
   const handleClose = () => {
     setSelectedDocumentForView(null);
@@ -64,16 +74,19 @@ export const DocumentViewerModal: React.FC = () => {
   const handleDownload = () => {
     const fileName = doc.fileName || `${doc.docNo || 'DOCUMENT'}_Rev${doc.revision || '00'}.${isPdf ? 'pdf' : isImage ? 'png' : 'docx'}`;
 
-    if (doc.fileDataUrl) {
+    if (fileSource) {
       // Direct binary download from stored DataURL
       const link = document.createElement('a');
-      link.href = doc.fileDataUrl;
+      link.href = fileSource;
       link.download = fileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       return;
     }
+
+    alert('รายการนี้ยังไม่มีไฟล์จริงใน Firebase Storage');
+    return;
 
     // Generate comprehensive quality document text/html content
     const documentContent = `================================================================================
@@ -128,22 +141,7 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
   };
 
   const handleOpenInNewTab = () => {
-    if (!doc.fileDataUrl) return;
-
-    try {
-      // If it's a data URL, convert to Blob URL for clean new-tab opening
-      const byteCharacters = atob(doc.fileDataUrl.split(',')[1]);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: doc.fileType || 'application/pdf' });
-      const blobUrl = URL.createObjectURL(blob);
-      window.open(blobUrl, '_blank');
-    } catch {
-      window.open(doc.fileDataUrl, '_blank');
-    }
+    if (fileSource) window.open(fileSource, '_blank', 'noopener,noreferrer');
   };
 
   const handlePrint = () => {
@@ -280,7 +278,7 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
             <div className="space-y-4">
               
               {/* If uploaded attachment exists (PDF, Image, Office Doc) */}
-              {doc.fileDataUrl && (
+              {fileSource && (
                 <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-4 space-y-3">
                   <div className="flex items-center justify-between text-xs text-slate-600 pb-2 border-b border-slate-100 flex-wrap gap-2">
                     <div className="flex items-center gap-2 font-mono">
@@ -350,7 +348,7 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
                   {isImage && (
                     <div className="w-full min-h-[350px] flex items-center justify-center bg-slate-900 rounded-lg p-4 overflow-auto">
                       <img
-                        src={doc.fileDataUrl}
+                        src={fileSource}
                         alt="Attached Document"
                         style={{
                           transform: `scale(${zoomLevel / 100}) rotate(${rotation}deg)`,
@@ -560,15 +558,15 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
                         {doc.fileName || `${doc.docNo || 'Document'}_Rev${doc.revision || '00'}`}
                       </h4>
                       <p className="text-xs text-slate-500">
-                        {doc.fileDataUrl ? 'ไฟล์แนบถูกจัดเก็บในระบบเรียบร้อยแล้ว พร้อมให้ DCC หรือผู้เกี่ยวข้องดาวน์โหลด' : 'เอกสารสร้างขึ้นในระบบ DCS'}
+                        {fileSource ? 'ไฟล์แนบถูกจัดเก็บในระบบเรียบร้อยแล้ว พร้อมให้ DCC หรือผู้เกี่ยวข้องดาวน์โหลด' : 'ยังไม่มีไฟล์แนบในระบบ'}
                       </p>
                     </div>
                   </div>
 
                   <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                    doc.fileDataUrl ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-800'
+                    fileSource ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-800'
                   }`}>
-                    {doc.fileDataUrl ? '✓ มีไฟล์แนบจริง' : 'โครงสร้างเอกสาร DCS'}
+                    {fileSource ? '✓ มีไฟล์แนบจริง' : 'ไม่มีไฟล์แนบ'}
                   </span>
                 </div>
 

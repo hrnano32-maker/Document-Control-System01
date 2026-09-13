@@ -6,6 +6,7 @@ service firebase.storage {
     function profile() { return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data; }
     function activeUser() { return signedIn() && profile().active == true; }
     function isDcc() { return activeUser() && profile().role == 'DCC_ADMIN'; }
+    function sameDepartment(department) { return activeUser() && profile().department == department; }
 
     match /dcs/documents/{documentId}/{fileName} {
       allow read: if activeUser();
@@ -23,6 +24,29 @@ service firebase.storage {
       allow create: if activeUser() && request.auth.uid == uid && request.resource.size < 2 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
       allow update, delete: if false;
+    }
+
+    match /dcs/signatures/{uid}/{distributionId}/{fileName} {
+      allow read: if isDcc() || request.auth.uid == uid;
+      allow create: if activeUser() && request.auth.uid == uid && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow update, delete: if false;
+    }
+
+    match /dcs/dar-attachments/{uid}/{darId}/{fileName} {
+      allow read: if isDcc() || request.auth.uid == uid;
+      allow create: if activeUser() && request.auth.uid == uid && request.resource.size < 25 * 1024 * 1024;
+      allow update, delete: if false;
+    }
+
+    match /dcs/distributions/{distributionId}/{fileName} {
+      allow read: if activeUser() && (isDcc() || (
+        firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.targetDepartments.hasAny([profile().department])
+        && request.time <= firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.expirationAt
+        && !(profile().department in firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.receipts)
+      ));
+      allow create, update: if isDcc() && request.resource.size < 25 * 1024 * 1024;
+      allow delete: if isDcc();
     }
 
     match /{allPaths=**} {

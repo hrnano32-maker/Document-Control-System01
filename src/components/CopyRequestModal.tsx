@@ -48,7 +48,7 @@ export const CopyRequestModal: React.FC = () => {
     setSelectedDistributionForReRequest(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -62,14 +62,12 @@ export const CopyRequestModal: React.FC = () => {
       return;
     }
 
-    createReRequest(
-      distribution.id,
-      dept,
-      requestedBy.trim(),
-      empId.trim(),
-      reasonType,
-      reasonDetails.trim()
-    );
+    try {
+      await createReRequest(distribution.id, dept, requestedBy.trim(), empId.trim(), reasonType, reasonDetails.trim());
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'ส่งคำร้องไม่สำเร็จ');
+      return;
+    }
 
     setIsSuccess(true);
     setTimeout(() => {

@@ -41,6 +41,7 @@ export const DistributionManager: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [reRequestNote, setReRequestNote] = useState('');
+  const [reissueFiles, setReissueFiles] = useState<Record<string, { name: string; size: string; type: string; dataUrl: string }>>({});
 
   const filteredDistributions = distributions.filter(dist => {
     const matchSearch =
@@ -74,8 +75,9 @@ export const DistributionManager: React.FC = () => {
     return { isExpired: false, text: `🟢 เหลือเวลา ${days} วัน ${remHours} ชม.`, color: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
   };
 
-  const handleApproveReRequest = (reqId: string) => {
-    reviewReRequest(reqId, true, reRequestNote || 'อนุมัติเปิดสิทธิ์ดาวน์โหลดใหม่ 3 วันตามคำร้องขอ', 3);
+  const handleApproveReRequest = async (reqId: string) => {
+    try { await reviewReRequest(reqId, true, reRequestNote || 'อนุมัติออกไฟล์ใหม่ ให้ดาวน์โหลดภายใน 3 วัน', 3, reissueFiles[reqId]); }
+    catch (error) { alert(error instanceof Error ? error.message : 'อนุมัติคำขอไม่สำเร็จ'); return; }
     confetti({
       particleCount: 50,
       spread: 60,
@@ -83,8 +85,9 @@ export const DistributionManager: React.FC = () => {
     setReRequestNote('');
   };
 
-  const handleRejectReRequest = (reqId: string) => {
-    reviewReRequest(reqId, false, reRequestNote || 'ไม่อนุมัติคำร้องขอสำเนา', 0);
+  const handleRejectReRequest = async (reqId: string) => {
+    try { await reviewReRequest(reqId, false, reRequestNote || 'ไม่อนุมัติคำร้องขอสำเนา', 0); }
+    catch (error) { alert(error instanceof Error ? error.message : 'ปฏิเสธคำขอไม่สำเร็จ'); return; }
     setReRequestNote('');
   };
 
@@ -109,31 +112,9 @@ export const DistributionManager: React.FC = () => {
 
         <div className="flex items-center gap-2 flex-wrap">
           <button
-            onClick={() => {
-              if (distributions.length > 0) {
-                setSelectedDistributionForSheet(distributions[0]);
-              } else {
-                setSelectedDistributionForSheet({
-                  id: 'blank-dist',
-                  distributionNo: 'DC-DIS-STANDARD',
-                  docId: 'DOC-001',
-                  docNo: 'QP-PD-001',
-                  docNameTh: 'ระเบียบปฏิบัติการควบคุมกระบวนการผลิต',
-                  docNameEn: 'Quality Procedure for Production Process Control',
-                  docType: 'QP',
-                  revision: '00',
-                  effectiveDate: new Date().toISOString().split('T')[0],
-                  distributedBy: currentUser.userName,
-                  distributedDate: new Date().toISOString(),
-                  expirationDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-                  status: 'IN_PROGRESS',
-                  controlledDriveLink: '',
-                  instructions: '',
-                  targets: [],
-                });
-              }
-            }}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer border border-slate-700"
+            disabled
+            title="เลือกใบแจกจ่ายที่ผู้รับดาวน์โหลดครบแล้วจากรายการด้านล่าง"
+            className="px-4 py-2 bg-slate-400 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 cursor-not-allowed border border-slate-400"
           >
             <Printer className="w-4 h-4 text-cyan-400" />
             ใบแจกจ่าย-เรียกคืน (FM-QS-003-00)
@@ -188,12 +169,14 @@ export const DistributionManager: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                  <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" onChange={event => { const file = event.target.files?.[0]; if (!file) return; if (file.size > 25 * 1024 * 1024) { alert('ไฟล์ต้องไม่เกิน 25 MB'); return; } const reader = new FileReader(); reader.onload = () => setReissueFiles(prev => ({ ...prev, [req.id]: { name: file.name, size: `${(file.size / 1024 / 1024).toFixed(2)} MB`, type: file.type || 'application/octet-stream', dataUrl: String(reader.result) } })); reader.readAsDataURL(file); }} className="max-w-52 text-[11px]" title="ไฟล์ Controlled Copy ฉบับใหม่" />
                   <button
                     onClick={() => handleApproveReRequest(req.id)}
+                    disabled={!reissueFiles[req.id]}
                     className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1 cursor-pointer transition-colors"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    อนุมัติเปิดสิทธิ์ใหม่อีก 3 วัน
+                    อนุมัติและออกไฟล์ใหม่ 3 วัน
                   </button>
                   <button
                     onClick={() => handleRejectReRequest(req.id)}
@@ -275,7 +258,7 @@ export const DistributionManager: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button
+                    {currentUser.currentDept === 'DCC' && <button
                       type="button"
                       onClick={() => openDocumentViewer({
                         title: dist.docNameTh,
@@ -287,6 +270,7 @@ export const DistributionManager: React.FC = () => {
                         fileSize: dist.fileSize,
                         fileType: dist.fileType,
                         fileDataUrl: dist.fileDataUrl,
+                        fileStoragePath: dist.fileStoragePath,
                         effectiveDate: dist.effectiveDate,
                         isControlledCopy: true,
                       })}
@@ -294,7 +278,7 @@ export const DistributionManager: React.FC = () => {
                     >
                       <Eye className="w-4 h-4 text-indigo-600" />
                       ดูเอกสารฉบับนี้
-                    </button>
+                    </button>}
                     <button
                       onClick={() => setSelectedDistributionForSheet(dist)}
                       className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
@@ -459,4 +443,3 @@ export const DistributionManager: React.FC = () => {
     </div>
   );
 };
-

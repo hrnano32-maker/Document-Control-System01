@@ -159,7 +159,7 @@ export const DistributionSheetModal: React.FC = () => {
       return dist.targets.map((target, idx) => ({
         id: `target-row-${idx}-${target.dept}`,
         position: target.downloaderPosition || `หัวหน้าแผนก / ผู้รับผิดชอบฝ่าย ${target.dept}`,
-        copies: target.copyNo ? target.copyNo.replace(/[^0-9]/g, '') || '1' : '1',
+        copies: String(target.allocatedCopies || 1),
         receiveSignature: target.signatureDataUrl || undefined,
         receiveDate: target.downloadTimestamp ? target.downloadTimestamp.split('T')[0] : distDate,
         receiveSignerName: target.downloaderName || '',
@@ -265,6 +265,7 @@ export const DistributionSheetModal: React.FC = () => {
   if (!selectedDistributionForSheet) return null;
 
   const dist = selectedDistributionForSheet;
+  const canPrint = dist.status === 'COMPLETED' && dist.targets.length > 0 && dist.targets.every(target => target.isDownloaded);
 
   const handleClose = () => {
     setSelectedDistributionForSheet(null);
@@ -421,11 +422,13 @@ export const DistributionSheetModal: React.FC = () => {
   };
 
   const handlePrint = () => {
+    if (!canPrint) { alert('ยังพิมพ์ใบแจกจ่ายไม่ได้: ต้องรอให้ทุกหน่วยงานตาม DAR ดาวน์โหลดรับเอกสารครบก่อน'); return; }
     handleSave();
     printElementById('distribution-recall-sheet', `FM-QS-003-00_${dist.docNo}_Distribution`);
   };
 
   const handleOpenTab = () => {
+    if (!canPrint) { alert('ยังเปิดใบพิมพ์ไม่ได้: จำนวนผู้รับเอกสารยังไม่ครบตาม DAR'); return; }
     handleSave();
     const success = openPrintInNewTab('distribution-recall-sheet', `FM-QS-003-00_${dist.docNo}_Distribution`);
     if (!success) {
@@ -434,6 +437,7 @@ export const DistributionSheetModal: React.FC = () => {
   };
 
   const handleDownload = () => {
+    if (!canPrint) { alert('ยังดาวน์โหลดใบแจกจ่ายไม่ได้: จำนวนผู้รับเอกสารยังไม่ครบตาม DAR'); return; }
     handleSave();
     downloadPrintableHtml('distribution-recall-sheet', `Distribution_Recall_${dist.docNo}`);
   };
@@ -517,6 +521,7 @@ export const DistributionSheetModal: React.FC = () => {
               type="button"
               id="btn-print-distribution-newtab"
               onClick={handleOpenTab}
+              disabled={!canPrint}
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 flex items-center gap-1 cursor-pointer transition-all"
               title="เปิดแท็บใหม่เพื่อสั่งพิมพ์ (กรณีติด iFrame)"
             >
@@ -528,6 +533,7 @@ export const DistributionSheetModal: React.FC = () => {
               type="button"
               id="btn-download-distribution-html"
               onClick={handleDownload}
+              disabled={!canPrint}
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 flex items-center gap-1 cursor-pointer transition-all"
               title="ดาวน์โหลดไฟล์พร้อมพิมพ์ HTML/PDF"
             >
@@ -539,6 +545,7 @@ export const DistributionSheetModal: React.FC = () => {
               type="button"
               id="btn-trigger-print-distribution"
               onClick={handlePrint}
+              disabled={!canPrint}
               className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-red-950/40"
             >
               <Printer className="w-4 h-4" />
@@ -1010,6 +1017,7 @@ export const DistributionSheetModal: React.FC = () => {
             <button
               type="button"
               onClick={handlePrint}
+              disabled={!canPrint}
               className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
             >
               <Printer className="w-4 h-4" />

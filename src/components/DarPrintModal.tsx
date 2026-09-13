@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useDcs } from '../context/DcsContext';
-import { DarRecord } from '../types';
+import { DarRecord, Department, DEPARTMENTS } from '../types';
 import {
   Printer,
   X,
@@ -62,12 +62,13 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
   );
 
   // Distribution holders list (14 items matching the form)
-  const [distributionList, setDistributionList] = useState<{ checked: boolean; position: string; copies: string }[]>(() => {
+  const [distributionList, setDistributionList] = useState<{ checked: boolean; dept: Department; position: string; copies: string }[]>(() => {
     if (dar.distributionHolders && dar.distributionHolders.length === 14) {
       return dar.distributionHolders;
     }
     return DEFAULT_POSITIONS.map((pos, idx) => ({
       checked: idx < 4,
+      dept: DEPARTMENTS.filter(d => d.id !== 'DCC')[idx]?.id || 'QA',
       position: pos,
       copies: idx < 4 ? '1' : '',
     }));
