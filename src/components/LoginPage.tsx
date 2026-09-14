@@ -11,7 +11,9 @@ import {
   LogIn,
   CheckCircle2,
   AlertCircle,
+  UserPlus,
 } from 'lucide-react';
+import { DepartmentRegistrationForm } from './DepartmentRegistrationForm';
 
 export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSuccessfulLogin }) => {
   const { login } = useDcs();
@@ -23,6 +25,9 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showRegistration, setShowRegistration] = useState(false);
+
+  if (showRegistration) return <DepartmentRegistrationForm onBack={() => setShowRegistration(false)} />;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -202,6 +207,18 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
             </button>
 
           </form>
+
+          <div className="border-t border-slate-800 pt-4 text-center">
+            <p className="text-xs text-slate-400 mb-3">ยังไม่มีบัญชีผู้รับเอกสารประจำแผนก?</p>
+            <button
+              type="button"
+              onClick={() => setShowRegistration(true)}
+              className="w-full py-3 px-4 border border-indigo-500/60 text-indigo-200 hover:bg-indigo-950/70 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"
+            >
+              <UserPlus className="w-5 h-5" />
+              ลงทะเบียนผู้รับเอกสารออนไลน์
+            </button>
+          </div>
 
         </div>
 
