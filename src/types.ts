@@ -121,7 +121,7 @@ export const DOCUMENT_TYPES: {
 
 export type DarRequestType = 'NEW' | 'REVISION' | 'OBSOLETE';
 
-export type DarStatus = 'PENDING_REVIEW' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'REGISTERED';
+export type DarStatus = 'PENDING_REVIEW' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'REGISTERED' | 'CANCELLED';
 
 export interface DarRecord {
   id: string; // e.g. DAR-2026-0001
@@ -144,6 +144,10 @@ export interface DarRecord {
   dccReviewer?: string;
   dccReviewDate?: string;
   dccRemarks?: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
+  cancelledByUid?: string;
+  cancellationReason?: string;
   isoClause?: string;
   isSkippedRevision?: boolean;
   skippedRevisionReason?: string;
@@ -319,6 +323,7 @@ export interface CopyReRequest {
 
 export type AuditActionType =
   | 'DAR_CREATED'
+  | 'DAR_CANCELLED'
   | 'DAR_REVIEWED'
   | 'DOCUMENT_REGISTERED'
   | 'MASTER_LIST_UPDATED'

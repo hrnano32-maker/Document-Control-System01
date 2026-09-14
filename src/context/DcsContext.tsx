@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionRecord, DocumentViewPayload, MasterDocument } from '../types';
 import { changeDcsPassword, observeDcsAuth, signInDcsUser, signOutDcsUser } from '../services/authService';
-import { acknowledgeDownload, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, patchDarRecord, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAuditForUser, subscribeCollection, subscribeCopyRequests, subscribeDars, subscribeDistributions, writeAudit } from '../services/dcsRepository';
+import { acknowledgeDownload, cancelDarRecord, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, patchDarRecord, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAuditForUser, subscribeCollection, subscribeCopyRequests, subscribeDars, subscribeDistributions, writeAudit } from '../services/dcsRepository';
 
 type Result = { success: boolean; message: string; downloadUrl?: string };
 interface DcsContextType {
@@ -12,6 +12,7 @@ interface DcsContextType {
   updateDocumentRevision: (docId: string, newRev: string, effectiveDate: string, darNo: string, reason: string, driveLink: string) => Promise<void>;
   dars: DarRecord[]; createDar: (dar: Omit<DarRecord, 'id' | 'requestDate' | 'status'>) => Promise<string>;
   reviewDar: (darId: string, status: 'APPROVED' | 'REJECTED' | 'UNDER_REVIEW', remarks: string) => Promise<void>;
+  cancelDar: (darId: string, reason: string) => Promise<void>;
   updateDarSignatures: (darId: string, updates: Partial<DarRecord>) => Promise<void>; registerDarToMasterList: (darId: string) => Promise<void>;
   distributions: DistributionRecord[];
   createDistribution: (docId: string, targetDepts: Department[], instructions: string, attachedFile?: { name: string; size: string; type: string; dataUrl?: string }) => Promise<string>;
@@ -67,7 +68,7 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const value: DcsContextType = {
     currentUser, setUserName: name => setCurrentUser(prev => ({ ...prev, userName: name })), login, logout: () => { void signOutDcsUser(); setCurrentUser(emptySession()); }, changePassword, isChangePasswordOpen, setIsChangePasswordOpen: open => { if (!open && currentUser.mustChangePassword) return; setIsChangePasswordOpen(open); },
     documents, addDocument: input => saveMasterDocument(currentUser, input), updateDocumentRevision: (id, rev, date, darNo, reason, link) => reviseMasterDocument(currentUser, needDoc(id), rev, date, darNo, reason, link),
-    dars, createDar: input => createDarRecord(currentUser, input), reviewDar: (id, status, remarks) => reviewDarRecord(currentUser, needDar(id), status, remarks), updateDarSignatures: patchDarRecord, registerDarToMasterList: id => registerDarRecord(currentUser, needDar(id)),
+    dars, createDar: input => createDarRecord(currentUser, input), reviewDar: (id, status, remarks) => reviewDarRecord(currentUser, needDar(id), status, remarks), cancelDar: (id, reason) => cancelDarRecord(currentUser, needDar(id), reason), updateDarSignatures: patchDarRecord, registerDarToMasterList: id => registerDarRecord(currentUser, needDar(id)),
     distributions, createDistribution: (id, _depts, instructions, file) => createDistributionRecord(currentUser, needDoc(id), instructions, file), downloadControlledCopy,
     reRequests, createReRequest: (id, dept, name, empId, reason, details) => createCopyRequestRecord(currentUser, needDist(id), dept, name, empId, reason, details), reviewReRequest: async (id, approve, note, _days, file) => { const row = reRequests.find(x => x.id === id); if (!row) throw new Error('ไม่พบคำขอ'); await decideCopyRequest(currentUser, row, approve, note, file); },
     auditLogs, logAudit: (type, docNo, revision, description, details) => writeAudit(currentUser, type, docNo, revision, description, details), resetToDefaultData: () => {},

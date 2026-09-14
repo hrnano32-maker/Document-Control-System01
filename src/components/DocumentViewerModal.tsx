@@ -40,6 +40,8 @@ export const DocumentViewerModal: React.FC = () => {
   const [rotation, setRotation] = useState(0);
   const [activeTab, setActiveTab] = useState<'preview' | 'file-info' | 'properties'>('preview');
   const [resolvedFileUrl, setResolvedFileUrl] = useState('');
+  const [fileLoading, setFileLoading] = useState(false);
+  const [fileError, setFileError] = useState('');
 
   useEffect(() => {
     if (selectedDocumentForView) {
@@ -51,8 +53,13 @@ export const DocumentViewerModal: React.FC = () => {
 
   useEffect(() => {
     setResolvedFileUrl('');
+    setFileError('');
     if (selectedDocumentForView?.fileStoragePath) {
-      void getStorageFileUrl(selectedDocumentForView.fileStoragePath).then(setResolvedFileUrl).catch(() => setResolvedFileUrl(''));
+      setFileLoading(true);
+      void getStorageFileUrl(selectedDocumentForView.fileStoragePath)
+        .then(setResolvedFileUrl)
+        .catch(() => setFileError('ไม่สามารถเปิดไฟล์แนบได้ กรุณาตรวจสอบสิทธิ์ Storage หรือดาวน์โหลดไฟล์แทน'))
+        .finally(() => setFileLoading(false));
     }
   }, [selectedDocumentForView?.fileStoragePath]);
 
@@ -276,6 +283,8 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
           {/* TAB 1: PREVIEW */}
           {activeTab === 'preview' && (
             <div className="space-y-4">
+              {fileLoading && <div className="bg-white border border-slate-200 rounded-xl p-8 text-center font-bold text-slate-500">กำลังโหลดไฟล์แนบจริง...</div>}
+              {fileError && <div className="bg-rose-50 border border-rose-300 rounded-xl p-4 text-rose-800 font-bold">{fileError}</div>}
               
               {/* If uploaded attachment exists (PDF, Image, Office Doc) */}
               {fileSource && (
@@ -361,6 +370,10 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
 
                   {/* PDF Notification Banner */}
                   {isPdf && (
+                    <>
+                    <div className="w-full h-[62vh] min-h-[520px] rounded-xl overflow-hidden border border-slate-300 bg-slate-200">
+                      <iframe src={`${fileSource}#toolbar=1&navpanes=0&view=FitH`} title={`ตัวอย่าง ${doc.fileName || 'PDF'}`} className="w-full h-full bg-white" />
+                    </div>
                     <div className="p-3.5 bg-gradient-to-r from-rose-50 to-indigo-50 border border-rose-200/80 rounded-xl flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
                         <div className="w-9 h-9 rounded-lg bg-rose-100 border border-rose-300 text-rose-700 flex items-center justify-center shrink-0">
@@ -382,12 +395,13 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
                         เปิดอ่านไฟล์ PDF
                       </button>
                     </div>
+                    </>
                   )}
                 </div>
               )}
 
               {/* High Fidelity QMS Document Paper Sheet Preview (Always visible so users can read the structured document contents) */}
-              <div className="bg-white rounded-xl shadow-md border border-slate-300 p-6 sm:p-8 max-w-4xl mx-auto space-y-6 text-slate-800 print:shadow-none print:border-none">
+              {!fileSource && !fileLoading && <div className="bg-white rounded-xl shadow-md border border-slate-300 p-6 sm:p-8 max-w-4xl mx-auto space-y-6 text-slate-800 print:shadow-none print:border-none">
                   
                   {/* Document Header Table */}
                   <div className="border-2 border-slate-900 text-xs">
@@ -537,7 +551,7 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
                     </div>
                   </div>
 
-                </div>
+                </div>}
 
             </div>
           )}

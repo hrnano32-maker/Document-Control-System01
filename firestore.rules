@@ -53,13 +53,18 @@ service cloud.firestore {
         && request.resource.data.requesterName is string;
       allow update: if isDcc() || (
         sameDepartment(resource.data.requestDept) &&
-        resource.data.status in ['PENDING_REVIEW', 'UNDER_REVIEW'] &&
+        resource.data.status in ['PENDING_REVIEW', 'UNDER_REVIEW', 'APPROVED', 'REJECTED'] &&
         request.resource.data.requestDept == resource.data.requestDept &&
-        request.resource.data.status == resource.data.status &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'requesterSignature', 'deptApproverName', 'deptApproverTitle', 'deptApproverDate',
-          'deptApproverSignature', 'reviewItems', 'distributionHolders', 'updatedAt'
-        ])
+        (
+          (request.resource.data.status == resource.data.status && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'requesterSignature', 'deptApproverName', 'deptApproverTitle', 'deptApproverDate',
+            'deptApproverSignature', 'reviewItems', 'distributionHolders', 'updatedAt'
+          ])) ||
+          (request.resource.data.status == 'CANCELLED'
+            && request.resource.data.cancelledByUid == request.auth.uid
+            && request.resource.data.cancellationReason is string
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancelledBy', 'cancelledByUid', 'cancellationReason', 'updatedAt']))
+        )
       );
       allow delete: if false;
     }

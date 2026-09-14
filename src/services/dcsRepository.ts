@@ -127,6 +127,17 @@ export const reviewDarRecord = async (user: CurrentUserSession, dar: DarRecord, 
   await writeAudit(user, 'DAR_REVIEWED', dar.docNo, dar.proposedRevision, `ตรวจสอบ ${dar.id}: ${status}`, { remarks });
 };
 
+export const cancelDarRecord = async (user: CurrentUserSession, dar: DarRecord, reason: string) => {
+  if (dar.status === 'REGISTERED') throw new Error('DAR ที่ขึ้นทะเบียนแล้วไม่สามารถถอนคำขอได้ ต้องดำเนินการยกเลิกเอกสารผ่าน DAR ฉบับใหม่');
+  if (dar.status === 'CANCELLED') throw new Error('DAR นี้ถูกยกเลิกแล้ว');
+  if (user.userRole !== 'DCC_ADMIN' && user.currentDept !== dar.requestDept) throw new Error('เฉพาะผู้ยื่นจากแผนกเดิมหรือ DCC เท่านั้นที่ยกเลิกได้');
+  const cancellationReason = reason.trim();
+  if (!cancellationReason) throw new Error('กรุณาระบุเหตุผลการยกเลิก');
+  const cancelledAt = new Date().toISOString();
+  await updateDoc(doc(db, 'dcs_dars', dar.id), clean({ status: 'CANCELLED', cancelledAt, cancelledBy: user.userName, cancelledByUid: user.uid, cancellationReason, updatedAt: cancelledAt }));
+  await writeAudit(user, 'DAR_CANCELLED', dar.docNo, dar.proposedRevision, `ยกเลิกคำขอ ${dar.id}: ${cancellationReason}`, { darId: dar.id, previousStatus: dar.status });
+};
+
 const documentKey = (docNo: string) => encodeURIComponent(docNo.trim().toUpperCase()).replace(/%/g, '_');
 
 export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord) => {
