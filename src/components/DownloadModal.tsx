@@ -13,6 +13,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { normalizeSignatureDataUrl } from '../utils/signatureImage';
 
 export const DownloadModal: React.FC = () => {
   const {
@@ -139,8 +140,9 @@ export const DownloadModal: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setSignatureData(reader.result as string);
+      reader.onloadend = async () => {
+        try { setSignatureData(await normalizeSignatureDataUrl(String(reader.result || ''))); }
+        catch (caught) { setErrorMsg(caught instanceof Error ? caught.message : 'ไม่สามารถปรับภาพลายเซ็นได้'); }
       };
       reader.readAsDataURL(file);
     }

@@ -15,6 +15,7 @@ import { httpsCallable } from 'firebase/functions';
 import { deleteObject, getBlob, ref, uploadBytes } from 'firebase/storage';
 import { db, firebaseFunctions, storage } from '../lib/firebase';
 import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionRecord, MasterDocument } from '../types';
+import { normalizeSignatureDataUrl } from '../utils/signatureImage';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -220,7 +221,8 @@ export const acknowledgeDownload = async (user: CurrentUserSession, distribution
   if (!departmentPath || distribution.stampStatus !== 'COMPLETED') throw new Error('ไฟล์ Controlled Copy ของหน่วยงานยังไม่พร้อม กรุณาติดต่อ DCC');
   const controlledFile = await getBlob(ref(storage, departmentPath));
   const signaturePath = `dcs/signatures/${user.uid}/${distribution.id}/${Date.now()}.png`;
-  await uploadBytes(ref(storage, signaturePath), await dataUrlBlob(person.signatureDataUrl), { contentType: 'image/png' });
+  const normalizedSignature = await normalizeSignatureDataUrl(person.signatureDataUrl);
+  await uploadBytes(ref(storage, signaturePath), await dataUrlBlob(normalizedSignature), { contentType: 'image/png' });
   await runTransaction(db, async tx => {
     const snapshot = await tx.get(distRef);
     const current = snapshot.data() as DistributionRecord & { receipts?: Record<string, any> };

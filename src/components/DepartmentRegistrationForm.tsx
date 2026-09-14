@@ -5,6 +5,7 @@ import { COMPANY } from '../config/company';
 import { firebaseFunctions } from '../lib/firebase';
 import { DEPARTMENTS, Department } from '../types';
 import { NanoLogo } from './NanoLogo';
+import { normalizeSignatureDataUrl } from '../utils/signatureImage';
 
 type Props = { onBack: () => void };
 type FormState = {
@@ -58,9 +59,9 @@ export const DepartmentRegistrationForm: React.FC<Props> = ({ onBack }) => {
     if (!form.authorized) return setError('กรุณายืนยันว่าได้รับมอบหมายให้เป็นผู้รับเอกสาร');
     setSubmitting(true);
     try {
-      const signatureDataUrl = await fileToDataUrl(signature);
+      const signatureDataUrl = await normalizeSignatureDataUrl(await fileToDataUrl(signature));
       const call = httpsCallable<Record<string, unknown>, { registrationNo: string }>(firebaseFunctions, 'submitDepartmentRegistration');
-      const result = await call({ ...form, username: form.username.trim().toLowerCase(), signatureDataUrl, signatureFileName: signature.name, signatureContentType: signature.type });
+      const result = await call({ ...form, username: form.username.trim().toLowerCase(), signatureDataUrl, signatureFileName: 'signature.png', signatureContentType: 'image/png' });
       setReceipt(result.data.registrationNo);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message.replace(/^Firebase:\s*/i, '') : 'ส่งข้อมูลไม่สำเร็จ กรุณาลองใหม่');

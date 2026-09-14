@@ -3,6 +3,7 @@ const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 const { getAuth } = require('firebase-admin/auth');
 const { randomBytes } = require('node:crypto');
+const sharp = require('sharp');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
@@ -20,6 +21,20 @@ const signatureExtension = contentType => contentType === 'image/png' ? 'png' : 
 const validSignatureMagic = (bytes, contentType) => contentType === 'image/png'
   ? bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a'
   : bytes.subarray(0, 3).toString('hex') === 'ffd8ff';
+
+const normalizeSignature = async bytes => {
+  const { data, info } = await sharp(bytes)
+    .rotate()
+    .ensureAlpha()
+    .trim({ background: '#ffffff', threshold: 12 })
+    .resize({ width: 900, height: 300, fit: 'inside', withoutEnlargement: false })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  for (let index = 0; index < data.length; index += info.channels) {
+    if (data[index] > 242 && data[index + 1] > 242 && data[index + 2] > 242) data[index + 3] = 0;
+  }
+  return sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } }).png({ compressionLevel: 9 }).toBuffer();
+};
 
 exports.submitDepartmentRegistration = onCall({ region: REGION, timeoutSeconds: 60, memory: '256MiB' }, async request => {
   const department = cleanText(request.data?.department, 50);
@@ -56,10 +71,11 @@ exports.submitDepartmentRegistration = onCall({ region: REGION, timeoutSeconds: 
     }
     transaction.set(ref, { registrationNo, department, username, displayName, empId, position, email, phone, recipientType, authorized: true, status: 'UPLOADING', createdAt: now.toISOString(), updatedAt: now.toISOString() });
   });
-  const signaturePath = `dcs/onboarding/${id}/signature.${signatureExtension(contentType)}`;
+  const signaturePath = `dcs/onboarding/${id}/signature.png`;
   try {
-    await getStorage().bucket().file(signaturePath).save(signatureBytes, { resumable: false, contentType, metadata: { cacheControl: 'private,no-store,max-age=0' } });
-    await ref.update({ signaturePath, signatureContentType: contentType, status: 'PENDING', updatedAt: new Date().toISOString() });
+    const normalizedBytes = await normalizeSignature(signatureBytes);
+    await getStorage().bucket().file(signaturePath).save(normalizedBytes, { resumable: false, contentType: 'image/png', metadata: { cacheControl: 'private,no-store,max-age=0' } });
+    await ref.update({ signaturePath, signatureContentType: 'image/png', status: 'PENDING', updatedAt: new Date().toISOString() });
   } catch (error) {
     await ref.update({ status: 'UPLOAD_FAILED', updatedAt: new Date().toISOString() });
     console.error('REGISTRATION_SIGNATURE_UPLOAD_FAILED', id, error);
@@ -104,9 +120,10 @@ exports.reviewDepartmentRegistration = onCall({ region: REGION, timeoutSeconds: 
     throw error;
   }
   try {
-    const extension = signatureExtension(registration.signatureContentType);
-    const permanentSignaturePath = `dcs/signatures/${createdUser.uid}/profile-signature.${extension}`;
-    await getStorage().bucket().file(registration.signaturePath).copy(getStorage().bucket().file(permanentSignaturePath));
+    const permanentSignaturePath = `dcs/signatures/${createdUser.uid}/profile-signature.png`;
+    const [sourceSignature] = await getStorage().bucket().file(registration.signaturePath).download();
+    const normalizedSignature = await normalizeSignature(sourceSignature);
+    await getStorage().bucket().file(permanentSignaturePath).save(normalizedSignature, { resumable: false, contentType: 'image/png', metadata: { cacheControl: 'private,no-store,max-age=0' } });
     const profile = {
       username,
       department: registration.department,
