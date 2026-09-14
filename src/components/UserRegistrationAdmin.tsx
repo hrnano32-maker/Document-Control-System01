@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { getDownloadURL, ref } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
-import { Check, Copy, Eye, ShieldCheck, UserCheck, UserX, X } from 'lucide-react';
+import { Check, Copy, Eye, KeyRound, ShieldCheck, UserCheck, UserX, X } from 'lucide-react';
 import { db, firebaseFunctions, storage } from '../lib/firebase';
 
 type Registration = {
@@ -23,6 +23,7 @@ export const UserRegistrationAdmin: React.FC = () => {
     setLoading(false);
   }, caught => { setError(caught.message); setLoading(false); }), []);
   const pending = useMemo(() => rows.filter(row => row.status === 'PENDING'), [rows]);
+  const approved = useMemo(() => rows.filter(row => row.status === 'APPROVED'), [rows]);
 
   const viewSignature = async (row: Registration) => {
     setError('');
@@ -47,6 +48,16 @@ export const UserRegistrationAdmin: React.FC = () => {
     } catch (caught) { setError(caught instanceof Error ? caught.message.replace(/^Firebase:\s*/i, '') : 'ดำเนินการไม่สำเร็จ'); }
     finally { setWorkingId(''); }
   };
+  const resetPassword = async (row: Registration) => {
+    if (!window.confirm(`ออกรหัสผ่านชั่วคราวใหม่ให้ ${row.displayName} (${row.department}) ใช่หรือไม่?\n\nรหัสผ่านเดิมจะใช้ไม่ได้ทันที`)) return;
+    setWorkingId(row.id); setError('');
+    try {
+      const call = httpsCallable<{ registrationId: string }, any>(firebaseFunctions, 'resetDepartmentTemporaryPassword');
+      const result = await call({ registrationId: row.id });
+      setCredentials({ username: result.data.username, password: result.data.temporaryPassword, displayName: result.data.displayName, department: result.data.department });
+    } catch (caught) { setError(caught instanceof Error ? caught.message.replace(/^Firebase:\s*/i, '') : 'ออกรหัสผ่านใหม่ไม่สำเร็จ'); }
+    finally { setWorkingId(''); }
+  };
 
   return <div className="space-y-6">
     <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
@@ -64,7 +75,14 @@ export const UserRegistrationAdmin: React.FC = () => {
         </div>
       </article>)}
     </div>
+    <section className="space-y-3">
+      <div><h2 className="text-xl font-black text-slate-900">บัญชีที่อนุมัติแล้ว</h2><p className="text-sm text-slate-500">สำหรับออกรหัสผ่านชั่วคราวใหม่เมื่อผู้ใช้ลืมรหัสผ่าน</p></div>
+      {approved.length === 0 ? <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-slate-500">ยังไม่มีบัญชีที่อนุมัติ</div> : approved.map(row => <article key={row.id} className="bg-white rounded-2xl border border-emerald-200 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div><div className="flex items-center gap-2"><span className="bg-emerald-100 text-emerald-800 rounded-lg px-2.5 py-1 text-xs font-black">อนุมัติแล้ว</span><b>{row.department}</b></div><div className="font-black mt-2">{row.displayName}</div><div className="text-sm text-slate-500">Username: <span className="font-mono font-bold text-slate-700">{row.username}</span></div></div>
+        <button disabled={workingId === row.id} onClick={() => resetPassword(row)} className="px-4 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-black flex items-center justify-center gap-2 disabled:opacity-50"><KeyRound className="w-4 h-4" />{workingId === row.id ? 'กำลังออกรหัส...' : 'ออกรหัสผ่านชั่วคราวใหม่'}</button>
+      </article>)}
+    </section>
     {signatureUrl && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setSignatureUrl('')}><div className="bg-white rounded-2xl p-5 max-w-2xl w-full" onClick={e => e.stopPropagation()}><div className="flex justify-between items-center mb-4"><b>ตรวจสอบลายเซ็น</b><button onClick={() => setSignatureUrl('')}><X /></button></div><img src={signatureUrl} alt="ลายเซ็นผู้ลงทะเบียน" className="max-h-[65vh] mx-auto" /></div></div>}
-    {credentials && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"><div className="bg-white rounded-2xl p-6 max-w-lg w-full"><div className="flex justify-between"><div><div className="text-emerald-700 font-black">สร้างบัญชีสำเร็จ</div><h2 className="text-xl font-black mt-1">{credentials.displayName} — {credentials.department}</h2></div><button onClick={() => setCredentials(null)}><X /></button></div><div className="mt-5 bg-slate-950 text-white rounded-xl p-4 space-y-3"><div><div className="text-xs text-slate-400">Username</div><div className="font-mono font-black text-lg">{credentials.username}</div></div><div><div className="text-xs text-slate-400">รหัสผ่านชั่วคราว</div><div className="font-mono font-black text-lg text-amber-300 break-all">{credentials.password}</div></div></div><button onClick={() => navigator.clipboard.writeText(`Username: ${credentials.username}\nรหัสผ่านชั่วคราว: ${credentials.password}`)} className="mt-4 w-full border border-slate-300 rounded-xl py-3 font-bold flex items-center justify-center gap-2"><Copy className="w-4 h-4" />คัดลอกข้อมูลเข้าสู่ระบบ</button><p className="text-xs text-rose-600 font-bold mt-3">กรุณาบันทึกรหัสผ่านตอนนี้ หน้าต่างนี้ปิดแล้วจะไม่สามารถเปิดดูรหัสเดิมได้</p></div></div>}
+    {credentials && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"><div className="bg-white rounded-2xl p-6 max-w-lg w-full"><div className="flex justify-between"><div><div className="text-emerald-700 font-black">รหัสผ่านชั่วคราวพร้อมใช้งาน</div><h2 className="text-xl font-black mt-1">{credentials.displayName} — {credentials.department}</h2></div><button onClick={() => setCredentials(null)}><X /></button></div><div className="mt-5 bg-slate-950 text-white rounded-xl p-4 space-y-3"><div><div className="text-xs text-slate-400">Username</div><div className="font-mono font-black text-lg">{credentials.username}</div></div><div><div className="text-xs text-slate-400">รหัสผ่านชั่วคราว</div><div className="font-mono font-black text-lg text-amber-300 break-all">{credentials.password}</div></div></div><button onClick={() => navigator.clipboard.writeText(`Username: ${credentials.username}\nรหัสผ่านชั่วคราว: ${credentials.password}`)} className="mt-4 w-full border border-slate-300 rounded-xl py-3 font-bold flex items-center justify-center gap-2"><Copy className="w-4 h-4" />คัดลอกข้อมูลเข้าสู่ระบบ</button><p className="text-xs text-rose-600 font-bold mt-3">รหัสผ่านเดิมใช้ไม่ได้แล้ว กรุณาบันทึกรหัสใหม่นี้ทันที หน้าต่างนี้ปิดแล้วจะไม่สามารถเปิดดูได้อีก</p></div></div>}
   </div>;
 };

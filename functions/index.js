@@ -153,6 +153,26 @@ exports.reviewDepartmentRegistration = onCall({ region: REGION, timeoutSeconds: 
   return { status: 'APPROVED', username, temporaryPassword: password, displayName: registration.displayName, department: registration.department };
 });
 
+exports.resetDepartmentTemporaryPassword = onCall({ region: REGION, timeoutSeconds: 30, memory: '256MiB' }, async request => {
+  await requireDcc(request);
+  const registrationId = cleanText(request.data?.registrationId, 80);
+  if (!registrationId) throw new HttpsError('invalid-argument', 'ไม่พบข้อมูลบัญชีผู้ใช้');
+  const db = getFirestore();
+  const ref = db.collection('dcs_user_registrations').doc(registrationId);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) throw new HttpsError('not-found', 'ไม่พบข้อมูลบัญชีผู้ใช้');
+  const registration = snapshot.data();
+  if (registration.status !== 'APPROVED' || !registration.authUid) throw new HttpsError('failed-precondition', 'บัญชีนี้ยังไม่ได้รับอนุมัติ');
+  const password = temporaryPassword();
+  const changedAt = new Date().toISOString();
+  await getAuth().updateUser(registration.authUid, { password, disabled: false });
+  const batch = db.batch();
+  batch.update(db.collection('users').doc(registration.authUid), { mustChangePassword: true, passwordResetAt: changedAt, passwordResetByUid: request.auth.uid });
+  batch.update(ref, { passwordResetAt: changedAt, passwordResetByUid: request.auth.uid });
+  await batch.commit();
+  return { username: registration.approvedUsername || registration.username, temporaryPassword: password, displayName: registration.displayName, department: registration.department };
+});
+
 async function requireDcc(request) {
   if (!request.auth) throw new HttpsError('unauthenticated', 'กรุณาเข้าสู่ระบบ');
   const profile = await getFirestore().collection('users').doc(request.auth.uid).get();
