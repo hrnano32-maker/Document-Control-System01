@@ -10,7 +10,7 @@ import {
   reauthenticateWithCredential,
   User,
 } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db, usernameToInternalEmail } from '../lib/firebase';
 import { CurrentUserSession, Department } from '../types';
 
@@ -24,6 +24,7 @@ export interface DcsUserProfile {
   empId?: string;
   position: string;
   allowedViews?: CurrentUserSession['allowedViews'];
+  mustChangePassword?: boolean;
 }
 
 export const loadDcsProfile = async (user: User): Promise<CurrentUserSession> => {
@@ -38,6 +39,9 @@ export const loadDcsProfile = async (user: User): Promise<CurrentUserSession> =>
       ? ['dashboard', 'masterlist', 'dar', 'distribution', 'audit']
       : ['dashboard', 'masterlist', 'dar', 'distribution', 'audit'];
 
+  const allowedViews = [...(profile.allowedViews || defaultViews)];
+  if (profile.role === 'DCC_ADMIN' && !allowedViews.includes('registrations')) allowedViews.push('registrations');
+
   return {
     uid: user.uid,
     currentDept: profile.department,
@@ -49,7 +53,8 @@ export const loadDcsProfile = async (user: User): Promise<CurrentUserSession> =>
     deptDescriptionTh: profile.department,
     position: profile.position,
     isAuthenticated: true,
-    allowedViews: profile.allowedViews || defaultViews,
+    mustChangePassword: profile.mustChangePassword === true,
+    allowedViews,
   };
 };
 
@@ -72,7 +77,8 @@ export const changeDcsPassword = async (oldPassword: string, newPassword: string
     auth.currentUser,
     EmailAuthProvider.credential(auth.currentUser.email, oldPassword)
   );
-  return updatePassword(auth.currentUser, newPassword);
+  await updatePassword(auth.currentUser, newPassword);
+  await updateDoc(doc(db, 'users', auth.currentUser.uid), { mustChangePassword: false });
 };
 
 export const observeDcsAuth = (callback: (session: CurrentUserSession | null) => void) =>

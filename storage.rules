@@ -26,6 +26,11 @@ service firebase.storage {
       allow update, delete: if false;
     }
 
+    match /dcs/onboarding/{department}/{fileName} {
+      allow read: if isDcc();
+      allow create, update, delete: if false;
+    }
+
     match /dcs/signatures/{uid}/{distributionId}/{fileName} {
       allow read: if isDcc() || request.auth.uid == uid;
       allow create: if activeUser() && request.auth.uid == uid && request.resource.size < 2 * 1024 * 1024

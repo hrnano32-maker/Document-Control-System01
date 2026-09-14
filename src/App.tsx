@@ -13,6 +13,7 @@ import { StamperToolModal } from './components/StamperToolModal';
 import { DocumentViewerModal } from './components/DocumentViewerModal';
 import { LoginPage } from './components/LoginPage';
 import { COMPANY } from './config/company';
+import { UserRegistrationAdmin } from './components/UserRegistrationAdmin';
 
 const MainLayout: React.FC = () => {
   const { activeView, currentUser } = useDcs();
@@ -36,6 +37,7 @@ const MainLayout: React.FC = () => {
         {activeView === 'dar' && <DarManagement />}
         {activeView === 'distribution' && <DistributionManager />}
         {activeView === 'audit' && <AuditTrailView />}
+        {activeView === 'registrations' && isDcc && <UserRegistrationAdmin />}
       </main>
 
       {/* Modals & Dialogs */}

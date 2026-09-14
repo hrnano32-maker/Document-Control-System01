@@ -1,6 +1,8 @@
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
+const { getAuth } = require('firebase-admin/auth');
+const { randomBytes } = require('node:crypto');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
@@ -64,6 +66,74 @@ exports.submitDepartmentRegistration = onCall({ region: REGION, timeoutSeconds: 
     throw new HttpsError('internal', 'บันทึกไฟล์ลายเซ็นไม่สำเร็จ กรุณาลองใหม่');
   }
   return { registrationNo };
+});
+
+const temporaryPassword = () => {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$';
+  const bytes = randomBytes(14);
+  return Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('');
+};
+
+exports.reviewDepartmentRegistration = onCall({ region: REGION, timeoutSeconds: 60, memory: '256MiB' }, async request => {
+  await requireDcc(request);
+  const registrationId = cleanText(request.data?.registrationId, 80);
+  const action = request.data?.action === 'REJECT' ? 'REJECT' : 'APPROVE';
+  const reviewNote = cleanText(request.data?.reviewNote, 500);
+  if (!registrationId) throw new HttpsError('invalid-argument', 'ไม่พบคำขอลงทะเบียน');
+  const db = getFirestore();
+  const ref = db.collection('dcs_user_registrations').doc(registrationId);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) throw new HttpsError('not-found', 'ไม่พบคำขอลงทะเบียน');
+  const registration = snapshot.data();
+  if (registration.status !== 'PENDING') throw new HttpsError('failed-precondition', 'คำขอนี้ถูกดำเนินการแล้ว');
+  const reviewer = await db.collection('users').doc(request.auth.uid).get();
+  const reviewedAt = new Date().toISOString();
+  if (action === 'REJECT') {
+    await ref.update({ status: 'REJECTED', reviewNote, reviewedAt, reviewedByUid: request.auth.uid, reviewedByName: reviewer.data()?.displayName || 'DCC' });
+    return { status: 'REJECTED' };
+  }
+
+  const username = cleanText(registration.username, 30).toLowerCase();
+  const internalEmail = `${username}@dar-online-form.app`;
+  const password = temporaryPassword();
+  let createdUser;
+  try {
+    createdUser = await getAuth().createUser({ email: internalEmail, password, displayName: registration.displayName, disabled: false });
+  } catch (error) {
+    if (error?.code === 'auth/email-already-exists') throw new HttpsError('already-exists', 'Username นี้มีบัญชีในระบบแล้ว');
+    throw error;
+  }
+  try {
+    const extension = signatureExtension(registration.signatureContentType);
+    const permanentSignaturePath = `dcs/signatures/${createdUser.uid}/profile-signature.${extension}`;
+    await getStorage().bucket().file(registration.signaturePath).copy(getStorage().bucket().file(permanentSignaturePath));
+    const profile = {
+      username,
+      department: registration.department,
+      role: 'DEPT_CONTROLLER',
+      roleName: 'Department User',
+      active: true,
+      displayName: registration.displayName,
+      empId: registration.empId,
+      position: registration.position,
+      contactEmail: registration.email || '',
+      phone: registration.phone || '',
+      recipientType: registration.recipientType,
+      signaturePath: permanentSignaturePath,
+      mustChangePassword: true,
+      createdAt: reviewedAt,
+      createdByUid: request.auth.uid,
+    };
+    const batch = db.batch();
+    batch.set(db.collection('users').doc(createdUser.uid), profile);
+    batch.update(ref, { status: 'APPROVED', authUid: createdUser.uid, approvedUsername: username, permanentSignaturePath, reviewNote, reviewedAt, reviewedByUid: request.auth.uid, reviewedByName: reviewer.data()?.displayName || 'DCC' });
+    await batch.commit();
+  } catch (error) {
+    await getAuth().deleteUser(createdUser.uid).catch(() => {});
+    console.error('REGISTRATION_APPROVAL_FAILED', registrationId, error);
+    throw new HttpsError('internal', 'สร้างบัญชีไม่สำเร็จ ระบบยกเลิกบัญชีชั่วคราวแล้ว กรุณาลองใหม่');
+  }
+  return { status: 'APPROVED', username, temporaryPassword: password, displayName: registration.displayName, department: registration.department };
 });
 
 async function requireDcc(request) {

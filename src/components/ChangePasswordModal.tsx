@@ -88,7 +88,7 @@ export const ChangePasswordModal: React.FC<{
       id="change-password-modal-backdrop"
       className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fadeIn"
       onClick={e => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && !currentUser.mustChangePassword) onClose();
       }}
     >
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden relative">
@@ -108,7 +108,7 @@ export const ChangePasswordModal: React.FC<{
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            className={`text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors ${currentUser.mustChangePassword ? 'invisible pointer-events-none' : 'cursor-pointer'}`}
           >
             <X className="w-5 h-5" />
           </button>
@@ -116,6 +116,7 @@ export const ChangePasswordModal: React.FC<{
 
         {/* Content */}
         <div className="p-6 space-y-4">
+          {currentUser.mustChangePassword && <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">บัญชีใหม่ต้องเปลี่ยนรหัสผ่านชั่วคราวก่อนเริ่มใช้งานระบบ</div>}
           
           {/* Info Banner */}
           <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs text-indigo-900 flex items-start gap-2.5">

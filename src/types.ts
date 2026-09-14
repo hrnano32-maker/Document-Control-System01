@@ -355,7 +355,8 @@ export interface CurrentUserSession {
   deptDescriptionTh: string;
   position: string;
   isAuthenticated: boolean;
-  allowedViews: ('dashboard' | 'dar' | 'audit' | 'masterlist' | 'distribution')[];
+  mustChangePassword: boolean;
+  allowedViews: ('dashboard' | 'dar' | 'audit' | 'masterlist' | 'distribution' | 'registrations')[];
 }
 
 export interface DocumentViewPayload {

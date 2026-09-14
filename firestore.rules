@@ -23,8 +23,20 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if activeUser() && (request.auth.uid == uid || isDcc());
-      allow create, update: if isDcc();
+      allow create: if isDcc();
+      allow update: if isDcc() || (
+        activeUser()
+        && request.auth.uid == uid
+        && resource.data.mustChangePassword == true
+        && request.resource.data.mustChangePassword == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword'])
+      );
       allow delete: if false;
+    }
+
+    match /dcs_user_registrations/{id} {
+      allow read: if isDcc();
+      allow create, update, delete: if false;
     }
 
     match /dcs_documents/{id} {

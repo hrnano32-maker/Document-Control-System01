@@ -31,7 +31,7 @@ interface DcsContextType {
   updateDriveLink: (id: string, type: 'DAR' | 'MASTER_DOC', newLink: string) => Promise<void>;
 }
 
-const emptySession = (): CurrentUserSession => ({ uid: '', currentDept: 'DCC', username: '', userName: '', userEmpId: '', userRole: 'STAFF', roleName: 'Department User', deptDescriptionTh: '', position: '', isAuthenticated: false, allowedViews: [] });
+const emptySession = (): CurrentUserSession => ({ uid: '', currentDept: 'DCC', username: '', userName: '', userEmpId: '', userRole: 'STAFF', roleName: 'Department User', deptDescriptionTh: '', position: '', isAuthenticated: false, mustChangePassword: false, allowedViews: [] });
 const DcsContext = createContext<DcsContextType | undefined>(undefined);
 const hydrateDistribution = (row: any): DistributionRecord => ({ ...row, targets: (row.targets || []).map((target: any) => { const receipt = row.receipts?.[target.dept]; return receipt ? { ...target, isDownloaded: true, status: 'DOWNLOADED', downloadTimestamp: receipt.downloadedAt, downloaderName: receipt.downloaderName, downloaderEmpId: receipt.downloaderEmpId, downloaderPosition: receipt.downloaderPosition, signatureDataUrl: null } : target; }) });
 
@@ -46,7 +46,11 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isStamperOpen, setIsStamperOpen] = useState(false); const [stampDocData, setStampDocData] = useState<{ docNo: string; docName: string; revision: string; dept: string } | null>(null);
   const [selectedDocumentForView, setSelectedDocumentForView] = useState<DocumentViewPayload | null>(null);
 
-  useEffect(() => observeDcsAuth(session => { setCurrentUser(session || emptySession()); if (!session) setActiveView('dashboard'); }), []);
+  useEffect(() => observeDcsAuth(session => {
+    setCurrentUser(session || emptySession());
+    if (!session) setActiveView('dashboard');
+    if (session?.mustChangePassword) setIsChangePasswordOpen(true);
+  }), []);
   useEffect(() => {
     if (!currentUser.isAuthenticated) { setDocuments([]); setDars([]); setDistributions([]); setReRequests([]); setAuditLogs([]); return; }
     const stops = [subscribeCollection<MasterDocument>('dcs_documents', setDocuments), subscribeDars(currentUser, setDars), subscribeDistributions(currentUser, rows => setDistributions(rows.map(hydrateDistribution))), subscribeCopyRequests(currentUser, setReRequests), subscribeAuditForUser(currentUser, setAuditLogs)];
@@ -57,11 +61,11 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const needDoc = (id: string) => { const row = documents.find(x => x.id === id); if (!row) throw new Error('ไม่พบเอกสาร'); return row; };
   const needDist = (id: string) => { const row = distributions.find(x => x.id === id); if (!row) throw new Error('ไม่พบรายการแจกจ่าย'); return row; };
   const login = async (username: string, password: string, remember = false): Promise<Result> => { try { setCurrentUser(await signInDcsUser(username, password, remember)); return { success: true, message: 'เข้าสู่ระบบสำเร็จ' }; } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }; } };
-  const changePassword = async (oldPassword: string, newPassword: string): Promise<Result> => { try { await changeDcsPassword(oldPassword, newPassword); return { success: true, message: 'เปลี่ยนรหัสผ่านสำเร็จ' }; } catch { return { success: false, message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง หรือเซสชันหมดอายุ' }; } };
+  const changePassword = async (oldPassword: string, newPassword: string): Promise<Result> => { try { await changeDcsPassword(oldPassword, newPassword); setCurrentUser(prev => ({ ...prev, mustChangePassword: false })); return { success: true, message: 'เปลี่ยนรหัสผ่านสำเร็จ' }; } catch { return { success: false, message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง หรือเซสชันหมดอายุ' }; } };
   const downloadControlledCopy = async (id: string, dept: Department, name: string, empId: string, position: string, signature: string): Promise<Result> => { try { const downloadUrl = await acknowledgeDownload(currentUser, needDist(id), dept, { name, empId, position, signatureDataUrl: signature }); return { success: true, message: 'บันทึกการรับเอกสารสำเร็จ', downloadUrl }; } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'ดำเนินการไม่สำเร็จ' }; } };
 
   const value: DcsContextType = {
-    currentUser, setUserName: name => setCurrentUser(prev => ({ ...prev, userName: name })), login, logout: () => { void signOutDcsUser(); setCurrentUser(emptySession()); }, changePassword, isChangePasswordOpen, setIsChangePasswordOpen,
+    currentUser, setUserName: name => setCurrentUser(prev => ({ ...prev, userName: name })), login, logout: () => { void signOutDcsUser(); setCurrentUser(emptySession()); }, changePassword, isChangePasswordOpen, setIsChangePasswordOpen: open => { if (!open && currentUser.mustChangePassword) return; setIsChangePasswordOpen(open); },
     documents, addDocument: input => saveMasterDocument(currentUser, input), updateDocumentRevision: (id, rev, date, darNo, reason, link) => reviseMasterDocument(currentUser, needDoc(id), rev, date, darNo, reason, link),
     dars, createDar: input => createDarRecord(currentUser, input), reviewDar: (id, status, remarks) => reviewDarRecord(currentUser, needDar(id), status, remarks), updateDarSignatures: patchDarRecord, registerDarToMasterList: id => registerDarRecord(currentUser, needDar(id)),
     distributions, createDistribution: (id, _depts, instructions, file) => createDistributionRecord(currentUser, needDoc(id), instructions, file), downloadControlledCopy,

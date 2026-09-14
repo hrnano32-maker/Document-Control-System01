@@ -15,6 +15,7 @@ import {
   UserCheck,
   Type,
   ZoomIn,
+  UsersRound,
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
@@ -203,6 +204,19 @@ export const Navbar: React.FC = () => {
                 <History className="w-5 h-5 text-emerald-400" />
                 <span>Audit Trail</span>
               </button>
+
+              {isDcc && (
+                <button
+                  id="nav-tab-registrations"
+                  onClick={() => setActiveView('registrations')}
+                  className={`px-4 py-2.5 rounded-xl text-base font-bold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+                    activeView === 'registrations' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/40' : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                  }`}
+                >
+                  <UsersRound className="w-5 h-5 text-fuchsia-400" />
+                  <span>อนุมัติผู้ใช้</span>
+                </button>
+              )}
 
             </nav>
 
