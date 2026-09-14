@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useDcs } from '../context/DcsContext';
 import { NanoLogo } from './NanoLogo';
+import { COMPANY } from '../config/company';
 import {
   ShieldCheck,
   Lock,
@@ -75,6 +76,8 @@ export const LoginPage: React.FC<{ onSuccessfulLogin?: () => void }> = ({ onSucc
             <ShieldCheck className="w-4 h-4 text-indigo-400" />
             <span>Document Control System • ISO 9001:2015 & IATF 16949</span>
           </div>
+          <p className="text-sm font-semibold text-slate-200">{COMPANY.nameTh}</p>
+          <p className="text-[11px] tracking-wide text-slate-400">{COMPANY.nameEn}</p>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
             เข้าสู่ระบบ <span className="text-indigo-400">DCC e-Control</span>
           </h1>

@@ -12,6 +12,7 @@ import { CopyRequestModal } from './components/CopyRequestModal';
 import { StamperToolModal } from './components/StamperToolModal';
 import { DocumentViewerModal } from './components/DocumentViewerModal';
 import { LoginPage } from './components/LoginPage';
+import { COMPANY } from './config/company';
 
 const MainLayout: React.FC = () => {
   const { activeView, currentUser } = useDcs();
@@ -48,6 +49,9 @@ const MainLayout: React.FC = () => {
       <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500 print:hidden">
         <div className="max-w-7xl mx-auto px-4 space-y-1">
           <p className="font-semibold text-slate-700">
+            {COMPANY.nameTh} ({COMPANY.nameEn})
+          </p>
+          <p className="text-[11px] text-slate-500">
             ระบบควบคุมเอกสารอิเล็กทรอนิกส์ (Document Control System - DCS) • ISO 9001:2015 & IATF 16949
           </p>
           <p className="text-[11px] text-slate-400">

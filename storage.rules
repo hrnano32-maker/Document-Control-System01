@@ -59,6 +59,13 @@ service firebase.storage {
       allow read, write: if isDcc();
     }
 
+    match /dcs/distribution-sheet-signatures/{uid}/{distributionId}/{fileName} {
+      allow read: if isDcc();
+      allow create, update: if isDcc() && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if isDcc();
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { printElementById, openPrintInNewTab, downloadPrintableHtml } from '../utils/printHelper';
+import { COMPANY } from '../config/company';
+import { NanoLogo } from './NanoLogo';
 
 interface DarPrintModalProps {
   dar: DarRecord;
@@ -282,7 +284,7 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
                 </span>
               </h3>
               <p className="text-[11px] text-slate-300">
-                ฟอร์มมาตรฐาน FM-QS-001-01:11/09/23 (ทบทวน: QP, PQCT, SD, WI, FMEA, BOM)
+                ฟอร์มมาตรฐาน {COMPANY.darFormCode} (ทบทวน: QP, PQCT, SD, WI, FMEA, BOM)
               </p>
             </div>
           </div>
@@ -369,17 +371,14 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
             
             {/* 1. Header with NANO Logo & Form Title */}
             <div className="mb-4 grid grid-cols-[100px_1fr_100px] items-center gap-2 min-h-[48px]">
-              {/* NANO Logo (Red Oval) on the left */}
               <div className="flex items-center justify-start">
-                <div className="w-24 h-9 border-2 border-red-600 rounded-[50%] flex items-center justify-center bg-white shadow-xs">
-                  <span className="text-red-600 font-black text-lg tracking-wider" style={{ fontFamily: 'Arial, sans-serif' }}>
-                    NANO
-                  </span>
-                </div>
+                <NanoLogo className="h-11 w-24" />
               </div>
 
               {/* Centered Form Title */}
               <div className="text-center px-1">
+                <p className="text-[9px] font-semibold">{COMPANY.nameTh}</p>
+                <p className="text-[8px] tracking-wide">{COMPANY.nameEn}</p>
                 <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-black tracking-normal whitespace-nowrap">
                   ใบขอดำเนินการจัดการด้านเอกสาร (DAR.)
                 </h1>
@@ -396,7 +395,7 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
               
               {/* ประเภทเอกสาร */}
               <div className="flex items-start gap-4">
-                <span className="font-bold whitespace-nowrap w-28 shrink-0">ชนิดเอกสาร</span>
+                <span className="font-bold whitespace-nowrap w-28 shrink-0">ประเภทเอกสาร</span>
                 <div className="grid grid-cols-4 gap-x-4 gap-y-1.5 flex-1 text-[11px]">
                   
                   {/* Level 1 & 2 */}
@@ -1019,7 +1018,7 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
 
             {/* 7. Footer Form Number (FM-QS-001-01:11/09/23) */}
             <div className="flex justify-end text-[11px] font-mono text-black font-semibold pt-1">
-              <span>FM-QS-001-01:11/09/23</span>
+              <span>{COMPANY.darFormCode}</span>
             </div>
 
           </div>

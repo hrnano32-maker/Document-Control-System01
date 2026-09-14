@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useDcs } from '../context/DcsContext';
-import { DistributionRecord, DarRecord } from '../types';
+import { DistributionRecord, DistributionReceipt, DarRecord } from '../types';
 import {
   Printer,
   X,
@@ -21,15 +21,20 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { printElementById, openPrintInNewTab, downloadPrintableHtml } from '../utils/printHelper';
+import { getStorageFileUrl, saveDistributionSheetRecord } from '../services/dcsRepository';
+import { COMPANY } from '../config/company';
+import { NanoLogo } from './NanoLogo';
 
 interface DistributionRowData {
   id: string;
+  dept?: string;
   position: string;
   copies: string;
   receiveSignature?: string;
   receiveDate: string;
   receiveSignerName?: string;
   returnSignature?: string;
+  returnSignatureStoragePath?: string;
   returnDate: string;
   returnSignerName?: string;
   sourceDarId?: string;
@@ -64,6 +69,7 @@ export const DistributionSheetModal: React.FC = () => {
   const [printMode, setPrintMode] = useState<'FILLED' | 'BLANK'>('FILLED');
   const [showDocMetadataHeader, setShowDocMetadataHeader] = useState<boolean>(true);
   const [isSaved, setIsSaved] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
   const [activeDarId, setActiveDarId] = useState<string>('');
 
   // Revisions for Receiving (รับ) and Returning (คืน)
@@ -123,6 +129,8 @@ export const DistributionSheetModal: React.FC = () => {
   // Function to build initial rows from a specified DAR
   const buildRowsFromDar = (dar?: DarRecord, dist?: DistributionRecord): DistributionRowData[] => {
     if (!dist) return [];
+    const savedRows = dist.distributionSheet?.rows;
+    if (savedRows?.length) return savedRows.map((row, index) => ({ id: `saved-${index}-${row.dept || 'row'}`, dept: row.dept, position: row.position, copies: row.copies, receiveDate: row.dept && dist.receipts?.[row.dept]?.downloadedAt ? dist.receipts[row.dept].downloadedAt.split('T')[0] : '', receiveSignerName: row.dept ? dist.receipts?.[row.dept]?.downloaderName : '', returnDate: row.returnDate || '', returnSignerName: row.returnSignerName || '', returnSignatureStoragePath: row.returnSignatureStoragePath }));
 
     const distDate = dist.distributedDate ? dist.distributedDate.split('T')[0] : new Date().toISOString().split('T')[0];
 
@@ -131,20 +139,15 @@ export const DistributionSheetModal: React.FC = () => {
       const checkedHolders = dar.distributionHolders.filter(h => h.checked);
       if (checkedHolders.length > 0) {
         return checkedHolders.map((holder, idx) => {
-          // Look for matching existing target signature in the distribution record
-          const matchedTarget = dist.targets.find(
-            t =>
-              (t.downloaderPosition && holder.position.toLowerCase().includes(t.downloaderPosition.toLowerCase())) ||
-              holder.position.toLowerCase().includes(t.dept.toLowerCase())
-          );
+          const receipt = dist.receipts?.[holder.dept];
 
           return {
             id: `dar-row-${idx}-${holder.position.substring(0, 10)}`,
+            dept: holder.dept,
             position: holder.position,
             copies: holder.copies && holder.copies.trim() ? holder.copies : '1',
-            receiveSignature: matchedTarget?.signatureDataUrl || undefined,
-            receiveDate: matchedTarget?.downloadTimestamp ? matchedTarget.downloadTimestamp.split('T')[0] : distDate,
-            receiveSignerName: matchedTarget?.downloaderName || '',
+            receiveDate: receipt?.downloadedAt ? receipt.downloadedAt.split('T')[0] : '',
+            receiveSignerName: receipt?.downloaderName || '',
             returnSignature: undefined,
             returnDate: '',
             returnSignerName: '',
@@ -156,18 +159,20 @@ export const DistributionSheetModal: React.FC = () => {
 
     // Case 2: If DAR doesn't have distributionHolders, check distribution record targets
     if (dist.targets && dist.targets.length > 0) {
-      return dist.targets.map((target, idx) => ({
+      return dist.targets.map((target, idx) => {
+        const receipt = dist.receipts?.[target.dept];
+        return ({
         id: `target-row-${idx}-${target.dept}`,
-        position: target.downloaderPosition || `หัวหน้าแผนก / ผู้รับผิดชอบฝ่าย ${target.dept}`,
+        dept: target.dept,
+        position: receipt?.downloaderPosition || `หัวหน้าแผนก / ผู้รับผิดชอบฝ่าย ${target.dept}`,
         copies: String(target.allocatedCopies || 1),
-        receiveSignature: target.signatureDataUrl || undefined,
-        receiveDate: target.downloadTimestamp ? target.downloadTimestamp.split('T')[0] : distDate,
-        receiveSignerName: target.downloaderName || '',
+        receiveDate: receipt?.downloadedAt ? receipt.downloadedAt.split('T')[0] : '',
+        receiveSignerName: receipt?.downloaderName || '',
         returnSignature: undefined,
         returnDate: '',
         returnSignerName: '',
         sourceDarId: dar?.id,
-      }));
+      });});
     }
 
     // Case 3: Default fallback: request dept + QA
@@ -204,6 +209,11 @@ export const DistributionSheetModal: React.FC = () => {
       // Auto-calculate Rev for รับ and คืน
       const currentRevClean = selectedDistributionForSheet.revision?.replace(/[^0-9]/g, '') || '00';
       setReceiveRev(currentRevClean);
+      if (selectedDistributionForSheet.distributionSheet) {
+        setReceiveRev(selectedDistributionForSheet.distributionSheet.receiveRevision);
+        setReturnRev(selectedDistributionForSheet.distributionSheet.returnRevision);
+        return;
+      }
 
       if (darToUse) {
         if (darToUse.requestType === 'NEW' || darToUse.currentRevision === '00' || !darToUse.currentRevision) {
@@ -226,6 +236,29 @@ export const DistributionSheetModal: React.FC = () => {
       }
     }
   }, [selectedDistributionForSheet, initialDar]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadReceiptSignatures = async () => {
+      const receipts = selectedDistributionForSheet?.receipts || {};
+      const signatures = await Promise.all((Object.values(receipts) as DistributionReceipt[]).filter(receipt => receipt.signatureStoragePath).map(async receipt => {
+        try { return [receipt.dept, await getStorageFileUrl(receipt.signatureStoragePath)] as const; }
+        catch { return [receipt.dept, ''] as const; }
+      }));
+      if (cancelled) return;
+      const byDept = Object.fromEntries(signatures);
+      const returnPaths = selectedDistributionForSheet?.distributionSheet?.rows || [];
+      const returned = await Promise.all(returnPaths.filter(row => row.returnSignatureStoragePath).map(async row => {
+        try { return [`${row.dept || ''}|${row.position}`, await getStorageFileUrl(row.returnSignatureStoragePath!)] as const; }
+        catch { return [`${row.dept || ''}|${row.position}`, ''] as const; }
+      }));
+      if (cancelled) return;
+      const returnedByRow = Object.fromEntries(returned);
+      setRows(previous => previous.map(row => ({ ...row, ...(byDept[row.dept || ''] ? { receiveSignature: byDept[row.dept || ''] } : {}), ...(returnedByRow[`${row.dept || ''}|${row.position}`] ? { returnSignature: returnedByRow[`${row.dept || ''}|${row.position}`] } : {}) })));
+    };
+    void loadReceiptSignatures();
+    return () => { cancelled = true; };
+  }, [selectedDistributionForSheet]);
 
   // Handler to switch/reload from selected DAR
   const handleLoadFromDar = (darId: string) => {
@@ -265,7 +298,7 @@ export const DistributionSheetModal: React.FC = () => {
   if (!selectedDistributionForSheet) return null;
 
   const dist = selectedDistributionForSheet;
-  const canPrint = dist.status === 'COMPLETED' && dist.targets.length > 0 && dist.targets.every(target => target.isDownloaded);
+  const canPrint = dist.status === 'COMPLETED' && dist.targetDepartments.length > 0 && dist.targetDepartments.every(dept => Boolean(dist.receipts?.[dept]?.downloadedAt));
 
   const handleClose = () => {
     setSelectedDistributionForSheet(null);
@@ -360,6 +393,7 @@ export const DistributionSheetModal: React.FC = () => {
                 ...r,
                 [fieldName]: e.target?.result as string,
                 [dateFieldName]: r[dateFieldName] || today,
+                ...(type === 'return' ? { returnSignatureStoragePath: undefined } : {}),
               };
             }
             return r;
@@ -402,6 +436,7 @@ export const DistributionSheetModal: React.FC = () => {
               ...r,
               [fieldName]: dataUrl,
               [dateFieldName]: r[dateFieldName] || today,
+              ...(type === 'return' ? { returnSignatureStoragePath: undefined } : {}),
             };
           }
           return r;
@@ -411,25 +446,28 @@ export const DistributionSheetModal: React.FC = () => {
     }
   };
 
-  const handleSave = () => {
-    setIsSaved(true);
-    confetti({
-      particleCount: 35,
-      spread: 60,
-      origin: { y: 0.7 },
-    });
-    setTimeout(() => setIsSaved(false), 3000);
+  const handleSave = async () => {
+    if (currentUser.userRole !== 'DCC_ADMIN') { alert('เฉพาะ DCC เท่านั้นที่บันทึกข้อมูลเรียกคืนได้'); return; }
+    setIsSaving(true);
+    try {
+      await saveDistributionSheetRecord(currentUser, dist, receiveRev, returnRev, rows);
+      setIsSaved(true);
+      confetti({ particleCount: 35, spread: 60, origin: { y: 0.7 } });
+      setTimeout(() => setIsSaved(false), 3000);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'บันทึกใบแจกจ่าย-เรียกคืนไม่สำเร็จ');
+    } finally { setIsSaving(false); }
   };
 
   const handlePrint = () => {
     if (!canPrint) { alert('ยังพิมพ์ใบแจกจ่ายไม่ได้: ต้องรอให้ทุกหน่วยงานตาม DAR ดาวน์โหลดรับเอกสารครบก่อน'); return; }
-    handleSave();
+    void handleSave();
     printElementById('distribution-recall-sheet', `FM-QS-003-00_${dist.docNo}_Distribution`);
   };
 
   const handleOpenTab = () => {
     if (!canPrint) { alert('ยังเปิดใบพิมพ์ไม่ได้: จำนวนผู้รับเอกสารยังไม่ครบตาม DAR'); return; }
-    handleSave();
+    void handleSave();
     const success = openPrintInNewTab('distribution-recall-sheet', `FM-QS-003-00_${dist.docNo}_Distribution`);
     if (!success) {
       printElementById('distribution-recall-sheet', `FM-QS-003-00_${dist.docNo}_Distribution`);
@@ -438,7 +476,7 @@ export const DistributionSheetModal: React.FC = () => {
 
   const handleDownload = () => {
     if (!canPrint) { alert('ยังดาวน์โหลดใบแจกจ่ายไม่ได้: จำนวนผู้รับเอกสารยังไม่ครบตาม DAR'); return; }
-    handleSave();
+    void handleSave();
     downloadPrintableHtml('distribution-recall-sheet', `Distribution_Recall_${dist.docNo}`);
   };
 
@@ -507,6 +545,7 @@ export const DistributionSheetModal: React.FC = () => {
               type="button"
               id="btn-save-distribution-sheet"
               onClick={handleSave}
+              disabled={isSaving || currentUser.userRole !== 'DCC_ADMIN'}
               className={`px-3 py-1.5 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${
                 isSaved
                   ? 'bg-emerald-600 text-white'
@@ -514,7 +553,7 @@ export const DistributionSheetModal: React.FC = () => {
               }`}
             >
               {isSaved ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-              {isSaved ? 'บันทึกแล้ว' : 'บันทึก'}
+              {isSaving ? 'กำลังบันทึก...' : isSaved ? 'บันทึกแล้ว' : 'บันทึกข้อมูลเรียกคืน'}
             </button>
 
             <button
@@ -695,17 +734,14 @@ export const DistributionSheetModal: React.FC = () => {
             
             {/* Header with NANO Logo & Form Title */}
             <div className="mb-5 grid grid-cols-[100px_1fr_100px] items-center gap-2 min-h-[48px]">
-              {/* NANO Red Oval Logo on the left */}
               <div className="flex items-center justify-start">
-                <div className="w-24 h-9 border-2 border-red-600 rounded-[50%] flex items-center justify-center bg-white shadow-xs">
-                  <span className="text-red-600 font-black text-lg tracking-wider" style={{ fontFamily: 'Arial, sans-serif' }}>
-                    NANO
-                  </span>
-                </div>
+                <NanoLogo className="h-11 w-24" />
               </div>
 
               {/* Form Title Centered */}
               <div className="text-center px-1">
+                <p className="text-[9px] font-semibold">{COMPANY.nameTh}</p>
+                <p className="text-[8px] tracking-wide">{COMPANY.nameEn}</p>
                 <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-black tracking-tight whitespace-nowrap">
                   ใบแจกจ่าย - เรียกคืน เอกสาร
                 </h1>
@@ -868,38 +904,9 @@ export const DistributionSheetModal: React.FC = () => {
                                 alt="Receive Signature"
                                 className="max-h-7 max-w-[90px] object-contain"
                               />
-                              <button
-                                type="button"
-                                onClick={() => updateRow(idx, 'receiveSignature', undefined)}
-                                className="print:hidden absolute -top-1 -right-1 p-0.5 bg-red-600 text-white rounded opacity-0 group-hover/rec:opacity-100 transition-opacity cursor-pointer shadow-xs"
-                                title="ลบลายเซ็นต์"
-                              >
-                                <X className="w-2.5 h-2.5" />
-                              </button>
                             </div>
                           ) : (
-                            <div className="min-h-[26px] flex items-center justify-center">
-                              <div className="print:hidden flex items-center gap-1 opacity-40 group-hover/rec:opacity-100 transition-opacity">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setUploadTarget({ rowIdx: idx, type: 'receive' });
-                                    fileInputRef.current?.click();
-                                  }}
-                                  className="text-[9px] text-indigo-600 hover:underline font-semibold cursor-pointer"
-                                >
-                                  อัปโหลด
-                                </button>
-                                <span className="text-[9px] text-slate-400">/</span>
-                                <button
-                                  type="button"
-                                  onClick={() => quickSignRow(idx, 'receive')}
-                                  className="text-[9px] text-emerald-600 hover:underline font-semibold cursor-pointer"
-                                >
-                                  เซ็น
-                                </button>
-                              </div>
-                            </div>
+                            <div className="min-h-[26px] flex items-center justify-center text-[8px] text-slate-400">รอผู้รับลงนาม</div>
                           )}
                         </td>
 
@@ -931,7 +938,7 @@ export const DistributionSheetModal: React.FC = () => {
                               />
                               <button
                                 type="button"
-                                onClick={() => updateRow(idx, 'returnSignature', undefined)}
+                                onClick={() => setRows(previous => previous.map((item, rowIndex) => rowIndex === idx ? { ...item, returnSignature: undefined, returnSignatureStoragePath: undefined } : item))}
                                 className="print:hidden absolute -top-1 -right-1 p-0.5 bg-red-600 text-white rounded opacity-0 group-hover/ret:opacity-100 transition-opacity cursor-pointer shadow-xs"
                                 title="ลบลายเซ็นต์"
                               >
@@ -991,7 +998,7 @@ export const DistributionSheetModal: React.FC = () => {
               <span className="text-slate-500 font-normal">
                 * ใบแจกจ่ายนี้เริ่มต้นสร้างตามรายการหน่วยงานที่ระบุในใบ DAR ({currentDar?.id || 'DAR อ้างอิง'})
               </span>
-              <span>FM-QS-003-00:27/03/18</span>
+              <span>{COMPANY.distributionFormCode}</span>
             </div>
 
           </div>

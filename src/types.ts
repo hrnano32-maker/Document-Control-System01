@@ -236,6 +236,16 @@ export interface DepartmentDistributionTarget {
 
 export type DistributionStatus = 'IN_PROGRESS' | 'COMPLETED' | 'EXPIRED';
 
+export interface DistributionReceipt {
+  dept: Department;
+  receivedCopies: number;
+  downloadedAt: string;
+  downloaderName: string;
+  downloaderEmpId: string;
+  downloaderPosition: string;
+  signatureStoragePath: string;
+}
+
 export interface DistributionRecord {
   id: string;
   distributionNo: string; // e.g. DC-DIS-2026-0001
@@ -254,6 +264,21 @@ export interface DistributionRecord {
   darReferenceId: string;
   targetDepartments: Department[];
   allocationByDepartment: Record<string, number>;
+  receipts?: Record<string, DistributionReceipt>;
+  distributionSheet?: {
+    receiveRevision: string;
+    returnRevision: string;
+    rows: Array<{
+      dept?: string;
+      position: string;
+      copies: string;
+      returnDate?: string;
+      returnSignerName?: string;
+      returnSignatureStoragePath?: string;
+    }>;
+    updatedAt: string;
+    updatedBy: string;
+  };
   departmentFiles?: Record<string, string>;
   departmentFileKeys?: Record<string, string>;
   allDownloadedAt?: string | null;

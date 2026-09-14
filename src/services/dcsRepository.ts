@@ -12,7 +12,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { getBlob, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { deleteObject, getBlob, ref, uploadBytes } from 'firebase/storage';
 import { db, firebaseFunctions, storage } from '../lib/firebase';
 import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionRecord, MasterDocument } from '../types';
 
@@ -270,7 +270,33 @@ export const decideCopyRequest = async (user: CurrentUserSession, request: CopyR
   await writeAudit(user, 'RE_REQUEST_APPROVED', request.docNo, request.revision, `${approve ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอ ${request.id}`, { note });
 };
 
-export const getStorageFileUrl = (path: string) => getDownloadURL(ref(storage, path));
+export const getStorageFileUrl = async (path: string) => URL.createObjectURL(await getBlob(ref(storage, path)));
+
+export const saveDistributionSheetRecord = async (
+  user: CurrentUserSession,
+  distribution: DistributionRecord,
+  receiveRevision: string,
+  returnRevision: string,
+  rows: Array<{ id: string; dept?: string; position: string; copies: string; returnDate: string; returnSignerName?: string; returnSignature?: string; returnSignatureStoragePath?: string }>,
+) => {
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่บันทึกใบแจกจ่าย-เรียกคืนได้');
+  if (!rows.length || rows.some(row => !row.position.trim() || !Number.isInteger(Number(row.copies)) || Number(row.copies) < 1)) throw new Error('กรุณาระบุตำแหน่งผู้ถือครองและจำนวนสำเนาเป็นจำนวนเต็มอย่างน้อย 1');
+  if (rows.some(row => Boolean(row.returnDate) !== Boolean(row.returnSignature || row.returnSignatureStoragePath))) throw new Error('ข้อมูลเรียกคืนต้องมีลายเซ็นและวันที่คืนให้ครบทั้งสองรายการ');
+  const storedRows = await Promise.all(rows.map(async row => {
+    let returnSignatureStoragePath = row.returnSignatureStoragePath || distribution.distributionSheet?.rows.find(item => item.dept === row.dept && item.position === row.position)?.returnSignatureStoragePath;
+    if (row.returnSignature?.startsWith('data:')) {
+      returnSignatureStoragePath = `dcs/distribution-sheet-signatures/${user.uid}/${distribution.id}/${safeName(row.id)}.png`;
+      await uploadBytes(ref(storage, returnSignatureStoragePath), await dataUrlBlob(row.returnSignature), { contentType: 'image/png' });
+    }
+    return clean({ dept: row.dept, position: row.position, copies: row.copies, returnDate: row.returnDate || '', returnSignerName: row.returnSignerName || '', returnSignatureStoragePath: returnSignatureStoragePath || '' });
+  }));
+  const retainedPaths = new Set(storedRows.map(row => row.returnSignatureStoragePath).filter(Boolean));
+  const removedPaths = (distribution.distributionSheet?.rows || []).map(row => row.returnSignatureStoragePath).filter((path): path is string => Boolean(path) && !retainedPaths.has(path));
+  await Promise.all(removedPaths.map(path => deleteObject(ref(storage, path)).catch(() => undefined)));
+  const updatedAt = new Date().toISOString();
+  await updateDoc(doc(db, 'dcs_distributions', distribution.id), clean({ distributionSheet: { receiveRevision, returnRevision, rows: storedRows, updatedAt, updatedBy: user.userName }, updatedAt }));
+  await writeAudit(user, 'SIGNATURE_CAPTURED', distribution.docNo, distribution.revision, `บันทึกใบแจกจ่าย-เรียกคืน ${distribution.distributionNo}`, { distributionNo: distribution.distributionNo });
+};
 
 export const saveMasterDocument = async (user: CurrentUserSession, input: Omit<MasterDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'>) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่แก้ไข Master List ได้');
