@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { getBlob, ref } from 'firebase/storage';
+import { getDownloadURL, ref } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
 import { Check, Copy, Eye, ShieldCheck, UserCheck, UserX, X } from 'lucide-react';
 import { db, firebaseFunctions, storage } from '../lib/firebase';
@@ -22,13 +22,18 @@ export const UserRegistrationAdmin: React.FC = () => {
     setRows(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Registration)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
     setLoading(false);
   }, caught => { setError(caught.message); setLoading(false); }), []);
-  useEffect(() => () => { if (signatureUrl) URL.revokeObjectURL(signatureUrl); }, [signatureUrl]);
   const pending = useMemo(() => rows.filter(row => row.status === 'PENDING'), [rows]);
 
   const viewSignature = async (row: Registration) => {
     setError('');
-    try { const blob = await getBlob(ref(storage, row.signaturePath)); setSignatureUrl(old => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); }); }
-    catch { setError('ไม่สามารถเปิดไฟล์ลายเซ็นได้ กรุณาตรวจสอบ Storage Rules'); }
+    if (!row.signaturePath) return setError('คำขอนี้ไม่พบไฟล์ลายเซ็น กรุณาให้แผนกลงทะเบียนใหม่');
+    try { setSignatureUrl(await getDownloadURL(ref(storage, row.signaturePath))); }
+    catch (caught) {
+      const code = typeof caught === 'object' && caught && 'code' in caught ? String(caught.code) : '';
+      setError(code.includes('unauthorized')
+        ? 'บัญชีนี้ไม่มีสิทธิ์เปิดลายเซ็น กรุณาออกจากระบบแล้วเข้าสู่ระบบ DCC ใหม่'
+        : 'ไม่สามารถเปิดไฟล์ลายเซ็นได้ กรุณาตรวจสอบว่าไฟล์ยังอยู่ใน Firebase Storage');
+    }
   };
   const review = async (row: Registration, action: 'APPROVE' | 'REJECT') => {
     const note = action === 'REJECT' ? window.prompt('ระบุเหตุผลที่ปฏิเสธคำขอ') : window.prompt('หมายเหตุการอนุมัติ (เว้นว่างได้)', 'ตรวจสอบข้อมูลและลายเซ็นแล้ว');
