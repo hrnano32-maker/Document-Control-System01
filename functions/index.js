@@ -173,6 +173,26 @@ exports.resetDepartmentTemporaryPassword = onCall({ region: REGION, timeoutSecon
   return { username: registration.approvedUsername || registration.username, temporaryPassword: password, displayName: registration.displayName, department: registration.department };
 });
 
+exports.deleteDarDraft = onCall({ region: REGION, timeoutSeconds: 30, memory: '256MiB' }, async request => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'กรุณาเข้าสู่ระบบ');
+  const darId = cleanText(request.data?.darId, 80);
+  if (!darId) throw new HttpsError('invalid-argument', 'ไม่พบเลขที่ DAR');
+  const db = getFirestore();
+  const [profileSnapshot, darSnapshot] = await Promise.all([
+    db.collection('users').doc(request.auth.uid).get(),
+    db.collection('dcs_dars').doc(darId).get(),
+  ]);
+  if (!profileSnapshot.exists || profileSnapshot.data().active !== true) throw new HttpsError('permission-denied', 'บัญชีไม่มีสิทธิ์ใช้งาน');
+  if (!darSnapshot.exists) throw new HttpsError('not-found', 'ไม่พบใบ DAR');
+  const profile = profileSnapshot.data();
+  const dar = darSnapshot.data();
+  if (!['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(dar.status)) throw new HttpsError('failed-precondition', 'DAR สถานะนี้ไม่สามารถลบได้');
+  if (profile.role !== 'DCC_ADMIN' && profile.department !== dar.requestDept) throw new HttpsError('permission-denied', 'ไม่มีสิทธิ์ลบ DAR ของแผนกอื่น');
+  if (dar.attachmentStoragePath) await getStorage().bucket().file(dar.attachmentStoragePath).delete({ ignoreNotFound: true });
+  await darSnapshot.ref.delete();
+  return { deleted: true, darId };
+});
+
 async function requireDcc(request) {
   if (!request.auth) throw new HttpsError('unauthenticated', 'กรุณาเข้าสู่ระบบ');
   const profile = await getFirestore().collection('users').doc(request.auth.uid).get();

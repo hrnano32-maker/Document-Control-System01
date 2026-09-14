@@ -35,7 +35,7 @@ export const subscribeAudit = (callback: (rows: AuditLogEntry[]) => void) =>
 
 export const subscribeDars = (user: CurrentUserSession, callback: (rows: DarRecord[]) => void) => {
   const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('createdAt', 'desc')] : [where('requestDept', '==', user.currentDept), orderBy('createdAt', 'desc')];
-  return onSnapshot(query(collection(db, 'dcs_dars'), ...constraints), snap => callback(snap.docs.map(item => item.data() as DarRecord)));
+  return onSnapshot(query(collection(db, 'dcs_dars'), ...constraints), snap => callback(snap.docs.map(item => item.data() as DarRecord).filter(item => user.userRole === 'DCC_ADMIN' || item.status !== 'CANCELLED')));
 };
 export const subscribeDistributions = (user: CurrentUserSession, callback: (rows: DistributionRecord[]) => void) => {
   const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('createdAt', 'desc')] : [where('targetDepartments', 'array-contains', user.currentDept), orderBy('createdAt', 'desc')];
@@ -128,14 +128,19 @@ export const reviewDarRecord = async (user: CurrentUserSession, dar: DarRecord, 
 };
 
 export const cancelDarRecord = async (user: CurrentUserSession, dar: DarRecord, reason: string) => {
-  if (dar.status === 'REGISTERED') throw new Error('DAR ที่ขึ้นทะเบียนแล้วไม่สามารถถอนคำขอได้ ต้องดำเนินการยกเลิกเอกสารผ่าน DAR ฉบับใหม่');
-  if (dar.status === 'CANCELLED') throw new Error('DAR นี้ถูกยกเลิกแล้ว');
-  if (user.userRole !== 'DCC_ADMIN' && user.currentDept !== dar.requestDept) throw new Error('เฉพาะผู้ยื่นจากแผนกเดิมหรือ DCC เท่านั้นที่ยกเลิกได้');
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่ยกเลิก DAR ที่อนุมัติแล้วได้');
+  if (dar.status !== 'APPROVED') throw new Error('ยกเลิกแบบเก็บประวัติได้เฉพาะ DAR ที่อนุมัติแล้ว');
   const cancellationReason = reason.trim();
   if (!cancellationReason) throw new Error('กรุณาระบุเหตุผลการยกเลิก');
   const cancelledAt = new Date().toISOString();
   await updateDoc(doc(db, 'dcs_dars', dar.id), clean({ status: 'CANCELLED', cancelledAt, cancelledBy: user.userName, cancelledByUid: user.uid, cancellationReason, updatedAt: cancelledAt }));
   await writeAudit(user, 'DAR_CANCELLED', dar.docNo, dar.proposedRevision, `ยกเลิกคำขอ ${dar.id}: ${cancellationReason}`, { darId: dar.id, previousStatus: dar.status });
+};
+
+export const deleteDarDraftRecord = async (user: CurrentUserSession, dar: DarRecord) => {
+  if (!['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(dar.status)) throw new Error('DAR สถานะนี้ไม่สามารถลบได้');
+  if (user.userRole !== 'DCC_ADMIN' && user.currentDept !== dar.requestDept) throw new Error('ไม่มีสิทธิ์ลบ DAR ของแผนกอื่น');
+  await httpsCallable<{ darId: string }, { deleted: boolean }>(firebaseFunctions, 'deleteDarDraft')({ darId: dar.id });
 };
 
 const documentKey = (docNo: string) => encodeURIComponent(docNo.trim().toUpperCase()).replace(/%/g, '_');

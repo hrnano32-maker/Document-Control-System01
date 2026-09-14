@@ -51,6 +51,7 @@ export const DarManagement: React.FC = () => {
     createDar,
     reviewDar,
     cancelDar,
+    deleteDar,
     registerDarToMasterList,
     setActiveView,
     openDocumentViewer,
@@ -262,6 +263,12 @@ export const DarManagement: React.FC = () => {
     if (!window.confirm(`ยืนยันยกเลิก ${dar.id} ใช่หรือไม่?`)) return;
     try { await cancelDar(dar.id, reason); setSelectedDarForReview(null); }
     catch (error) { alert(error instanceof Error ? error.message : 'ยกเลิก DAR ไม่สำเร็จ'); }
+  };
+
+  const handleDeleteDar = async (dar: DarRecord) => {
+    if (!window.confirm(`ลบ ${dar.id} และไฟล์แนบถาวรใช่หรือไม่?\n\nเมื่อลบแล้วจะไม่สามารถกู้คืนได้`)) return;
+    try { await deleteDar(dar.id); setSelectedDarForReview(null); }
+    catch (error) { alert(error instanceof Error ? error.message : 'ลบ DAR ไม่สำเร็จ'); }
   };
 
   return (
@@ -485,12 +492,13 @@ export const DarManagement: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-1.5">
-                      {dar.status !== 'REGISTERED' && dar.status !== 'CANCELLED' && (currentUser.userRole === 'DCC_ADMIN' || currentUser.currentDept === dar.requestDept) && <button
+                      {['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(dar.status) && (currentUser.userRole === 'DCC_ADMIN' || currentUser.currentDept === dar.requestDept) && <button
                         type="button"
-                        onClick={() => handleCancelDar(dar)}
+                        onClick={() => handleDeleteDar(dar)}
                         className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer"
-                        title="ถอนและยกเลิกใบ DAR โดยเก็บประวัติไว้"
-                      ><Trash2 className="w-3.5 h-3.5" />ยกเลิก DAR</button>}
+                        title="ลบใบ DAR และไฟล์แนบถาวร"
+                      ><Trash2 className="w-3.5 h-3.5" />ลบ DAR</button>}
+                      {dar.status === 'APPROVED' && currentUser.userRole === 'DCC_ADMIN' && <button type="button" onClick={() => handleCancelDar(dar)} className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-bold flex items-center gap-1"><X className="w-3.5 h-3.5" />DCC ยกเลิก</button>}
                       <button
                         type="button"
                         onClick={() => setSelectedDarForPrint(dar)}
@@ -749,7 +757,8 @@ export const DarManagement: React.FC = () => {
                 </div>
               )}
 
-              {selectedDarForReview.status !== 'REGISTERED' && selectedDarForReview.status !== 'CANCELLED' && (currentUser.userRole === 'DCC_ADMIN' || currentUser.currentDept === selectedDarForReview.requestDept) && <button type="button" onClick={() => handleCancelDar(selectedDarForReview)} className="w-full px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-xl font-black flex items-center justify-center gap-2"><Trash2 className="w-4 h-4" />ถอนและยกเลิกใบ DAR</button>}
+              {['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(selectedDarForReview.status) && (currentUser.userRole === 'DCC_ADMIN' || currentUser.currentDept === selectedDarForReview.requestDept) && <button type="button" onClick={() => handleDeleteDar(selectedDarForReview)} className="w-full px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-xl font-black flex items-center justify-center gap-2"><Trash2 className="w-4 h-4" />ลบใบ DAR และไฟล์แนบถาวร</button>}
+              {selectedDarForReview.status === 'APPROVED' && currentUser.userRole === 'DCC_ADMIN' && <button type="button" onClick={() => handleCancelDar(selectedDarForReview)} className="w-full px-4 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl font-black flex items-center justify-center gap-2"><X className="w-4 h-4" />DCC ยกเลิกและเก็บประวัติ</button>}
 
             </div>
 
