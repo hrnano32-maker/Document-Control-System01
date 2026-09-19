@@ -354,8 +354,8 @@ export const DarManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* DAR Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {/* DAR Compact Horizontal List */}
+      <div className="space-y-2">
         {filteredDars.length === 0 ? (
           <div className="col-span-full p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200">
             <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
@@ -366,11 +366,11 @@ export const DarManagement: React.FC = () => {
             return (
               <div
                 key={dar.id}
-                className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between space-y-4"
+                className="bg-white rounded-xl px-3 py-3 border border-slate-200 shadow-xs hover:shadow-md transition-shadow flex flex-col xl:flex-row xl:items-center gap-3"
               >
                 
                 {/* Header Strip */}
-                <div className="space-y-2.5">
+                <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-mono font-bold text-xs text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200">
                       {dar.id}
@@ -392,7 +392,7 @@ export const DarManagement: React.FC = () => {
                     <div className="text-xs text-slate-500 italic line-clamp-1">{dar.docNameEn}</div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-1 pt-1 text-xs">
                     <div>
                       <span className="text-slate-400">หน่วยงานขอ: </span>
                       <strong className="text-slate-800 font-semibold">{dar.requestDept}</strong>
@@ -420,13 +420,13 @@ export const DarManagement: React.FC = () => {
                     </div>
                   )}
 
-                  <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100 line-clamp-2 leading-relaxed">
+                  <div className="text-xs text-slate-600 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-100 line-clamp-1 leading-relaxed">
                     <strong>เหตุผล:</strong> {dar.reasonForChange}
                   </div>
                 </div>
 
                 {/* Footer and Actions */}
-                <div className="space-y-3 pt-2.5 border-t border-slate-100">
+                <div className="xl:w-[560px] xl:shrink-0 space-y-2 pt-2 xl:pt-0 border-t xl:border-t-0 xl:border-l border-slate-100 xl:pl-3">
                   
                   {/* Status Badge */}
                   <div className="flex items-center justify-between text-xs">
