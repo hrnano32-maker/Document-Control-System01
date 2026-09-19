@@ -646,6 +646,12 @@ export const DarManagement: React.FC = () => {
                     />
                   </div>
 
+                  <div className={`p-3 rounded-xl border text-xs ${selectedDarForReview.requesterSignature && selectedDarForReview.deptApproverSignature ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-300 text-amber-900'}`}>
+                    {selectedDarForReview.requesterSignature && selectedDarForReview.deptApproverSignature
+                      ? '✓ ลายเซ็นภายในแผนกครบแล้ว สามารถส่งต่อเพื่อพิจารณาได้ (QMR ไม่ใช่เงื่อนไขในขั้นตอนนี้)'
+                      : '⚠️ ยังส่งต่อไม่ได้: ต้องมีลายเซ็นผู้ขอดำเนินการและผู้อนุมัติในแผนกให้ครบก่อน โดยไม่บังคับลายเซ็น QMR'}
+                  </div>
+
                   <div className="flex flex-wrap items-center gap-2 pt-1">
                     
                     {/* Auto Register button */}
@@ -658,7 +664,16 @@ export const DarManagement: React.FC = () => {
                     </button>}
 
                     <button
-                      onClick={async () => { try { await reviewDar(selectedDarForReview.id, 'APPROVED', reviewRemarks); setSelectedDarForReview(null); } catch (error) { alert(error instanceof Error ? error.message : 'ดำเนินการไม่สำเร็จ'); } }}
+                      onClick={async () => {
+                        // DAR must be approved inside the requesting department before DCC can accept it.
+                        // QMR is intentionally NOT required here; QMR signs in the later approval stage.
+                        if (!selectedDarForReview.requesterSignature || !selectedDarForReview.deptApproverSignature) {
+                          alert('ยังไม่สามารถอนุมัติ/ส่งต่อใบ DAR ได้ กรุณาให้ผู้ขอดำเนินการและผู้อนุมัติในแผนกลงลายเซ็นให้ครบก่อน (ไม่รวม QMR)');
+                          return;
+                        }
+                        try { await reviewDar(selectedDarForReview.id, 'APPROVED', reviewRemarks); setSelectedDarForReview(null); }
+                        catch (error) { alert(error instanceof Error ? error.message : 'ดำเนินการไม่สำเร็จ'); }
+                      }}
                       className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-1 cursor-pointer"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
