@@ -369,25 +369,20 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
             style={{ fontFamily: "'Prompt', 'Sarabun', system-ui, -apple-system, sans-serif" }}
           >
             
-            {/* 1. Header with NANO Logo & Form Title */}
+            {/* 1. Header matching the original DAR form: logo + title only */}
             <div className="mb-4 grid grid-cols-[100px_1fr_100px] items-center gap-2 min-h-[48px]">
               <div className="flex items-center justify-start">
                 <NanoLogo className="h-11 w-24" />
               </div>
 
-              {/* Centered Form Title */}
               <div className="text-center px-1">
-                <p className="text-[9px] font-semibold">{COMPANY.nameTh}</p>
-                <p className="text-[8px] tracking-wide">{COMPANY.nameEn}</p>
                 <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-black tracking-normal whitespace-nowrap">
                   ใบขอดำเนินการจัดการด้านเอกสาร (DAR.)
                 </h1>
               </div>
 
-              {/* Right Balancer / Form Ref Code */}
-              <div className="text-right text-[11px] font-mono text-slate-500 hidden sm:block">
-                FM-QS-001
-              </div>
+              {/* Keep an empty balancing column so the title remains centered like the original form */}
+              <div aria-hidden="true" />
             </div>
 
             {/* 2. ประเภทเอกสาร (Document Types) & มีความประสงค์ (Purposes) */}
