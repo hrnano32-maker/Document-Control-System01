@@ -295,6 +295,9 @@ export interface DistributionRecord {
   fileDeletedAt?: string | null;
   storageStatus?: 'PROCESSING' | 'AVAILABLE' | 'PURGE_PENDING' | 'PURGED';
   stampStatus?: 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  processingStage?: string;
+  processingDetail?: string;
+  processingPercent?: number;
   sourceStoragePath?: string | null;
   sourceStoragePaths?: string[];
   fileStoragePath?: string;
