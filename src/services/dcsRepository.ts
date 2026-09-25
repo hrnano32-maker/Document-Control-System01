@@ -12,15 +12,13 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { deleteObject, getBlob, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { db, firebaseFunctions, storage } from '../lib/firebase';
 import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionRecord, MasterDocument } from '../types';
-import { normalizeSignatureDataUrl } from '../utils/signatureImage';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 
-const dataUrlBlob = async (dataUrl: string) => (await fetch(dataUrl)).blob();
 const safeName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, '_');
 
 export const subscribeCollection = <T,>(name: string, callback: (rows: T[]) => void) =>
@@ -304,28 +302,25 @@ export const acknowledgeDownload = async (
     }
   };
 
-  const controlledFiles: Blob[] = [];
+  // Resolve lightweight token URLs instead of downloading every PDF into browser memory.
+  // This avoids mobile browsers hanging on the first large file and lets the user
+  // download each file directly after the receipt transaction succeeds.
+  const downloadUrls: string[] = [];
   for (let index = 0; index < departmentPaths.length; index += 1) {
-    onProgress?.(`กำลังเตรียมไฟล์ ${index + 1}/${departmentPaths.length}`, 5 + Math.round(((index + 1) / departmentPaths.length) * 60));
-    controlledFiles.push(await withTimeout(
-      getBlob(ref(storage, departmentPaths[index])),
-      120000,
-      `ดาวน์โหลดไฟล์ที่ ${index + 1} ใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่`,
+    onProgress?.(`กำลังตรวจสอบสิทธิ์ไฟล์ ${index + 1}/${departmentPaths.length}`, 5 + Math.round(((index + 1) / departmentPaths.length) * 55));
+    downloadUrls.push(await withTimeout(
+      getDownloadURL(ref(storage, departmentPaths[index])),
+      30000,
+      `ขอลิงก์ไฟล์ที่ ${index + 1} ใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่`,
     ));
   }
 
-  onProgress?.('กำลังจัดเก็บลายเซ็นผู้รับเอกสาร', 75);
-  const signaturePath = `dcs/signatures/${user.uid}/${distribution.id}/${Date.now()}.png`;
-  const normalizedSignature = await normalizeSignatureDataUrl(person.signatureDataUrl);
-  await withTimeout(
-    uploadBytes(ref(storage, signaturePath), await dataUrlBlob(normalizedSignature), { contentType: 'image/png' }),
-    60000,
-    'อัปโหลดลายเซ็นใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่',
-  );
+  onProgress?.('กำลังตรวจสอบลายเซ็นที่ลงทะเบียน', 70);
+  if (!user.signaturePath) throw new Error('บัญชีนี้ยังไม่มีลายเซ็นที่อนุมัติ กรุณาติดต่อ DCC');
+  await withTimeout(getDownloadURL(ref(storage, user.signaturePath)), 30000, 'ไม่สามารถตรวจสอบลายเซ็นที่ลงทะเบียนได้ กรุณาลองใหม่');
 
-  onProgress?.('กำลังบันทึกหลักฐานการรับเอกสาร', 90);
-  try {
-    await withTimeout(runTransaction(db, async tx => {
+  onProgress?.('กำลังบันทึกหลักฐานการรับเอกสาร', 82);
+  await withTimeout(runTransaction(db, async tx => {
       const snapshot = await tx.get(distRef);
       const current = snapshot.data() as DistributionRecord & { receipts?: Record<string, any> };
       if (!current) throw new Error('ไม่พบรายการแจกจ่าย');
@@ -333,18 +328,14 @@ export const acknowledgeDownload = async (
       if (!current.targetDepartments.includes(dept)) throw new Error('หน่วยงานนี้ไม่อยู่ในรายชื่อแจกจ่าย');
       if (Date.now() > new Date(current.expirationDate).getTime()) throw new Error('สิทธิ์ดาวน์โหลดหมดอายุ กรุณาขอไฟล์ใหม่จาก DCC');
       if (current.receipts?.[dept]?.downloadedAt) throw new Error('หน่วยงานนี้ดาวน์โหลดฉบับนี้ไปแล้ว');
-      const receipt = { dept, receivedCopies: current.allocationByDepartment[dept], downloadedAt: new Date().toISOString(), downloaderName: person.name, downloaderEmpId: person.empId, downloaderPosition: person.position, signatureStoragePath: signaturePath };
+      const receipt = { dept, receivedCopies: current.allocationByDepartment[dept], downloadedAt: new Date().toISOString(), downloaderName: person.name, downloaderEmpId: person.empId, downloaderPosition: person.position, downloaderUid: user.uid, signatureStoragePath: user.signaturePath };
       const receipts = { ...(current.receipts || {}), [dept]: receipt };
       const allDownloaded = current.targetDepartments.every(targetDept => Boolean(receipts[targetDept]?.downloadedAt));
-      tx.update(distRef, clean({ receipts, status: allDownloaded ? 'COMPLETED' : 'IN_PROGRESS', allDownloadedAt: allDownloaded ? new Date().toISOString() : null, storageStatus: allDownloaded ? 'PURGE_PENDING' : 'AVAILABLE', updatedAt: new Date().toISOString() }));
+      tx.update(distRef, clean({ receipts, status: allDownloaded ? 'COMPLETED' : 'IN_PROGRESS', allDownloadedAt: allDownloaded ? new Date().toISOString() : null, storageStatus: 'AVAILABLE', updatedAt: new Date().toISOString() }));
     }), 60000, 'บันทึกหลักฐานใช้เวลานานเกินไป กรุณาลองใหม่');
-  } catch (error) {
-    await deleteObject(ref(storage, signaturePath)).catch(() => undefined);
-    throw error;
-  }
   onProgress?.('บันทึกสำเร็จ กรุณากดดาวน์โหลดไฟล์ด้านล่าง', 100);
-  await writeAudit(user, 'CONTROLLED_COPY_DOWNLOADED', distribution.docNo, distribution.revision, `หน่วยงาน ${dept} รับและเตรียมดาวน์โหลด Controlled Copy จำนวน ${controlledFiles.length} ไฟล์`, { distributionNo: distribution.distributionNo, fileCount: controlledFiles.length });
-  return controlledFiles.map(file => URL.createObjectURL(file));
+  await writeAudit(user, 'CONTROLLED_COPY_DOWNLOADED', distribution.docNo, distribution.revision, `หน่วยงาน ${dept} รับและเตรียมดาวน์โหลด Controlled Copy จำนวน ${downloadUrls.length} ไฟล์`, { distributionNo: distribution.distributionNo, fileCount: downloadUrls.length });
+  return downloadUrls;
 };
 
 export const createCopyRequestRecord = async (user: CurrentUserSession, distribution: DistributionRecord, dept: Department, requestedBy: string, empId: string, reasonType: CopyReRequest['reasonType'], reasonDetails: string) => {
