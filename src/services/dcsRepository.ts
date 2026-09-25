@@ -147,7 +147,6 @@ const documentKey = (docNo: string) => encodeURIComponent(docNo.trim().toUpperCa
 
 export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่ขึ้นทะเบียนเอกสารได้');
-  if (dar.status !== 'APPROVED') throw new Error('DAR ต้องได้รับอนุมัติก่อนขึ้นทะเบียน Master List');
   const masterRef = doc(db, 'dcs_documents', documentKey(dar.docNo));
   const darRef = doc(db, 'dcs_dars', dar.id);
   const today = new Date().toISOString().slice(0, 10);
