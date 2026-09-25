@@ -171,15 +171,18 @@ export const DownloadModal: React.FC = () => {
       || (distribution.departmentFiles?.[dept] ? [distribution.departmentFiles[dept]] : []);
 
   const saveBlobToDevice = (blob: Blob, name: string) => {
-    const objectUrl = URL.createObjectURL(blob);
+    // Force a generic binary MIME type so Chrome/Edge do not route the Blob to
+    // the built-in PDF viewer. The .pdf filename is preserved for the saved file.
+    const downloadBlob = new Blob([blob], { type: 'application/octet-stream' });
+    const objectUrl = URL.createObjectURL(downloadBlob);
     const link = document.createElement('a');
     link.href = objectUrl;
-    link.download = name;
+    link.download = name.endsWith('.pdf') ? name : `${name}.pdf`;
     link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
     link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
   };
 
   const downloadReadyFile = async (file: { url: string; name: string }, index: number) => {
