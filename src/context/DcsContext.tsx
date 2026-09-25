@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionRecord, DocumentViewPayload, MasterDocument } from '../types';
 import { changeDcsPassword, observeDcsAuth, signInDcsUser, signOutDcsUser } from '../services/authService';
-import { acknowledgeDownload, cancelDarRecord, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, manageDistributionRecord, deleteDarDraftRecord, patchDarRecord, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAuditForUser, subscribeCollection, subscribeCopyRequests, subscribeDars, subscribeDistributions, writeAudit } from '../services/dcsRepository';
+import { acknowledgeDownload, cancelDarRecord, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, manageDistributionRecord, deleteDarDraftRecord, patchDarRecord, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAuditForUser, subscribeMasterDocuments, subscribeCopyRequests, subscribeDars, subscribeDistributions, writeAudit } from '../services/dcsRepository';
 
 type Result = { success: boolean; message: string; downloadUrl?: string; downloadUrls?: string[] };
 interface DcsContextType {
@@ -57,7 +57,7 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }), []);
   useEffect(() => {
     if (!currentUser.isAuthenticated) { setDocuments([]); setDars([]); setDistributions([]); setReRequests([]); setAuditLogs([]); return; }
-    const stops = [subscribeCollection<MasterDocument>('dcs_documents', setDocuments), subscribeDars(currentUser, setDars), subscribeDistributions(currentUser, rows => setDistributions(rows.map(hydrateDistribution))), subscribeCopyRequests(currentUser, setReRequests), subscribeAuditForUser(currentUser, setAuditLogs)];
+    const stops = [subscribeMasterDocuments(currentUser, setDocuments), subscribeDars(currentUser, setDars), subscribeDistributions(currentUser, rows => setDistributions(rows.map(hydrateDistribution))), subscribeCopyRequests(currentUser, setReRequests), subscribeAuditForUser(currentUser, setAuditLogs)];
     return () => stops.forEach(stop => stop());
   }, [currentUser.isAuthenticated, currentUser.uid]);
 
