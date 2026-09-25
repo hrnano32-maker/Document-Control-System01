@@ -33,6 +33,15 @@ export const subscribeCollection = <T,>(name: string, callback: (rows: T[]) => v
     callback(snap.docs.map(item => item.data() as T));
   });
 
+export const subscribeMasterDocuments = (user: CurrentUserSession, callback: (rows: MasterDocument[]) => void) => {
+  const constraints = user.userRole === 'DCC_ADMIN'
+    ? [orderBy('createdAt', 'desc')]
+    : [where('ownerDept', '==', user.currentDept), orderBy('createdAt', 'desc')];
+  return onSnapshot(query(collection(db, 'dcs_documents'), ...constraints), snap =>
+    callback(snap.docs.map(item => item.data() as MasterDocument))
+  );
+};
+
 export const subscribeAudit = (callback: (rows: AuditLogEntry[]) => void) =>
   onSnapshot(query(collection(db, 'dcs_audit_logs'), orderBy('timestamp', 'desc')), snap => {
     callback(snap.docs.map(item => item.data() as AuditLogEntry));
