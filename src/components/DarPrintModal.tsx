@@ -70,7 +70,7 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
     }
     return DEFAULT_POSITIONS.map((pos, idx) => ({
       checked: idx < 4,
-      dept: DEPARTMENTS.filter(d => d.id !== 'DCC')[idx]?.id || 'QA',
+      dept: DEPARTMENTS.filter(d => d.id !== 'DCC')[idx]?.id || 'QA/QC',
       position: pos,
       copies: idx < 4 ? '1' : '',
     }));
