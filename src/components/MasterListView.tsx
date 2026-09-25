@@ -723,28 +723,33 @@ export const MasterListView: React.FC = () => {
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="font-bold text-slate-900 text-xs">
-                        หน่วยงานผู้รับตามใบ DAR ({targetDepts.length} หน่วยงาน)
+                        หน่วยงานผู้รับตามใบ DAR และแผนกที่ DCC เพิ่ม ({targetDepts.length} หน่วยงาน)
                       </label>
-                      <span className="text-[10px] text-slate-500">แก้ไขรายชื่อได้จาก DAR ต้นทางเท่านั้น</span>
+                      <span className="text-[10px] text-slate-500">แผนกใน DAR ถูกล็อกไว้ • DCC สามารถติ๊กเพิ่มแผนกอื่นได้</span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto p-2 border border-slate-200 rounded-xl bg-slate-50/50">
                       {DEPARTMENTS.filter(d => d.id !== 'DCC').map(dept => {
                         const isChecked = targetDepts.includes(dept.id);
+                        const isRequiredByDar = (quickDistributeDoc.distributionDepartments || []).some(item => item.dept === dept.id);
                         return (
                           <label
                             key={dept.id}
-                            className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                            className={`flex items-center gap-2 p-2 rounded-lg border text-xs transition-colors ${
                               isChecked ? 'bg-indigo-50 border-indigo-300 text-indigo-900 font-semibold' : 'bg-white border-slate-200 text-slate-700'
-                            }`}
+                            } ${isRequiredByDar ? 'cursor-not-allowed' : 'cursor-pointer hover:border-cyan-400'}`}
+                            title={isRequiredByDar ? 'แผนกนี้ระบุไว้ใน DAR จึงไม่สามารถนำออกได้' : 'DCC สามารถเพิ่มหรือนำแผนกนี้ออกได้'}
                           >
                             <input
                               type="checkbox"
                               checked={isChecked}
-                              disabled
+                              disabled={isRequiredByDar}
+                              onChange={() => setTargetDepts(prev => isChecked ? prev.filter(item => item !== dept.id) : [...prev, dept.id])}
                               className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
                             />
                             <span className="truncate">{dept.id}</span>
+                            {isRequiredByDar && <span className="ml-auto text-[9px] text-indigo-600">ตาม DAR</span>}
+                            {!isRequiredByDar && isChecked && <span className="ml-auto text-[9px] text-cyan-700">DCC เพิ่ม</span>}
                           </label>
                         );
                       })}
