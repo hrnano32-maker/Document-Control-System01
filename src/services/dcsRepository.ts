@@ -244,6 +244,28 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
   return distributionNo;
 };
 
+export const manageDistributionRecord = async (user: CurrentUserSession, distribution: DistributionRecord, action: 'CANCEL' | 'DELETE', reason = '') => {
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่จัดการรายการแจกจ่ายได้');
+  if (action === 'DELETE' && Object.keys(distribution.receipts || {}).length > 0) {
+    throw new Error('ลบไม่ได้ เนื่องจากมีหน่วยงานรับเอกสารแล้ว กรุณาใช้ปุ่มยกเลิก');
+  }
+  await httpsCallable<{ distributionId: string; action: 'CANCEL' | 'DELETE'; reason: string }, unknown>(
+    firebaseFunctions,
+    'manageDistributionRecord',
+    { timeout: 120000 },
+  )({ distributionId: distribution.id, action, reason });
+  await writeAudit(
+    user,
+    action === 'CANCEL' ? 'DISTRIBUTION_CANCELLED' : 'DISTRIBUTION_DELETED',
+    distribution.docNo,
+    distribution.revision,
+    action === 'CANCEL'
+      ? `ยกเลิกรายการแจกจ่าย ${distribution.distributionNo}: ${reason}`
+      : `ลบรายการแจกจ่ายทดลอง ${distribution.distributionNo}`,
+    { distributionNo: distribution.distributionNo, receiptCount: Object.keys(distribution.receipts || {}).length },
+  );
+};
+
 export const acknowledgeDownload = async (user: CurrentUserSession, distribution: DistributionRecord, dept: Department, person: { name: string; empId: string; position: string; signatureDataUrl: string }) => {
   if (user.currentDept !== dept) throw new Error('บัญชีนี้ไม่ตรงกับหน่วยงานผู้รับเอกสาร');
   const distRef = doc(db, 'dcs_distributions', distribution.id);
