@@ -3,6 +3,7 @@ import { useDcs } from '../context/DcsContext';
 import { getStorageFileUrl } from '../services/dcsRepository';
 import {
   DarRecord,
+  DarAdditionalDocument,
   DarRequestType,
   DocumentType,
   DOCUMENT_TYPES,
@@ -97,6 +98,7 @@ export const DarManagement: React.FC = () => {
   const [proposedRevision, setProposedRevision] = useState('03');
   const [reasonForChange, setReasonForChange] = useState('');
   const [changeDetails, setChangeDetails] = useState('');
+  const [additionalDocuments, setAdditionalDocuments] = useState<DarAdditionalDocument[]>([]);
   const [skippedRevisionReason, setSkippedRevisionReason] = useState('');
   const [showDocSelector, setShowDocSelector] = useState(false);
   const [docSearchKeyword, setDocSearchKeyword] = useState('');
@@ -222,6 +224,14 @@ export const DarManagement: React.FC = () => {
       return;
     }
 
+    const filledAdditionalDocuments = additionalDocuments.filter(item =>
+      item.docNo.trim() || item.docNameTh.trim() || item.docNameEn?.trim() || item.previousEffectiveDate || item.revision.trim() || item.reason.trim()
+    );
+    if (filledAdditionalDocuments.some(item => !item.docNo.trim() || !item.docNameTh.trim() || !item.revision.trim() || !item.reason.trim())) {
+      setFormError('รายการเอกสารเพิ่มเติมต้องกรอกหมายเลข ชื่อเอกสาร ฉบับที่ และเหตุผลให้ครบ');
+      return;
+    }
+
     try {
       await createDar({
       requestType: reqType,
@@ -237,6 +247,7 @@ export const DarManagement: React.FC = () => {
       proposedRevision: reqType === 'OBSOLETE' ? 'OBSOLETE' : proposedRevision.trim(),
       reasonForChange: reasonForChange.trim(),
       changeDetails: changeDetails.trim(),
+      additionalDocuments: filledAdditionalDocuments.map(item => ({ ...item, docNo: item.docNo.trim().toUpperCase(), docNameTh: item.docNameTh.trim(), docNameEn: item.docNameEn?.trim() || '', revision: item.revision.trim(), reason: item.reason.trim() })),
       isSkippedRevision: revAnalysis.isSkipped,
       skippedRevisionReason: revAnalysis.isSkipped ? skippedRevisionReason.trim() : undefined,
       systemCurrentRevision: revAnalysis.systemCurrentRev || undefined,
@@ -323,6 +334,7 @@ export const DarManagement: React.FC = () => {
             setDocNameEn('');
             setReasonForChange('');
             setChangeDetails('');
+            setAdditionalDocuments([]);
             setFormError('');
             setIsCreateModalOpen(true);
           }}
@@ -1033,6 +1045,58 @@ export const DarManagement: React.FC = () => {
                   placeholder="ระบุข้อที่เปลี่ยนแปลง เช่น แก้ไขข้อ 4.2 เพิ่มขั้นตอนตรวจสอบความร้อน, ตัดข้อ 5.3 ออก"
                   className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
+              </div>
+
+              {/* Additional documents in the same DAR set (rows 2-6) */}
+              <div className="space-y-3 border border-indigo-200 bg-indigo-50/30 rounded-xl p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900">รายการเอกสารเพิ่มเติมในชุดเดียวกัน (ลำดับ 2–6)</h4>
+                    <p className="text-[10px] text-slate-500 mt-0.5">ใช้เลขที่ DAR และการอนุมัติเดียวกับรายการที่ 1</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={additionalDocuments.length >= 5}
+                    onClick={() => setAdditionalDocuments(items => [...items, { docNo: '', docNameTh: '', docNameEn: '', previousEffectiveDate: '', revision: '', reason: '' }])}
+                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> เพิ่มรายการ
+                  </button>
+                </div>
+
+                {additionalDocuments.length === 0 ? (
+                  <div className="py-4 text-center text-xs text-slate-500 border border-dashed border-slate-300 rounded-lg bg-white">
+                    หากมีเอกสารในชุดเดียวกัน ให้กด “เพิ่มรายการ” เพื่อกรอกลำดับ 2–6
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {additionalDocuments.map((item, index) => (
+                      <div key={index} className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-indigo-800 text-xs">รายการที่ {index + 2}</span>
+                          <button
+                            type="button"
+                            onClick={() => setAdditionalDocuments(items => items.filter((_, itemIndex) => itemIndex !== index))}
+                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg"
+                            title="ลบรายการนี้"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <input value={item.docNo} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, docNo: e.target.value } : row))} placeholder="หมายเลขเอกสาร *" className="px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono" />
+                          <input value={item.docNameTh} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, docNameTh: e.target.value } : row))} placeholder="ชื่อเอกสารภาษาไทย *" className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
+                          <input value={item.docNameEn || ''} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, docNameEn: e.target.value } : row))} placeholder="ชื่อภาษาอังกฤษ (ถ้ามี)" className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
+                          <div className="grid grid-cols-2 gap-2">
+                            <input type="date" value={item.previousEffectiveDate || ''} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, previousEffectiveDate: e.target.value } : row))} title="วันที่เอกสารเดิมบังคับใช้" className="px-2 py-2 border border-slate-300 rounded-lg text-xs" />
+                            <input value={item.revision} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, revision: e.target.value } : row))} placeholder="ฉบับที่ *" className="px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono" />
+                          </div>
+                        </div>
+                        <input value={item.reason} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, reason: e.target.value } : row))} placeholder="เหตุผล *" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs" />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* File Attachment & Upload Zone (New Feature) */}
