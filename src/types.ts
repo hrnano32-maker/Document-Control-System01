@@ -121,6 +121,15 @@ export type DarRequestType = 'NEW' | 'REVISION' | 'OBSOLETE';
 
 export type DarStatus = 'PENDING_REVIEW' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'REGISTERED' | 'CANCELLED';
 
+export interface DarAdditionalDocument {
+  docNo: string;
+  docNameTh: string;
+  docNameEn?: string;
+  previousEffectiveDate?: string;
+  revision: string;
+  reason: string;
+}
+
 export interface DarRecord {
   id: string; // e.g. DAR-2026-0001
   requestType: DarRequestType;
@@ -137,6 +146,7 @@ export interface DarRecord {
   proposedRevision: string; // e.g. "03" or "00"
   reasonForChange: string;
   changeDetails: string;
+  additionalDocuments?: DarAdditionalDocument[];
   incomingDriveLink?: string; // Optional reference
   status: DarStatus;
   dccReviewer?: string;
