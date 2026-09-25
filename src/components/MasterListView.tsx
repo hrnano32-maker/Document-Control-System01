@@ -49,6 +49,8 @@ export const MasterListView: React.FC = () => {
   const [distError, setDistError] = useState('');
   const [distFiles, setDistFiles] = useState<{ name: string; size: string; type: string; dataUrl: string }[]>([]);
   const [isDistributing, setIsDistributing] = useState(false);
+  const [distProgressText, setDistProgressText] = useState('');
+  const [distProgressPercent, setDistProgressPercent] = useState(0);
 
   // Close modals on Escape key press
   useEffect(() => {
@@ -85,13 +87,30 @@ export const MasterListView: React.FC = () => {
     setTargetDepts((doc.distributionDepartments || []).map(item => item.dept));
     setDistInstructions(`แจกจ่ายเอกสารควบคุม ${doc.docNo} Rev.${doc.currentRevision} กรุณาดาวน์โหลดภายใน 3 วัน`);
     setDistSuccessMsg('');
+    setDistError('');
+    setDistProgressText('');
+    setDistProgressPercent(0);
+    setIsDistributing(false);
   };
 
   const handleConfirmDistribution = async () => {
     if (!quickDistributeDoc || targetDepts.length === 0 || distFiles.length === 0) return;
     setDistError(''); setIsDistributing(true);
+    setDistProgressText('กำลังตรวจสอบข้อมูลก่อนแจกจ่าย');
+    setDistProgressPercent(1);
     try {
-      const distNo = await createDistribution(quickDistributeDoc.id, targetDepts as any, distInstructions, distFiles);
+      const distNo = await createDistribution(
+        quickDistributeDoc.id,
+        targetDepts as any,
+        distInstructions,
+        distFiles,
+        (message, percent) => {
+          setDistProgressText(message);
+          setDistProgressPercent(Math.max(0, Math.min(100, percent)));
+        },
+      );
+      setDistProgressText('ดำเนินการครบทุกขั้นตอน');
+      setDistProgressPercent(100);
       setDistSuccessMsg(`สร้างใบแจกจ่ายเลขที่ ${distNo} สำเร็จเรียบร้อย!`);
     } catch (error) {
       setDistError(error instanceof Error ? error.message : 'สร้างรายการแจกจ่ายไม่สำเร็จ');
@@ -800,6 +819,18 @@ export const MasterListView: React.FC = () => {
                       เมื่อกดแจกจ่าย ระบบจะออกรหัสใบแจกจ่ายอัตโนมัติ (DC-DIS) และตั้งเวลานับถอยหลัง 3 วันสำหรับแต่ละหน่วยงานในการดาวน์โหลด Controlled Copy (Copy 1/1)
                     </p>
                   </div>
+                  {isDistributing && (
+                    <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between gap-3 text-[11px] font-bold text-indigo-900">
+                        <span>{distProgressText || 'กำลังดำเนินการ...'}</span>
+                        <span className="font-mono">{distProgressPercent}%</span>
+                      </div>
+                      <div className="h-2.5 bg-indigo-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-indigo-600 transition-all duration-300" style={{ width: `${distProgressPercent}%` }} />
+                      </div>
+                      <p className="text-[10px] text-indigo-700">กรุณาอย่าปิดหน้าต่าง ระบบกำลังอัปโหลดและประทับตรา PDF ทุกไฟล์ตามแผนกที่เลือก</p>
+                    </div>
+                  )}
                   {distError && <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 font-semibold">{distError}</div>}
                 </>
               )}
@@ -812,7 +843,8 @@ export const MasterListView: React.FC = () => {
                   type="button"
                   id="btn-close-quick-distribute-footer"
                   onClick={() => setQuickDistributeDoc(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                  disabled={isDistributing}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   ยกเลิก / ปิดหน้าต่าง
                 </button>
@@ -824,7 +856,7 @@ export const MasterListView: React.FC = () => {
                   className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 rounded-lg shadow-sm flex items-center gap-1.5 cursor-pointer transition-all"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  {isDistributing ? 'กำลังอัปโหลด...' : `ยืนยันการแจกจ่าย (${targetDepts.length} แผนก)`}
+                  {isDistributing ? `${distProgressPercent}% — ${distProgressText || 'กำลังดำเนินการ'}` : `ยืนยันการแจกจ่าย (${targetDepts.length} แผนก)`}
                 </button>
               </div>
             )}
