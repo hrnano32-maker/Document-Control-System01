@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDcs } from '../context/DcsContext';
 import {
   Download,
@@ -10,10 +10,9 @@ import {
   Clock,
   HardDrive,
   ShieldCheck,
-  RotateCcw,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { normalizeSignatureDataUrl } from '../utils/signatureImage';
+import { getStorageFileUrl } from '../services/dcsRepository';
 
 export const DownloadModal: React.FC = () => {
   const {
@@ -29,24 +28,18 @@ export const DownloadModal: React.FC = () => {
 
   const target = distribution.targets.find(t => t.dept === dept);
 
-  // Form states: Recipient must explicitly enter their real name upon receiving document
-  const [downloaderName, setDownloaderName] = useState('');
-  const [downloaderEmpId, setDownloaderEmpId] = useState('');
-  const [downloaderPosition, setDownloaderPosition] = useState(
-    currentUser.currentDept === dept ? currentUser.position : ''
-  );
+  const [downloaderName] = useState(currentUser.currentDept === dept ? currentUser.userName : '');
+  const [downloaderEmpId] = useState(currentUser.currentDept === dept ? currentUser.userEmpId : '');
+  const [downloaderPosition] = useState(currentUser.currentDept === dept ? currentUser.position : '');
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [signatureData, setSignatureData] = useState<string>('');
-  const [signatureType, setSignatureType] = useState<'DRAW' | 'UPLOAD'>('DRAW');
+  const [isLoadingSignature, setIsLoadingSignature] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitStatus, setSubmitStatus] = useState('');
   const [submitPercent, setSubmitPercent] = useState(0);
   const [readyDownloads, setReadyDownloads] = useState<Array<{ url: string; name: string }>>([]);
-
-  // Canvas drawing ref
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
+  const [downloadingIndex, setDownloadingIndex] = useState<number | null>(null);
 
   // Calculate remaining time
   const expiryTime = new Date(distribution.expirationDate).getTime();
@@ -77,80 +70,39 @@ export const DownloadModal: React.FC = () => {
   };
 
   useEffect(() => {
-    // Initialize canvas if drawing mode
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.strokeStyle = '#1e3a8a'; // Navy ink
-        ctx.lineWidth = 2.5;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-      }
+    let active = true;
+    setIsLoadingSignature(true);
+    if (!currentUser.signaturePath) {
+      setErrorMsg('บัญชีนี้ยังไม่มีลายเซ็นที่อนุมัติ กรุณาติดต่อ DCC');
+      setIsLoadingSignature(false);
+      return () => { active = false; };
     }
-  }, [signatureType]);
+    void getStorageFileUrl(currentUser.signaturePath)
+      .then(url => { if (active) setSignatureData(url); })
+      .catch(() => { if (active) setErrorMsg('โหลดลายเซ็นที่ลงทะเบียนไม่ได้ กรุณาเข้าสู่ระบบใหม่หรือติดต่อ DCC'); })
+      .finally(() => { if (active) setIsLoadingSignature(false); });
+    return () => { active = false; };
+  }, [currentUser.signaturePath]);
 
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-
-    ctx.beginPath();
-    ctx.moveTo(clientX - rect.left, clientY - rect.top);
-    setIsDrawing(true);
-  };
-
-  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (!isDrawing) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-
-    ctx.lineTo(clientX - rect.left, clientY - rect.top);
-    ctx.stroke();
-  };
-
-  const stopDrawing = () => {
-    if (!isDrawing) return;
-    setIsDrawing(false);
-    const canvas = canvasRef.current;
-    if (canvas) {
-      setSignatureData(canvas.toDataURL('image/png'));
-    }
-  };
-
-  const clearSignature = () => {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-    }
-    setSignatureData('');
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        try { setSignatureData(await normalizeSignatureDataUrl(String(reader.result || ''))); }
-        catch (caught) { setErrorMsg(caught instanceof Error ? caught.message : 'ไม่สามารถปรับภาพลายเซ็นได้'); }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+  useEffect(() => {
+    const receipt = distribution.receipts?.[dept];
+    if (!target?.isDownloaded || receipt?.downloaderUid !== currentUser.uid || isExpired) return;
+    const paths = distribution.departmentFileLists?.[dept]
+      || (distribution.departmentFiles?.[dept] ? [distribution.departmentFiles[dept]] : []);
+    if (!paths.length) return;
+    let active = true;
+    setSubmitStatus('กำลังเตรียมลิงก์ดาวน์โหลดเดิม');
+    void Promise.all(paths.map(path => getStorageFileUrl(path)))
+      .then(urls => {
+        if (!active) return;
+        setReadyDownloads(urls.map((url, index) => {
+          const baseName = distribution.fileNames?.[index] || distribution.fileName || `${distribution.docNo}_${index + 1}.pdf`;
+          return { url, name: `CONTROLLED_${dept}_${baseName}` };
+        }));
+      })
+      .catch(() => { if (active) setErrorMsg('ไม่สามารถเปิดไฟล์ที่รับไว้แล้ว กรุณาติดต่อ DCC'); });
+    return () => { active = false; };
+  }, [currentUser.uid, dept, distribution, isExpired, target?.isDownloaded]);
 
   const handleConfirmDownload = async () => {
     setErrorMsg('');
@@ -210,6 +162,28 @@ export const DownloadModal: React.FC = () => {
     } else {
       setIsSubmitting(false);
       setErrorMsg(result.message);
+    }
+  };
+
+  const downloadReadyFile = async (file: { url: string; name: string }, index: number) => {
+    setErrorMsg('');
+    setDownloadingIndex(index);
+    try {
+      const response = await fetch(file.url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+    } catch {
+      setErrorMsg(`ดาวน์โหลดไฟล์ที่ ${index + 1} ไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วกดใหม่`);
+    } finally {
+      setDownloadingIndex(null);
     }
   };
 
@@ -329,24 +303,21 @@ export const DownloadModal: React.FC = () => {
                     <ShieldCheck className="w-4 h-4 text-indigo-600" />
                     1. ข้อมูลผู้รับมอบหมายและดาวน์โหลดเอกสาร
                   </h4>
-                  <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                    * กรอกชื่อจริงของผู้รับเอกสาร
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    ดึงจากบัญชีที่เข้าสู่ระบบอัตโนมัติ
                   </span>
                 </div>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      ชื่อ-นามสกุล ผู้รับเอกสารจริง <span className="text-rose-500 font-bold">* (บังคับกรอก)</span>
+                      ชื่อ-นามสกุล ผู้รับเอกสาร
                     </label>
                     <input
                       type="text"
                       value={downloaderName}
-                      onChange={e => setDownloaderName(e.target.value)}
-                      placeholder="ระบุชื่อ-นามสกุลจริงผู้รับมอบหมาย"
-                      className="w-full px-3.5 py-2.5 border-2 border-indigo-200 bg-indigo-50/20 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-none placeholder-slate-400"
-                      required
-                      autoFocus
+                      readOnly
+                      className="w-full px-3.5 py-2.5 border border-slate-200 bg-slate-100 rounded-xl text-sm font-semibold text-slate-800"
                     />
                   </div>
 
@@ -357,9 +328,8 @@ export const DownloadModal: React.FC = () => {
                     <input
                       type="text"
                       value={downloaderEmpId}
-                      onChange={e => setDownloaderEmpId(e.target.value)}
-                      placeholder="เช่น EMP-PD1-042"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      readOnly
+                      className="w-full px-3 py-2 border border-slate-200 bg-slate-100 rounded-lg text-xs text-slate-800"
                     />
                   </div>
                 </div>
@@ -371,9 +341,8 @@ export const DownloadModal: React.FC = () => {
                   <input
                     type="text"
                     value={downloaderPosition}
-                    onChange={e => setDownloaderPosition(e.target.value)}
-                    placeholder="เช่น วิศวกรควบคุมคุณภาพ / หัวหน้ากะฝ่ายผลิต"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    readOnly
+                    className="w-full px-3 py-2 border border-slate-200 bg-slate-100 rounded-lg text-xs text-slate-800"
                   />
                 </div>
               </div>
@@ -385,69 +354,21 @@ export const DownloadModal: React.FC = () => {
                     <PenTool className="w-4 h-4 text-indigo-600" />
                     2. ลายมือชื่ออิเล็กทรอนิกส์ (Digital Signature) <span className="text-rose-500">*</span>
                   </h4>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setSignatureType('DRAW')}
-                      className={`px-2 py-1 rounded text-[10px] font-medium cursor-pointer ${
-                        signatureType === 'DRAW' ? 'bg-indigo-100 text-indigo-800' : 'text-slate-500 hover:bg-slate-100'
-                      }`}
-                    >
-                      วาดลายเซ็น
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSignatureType('UPLOAD')}
-                      className={`px-2 py-1 rounded text-[10px] font-medium cursor-pointer ${
-                        signatureType === 'UPLOAD' ? 'bg-indigo-100 text-indigo-800' : 'text-slate-500 hover:bg-slate-100'
-                      }`}
-                    >
-                      อัปโหลดไฟล์รูป
-                    </button>
-                  </div>
+                  <span className="px-2 py-1 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">เซ็นด่วนจากบัญชี</span>
                 </div>
 
-                {signatureType === 'DRAW' ? (
-                  <div className="border-2 border-dashed border-indigo-200 rounded-xl p-2 bg-indigo-50/20 relative">
-                    <canvas
-                      ref={canvasRef}
-                      width={480}
-                      height={120}
-                      onMouseDown={startDrawing}
-                      onMouseMove={draw}
-                      onMouseUp={stopDrawing}
-                      onMouseLeave={stopDrawing}
-                      onTouchStart={startDrawing}
-                      onTouchMove={draw}
-                      onTouchEnd={stopDrawing}
-                      className="w-full h-28 bg-white rounded-lg border border-slate-200 cursor-crosshair touch-none"
-                    />
-                    <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
-                      <span>เซ็นชื่อลงในกรอบสีขาวด้านบน</span>
-                      <button
-                        type="button"
-                        onClick={clearSignature}
-                        className="text-rose-600 hover:text-rose-700 flex items-center gap-1 font-semibold cursor-pointer"
-                      >
-                        <RotateCcw className="w-3 h-3" /> ล้างลายเซ็น
-                      </button>
+                <div className="border-2 border-emerald-200 rounded-xl p-3 bg-emerald-50/40 text-center">
+                  {isLoadingSignature ? (
+                    <span className="text-xs text-slate-500">กำลังโหลดลายเซ็นที่ลงทะเบียน...</span>
+                  ) : signatureData ? (
+                    <div className="space-y-1">
+                      <img src={signatureData} alt="ลายเซ็นที่ลงทะเบียน" className="h-20 max-w-full mx-auto object-contain bg-white rounded border p-1" />
+                      <p className="text-[10px] text-emerald-700 font-semibold">ระบบจะบันทึกลายเซ็นนี้เป็นหลักฐานรับเอกสาร</p>
                     </div>
-                  </div>
-                ) : (
-                  <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 bg-slate-50 text-center space-y-2">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileUpload}
-                      className="text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
-                    />
-                    {signatureData && (
-                      <div className="mt-2 flex justify-center">
-                        <img src={signatureData} alt="Signature Preview" className="h-16 border rounded bg-white p-1" />
-                      </div>
-                    )}
-                  </div>
-                )}
+                  ) : (
+                    <span className="text-xs text-rose-600">ไม่พบลายเซ็นที่ลงทะเบียน</span>
+                  )}
+                </div>
               </div>
 
               {/* Acknowledgement Checkbox */}
@@ -495,15 +416,16 @@ export const DownloadModal: React.FC = () => {
               <p className="text-[11px] text-emerald-800">เพื่อป้องกันโทรศัพท์บล็อกการดาวน์โหลดหลายไฟล์ กรุณากดดาวน์โหลดทีละไฟล์และตรวจสอบโฟลเดอร์ Download</p>
               <div className="space-y-2">
                 {readyDownloads.map((file, index) => (
-                  <a
+                  <button
+                    type="button"
                     key={file.url}
-                    href={file.url}
-                    download={file.name}
+                    onClick={() => void downloadReadyFile(file, index)}
+                    disabled={downloadingIndex !== null}
                     className="w-full px-4 py-3 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl font-bold text-xs flex items-center justify-between gap-3"
                   >
-                    <span className="truncate">ไฟล์ที่ {index + 1}: {file.name}</span>
+                    <span className="truncate">{downloadingIndex === index ? 'กำลังดาวน์โหลด...' : `ไฟล์ที่ ${index + 1}: ${file.name}`}</span>
                     <Download className="w-4 h-4 shrink-0" />
-                  </a>
+                  </button>
                 ))}
               </div>
             </div>
@@ -540,12 +462,12 @@ export const DownloadModal: React.FC = () => {
               <button
                 type="button"
                 id="btn-confirm-download-controlled"
-                disabled={isSubmitting || isExpired}
+                disabled={isSubmitting || isExpired || isLoadingSignature || !signatureData}
                 onClick={handleConfirmDownload}
                 className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
               >
                 <Download className="w-4 h-4" />
-                {isSubmitting ? (submitStatus || 'กำลังดำเนินการ...') : 'ยืนยัน & เตรียมไฟล์ Controlled Copy'}
+                {isSubmitting ? (submitStatus || 'กำลังดำเนินการ...') : 'ยินยอม รับเอกสาร และเตรียมดาวน์โหลด'}
               </button>
             )}
           </div>
