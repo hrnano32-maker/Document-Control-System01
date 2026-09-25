@@ -3,7 +3,7 @@ import type { AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Depar
 import { changeDcsPassword, observeDcsAuth, signInDcsUser, signOutDcsUser } from '../services/authService';
 import { acknowledgeDownload, cancelDarRecord, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, deleteDarDraftRecord, patchDarRecord, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAuditForUser, subscribeCollection, subscribeCopyRequests, subscribeDars, subscribeDistributions, writeAudit } from '../services/dcsRepository';
 
-type Result = { success: boolean; message: string; downloadUrl?: string };
+type Result = { success: boolean; message: string; downloadUrl?: string; downloadUrls?: string[] };
 interface DcsContextType {
   currentUser: CurrentUserSession; setUserName: (name: string) => void;
   login: (username: string, password: string, rememberMe?: boolean) => Promise<Result>; logout: () => void;
@@ -16,7 +16,7 @@ interface DcsContextType {
   deleteDar: (darId: string) => Promise<void>;
   updateDarSignatures: (darId: string, updates: Partial<DarRecord>) => Promise<void>; registerDarToMasterList: (darId: string) => Promise<void>;
   distributions: DistributionRecord[];
-  createDistribution: (docId: string, targetDepts: Department[], instructions: string, attachedFile?: { name: string; size: string; type: string; dataUrl?: string }) => Promise<string>;
+  createDistribution: (docId: string, targetDepts: Department[], instructions: string, attachedFiles?: { name: string; size: string; type: string; dataUrl?: string }[]) => Promise<string>;
   downloadControlledCopy: (distributionId: string, dept: Department, downloaderName: string, downloaderEmpId: string, downloaderPosition: string, signatureDataUrl: string) => Promise<Result>;
   reRequests: CopyReRequest[];
   createReRequest: (distributionId: string, dept: Department, requestedBy: string, empId: string, reasonType: CopyReRequest['reasonType'], reasonDetails: string) => Promise<void>;
@@ -64,7 +64,7 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const needDist = (id: string) => { const row = distributions.find(x => x.id === id); if (!row) throw new Error('ไม่พบรายการแจกจ่าย'); return row; };
   const login = async (username: string, password: string, remember = false): Promise<Result> => { try { setCurrentUser(await signInDcsUser(username, password, remember)); return { success: true, message: 'เข้าสู่ระบบสำเร็จ' }; } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }; } };
   const changePassword = async (oldPassword: string, newPassword: string): Promise<Result> => { try { await changeDcsPassword(oldPassword, newPassword); setCurrentUser(prev => ({ ...prev, mustChangePassword: false })); return { success: true, message: 'เปลี่ยนรหัสผ่านสำเร็จ' }; } catch { return { success: false, message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง หรือเซสชันหมดอายุ' }; } };
-  const downloadControlledCopy = async (id: string, dept: Department, name: string, empId: string, position: string, signature: string): Promise<Result> => { try { const downloadUrl = await acknowledgeDownload(currentUser, needDist(id), dept, { name, empId, position, signatureDataUrl: signature }); return { success: true, message: 'บันทึกการรับเอกสารสำเร็จ', downloadUrl }; } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'ดำเนินการไม่สำเร็จ' }; } };
+  const downloadControlledCopy = async (id: string, dept: Department, name: string, empId: string, position: string, signature: string): Promise<Result> => { try { const downloadUrls = await acknowledgeDownload(currentUser, needDist(id), dept, { name, empId, position, signatureDataUrl: signature }); return { success: true, message: 'บันทึกการรับเอกสารสำเร็จ', downloadUrl: downloadUrls[0], downloadUrls }; } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'ดำเนินการไม่สำเร็จ' }; } };
 
   const value: DcsContextType = {
     currentUser, setUserName: name => setCurrentUser(prev => ({ ...prev, userName: name })), login, logout: () => { void signOutDcsUser(); setCurrentUser(emptySession()); }, changePassword, isChangePasswordOpen, setIsChangePasswordOpen: open => { if (!open && currentUser.mustChangePassword) return; setIsChangePasswordOpen(open); },
