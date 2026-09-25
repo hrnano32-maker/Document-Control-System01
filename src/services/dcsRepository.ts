@@ -108,6 +108,16 @@ export const createDarRecord = async (user: CurrentUserSession, input: Omit<DarR
   if (input.requestDept !== user.currentDept && user.userRole !== 'DCC_ADMIN') throw new Error('ไม่มีสิทธิ์สร้าง DAR แทนหน่วยงานอื่น');
   if (!input.distributionHolders?.some(item => item.checked)) throw new Error('ต้องระบุหน่วยงานผู้รับเอกสารอย่างน้อย 1 หน่วยงาน');
   if (!input.attachmentFileDataUrl || !input.attachmentFileName) throw new Error('ต้องแนบไฟล์ร่างเอกสารจริงก่อนส่ง DAR');
+  if (!input.attachmentFileName.toLowerCase().endsWith('.pdf') || input.attachmentFileType !== 'application/pdf' || !input.attachmentFileDataUrl.startsWith('data:application/pdf;base64,')) {
+    throw new Error('ใบ DAR แนบได้เฉพาะไฟล์ PDF จริงเท่านั้น');
+  }
+  const attachmentBlob = await dataUrlBlob(input.attachmentFileDataUrl);
+  const attachmentHeader = new Uint8Array(await attachmentBlob.slice(0, 5).arrayBuffer());
+  if (attachmentBlob.size > 25 * 1024 * 1024 || attachmentHeader.length !== 5
+    || attachmentHeader[0] !== 0x25 || attachmentHeader[1] !== 0x50 || attachmentHeader[2] !== 0x44
+    || attachmentHeader[3] !== 0x46 || attachmentHeader[4] !== 0x2d) {
+    throw new Error('ไฟล์แนบไม่ใช่ PDF ที่ถูกต้อง หรือมีขนาดเกิน 25 MB');
+  }
   const seq = await nextNumber('dar');
   const year = new Date().getFullYear();
   const id = `DAR-${year}-${String(seq).padStart(4, '0')}`;
@@ -123,7 +133,7 @@ export const createDarRecord = async (user: CurrentUserSession, input: Omit<DarR
   delete record.attachmentFileDataUrl;
   if (dataUrl && record.attachmentFileName) {
     const path = `dcs/dar-attachments/${user.uid}/${id}/${safeName(record.attachmentFileName)}`;
-    await uploadBytes(ref(storage, path), await dataUrlBlob(dataUrl), { contentType: record.attachmentFileType });
+    await uploadBytes(ref(storage, path), attachmentBlob, { contentType: 'application/pdf' });
     record.attachmentStoragePath = path;
   }
   await setDoc(doc(db, 'dcs_dars', id), record);
