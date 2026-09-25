@@ -35,7 +35,7 @@ interface DcsContextType {
   updateDriveLink: (id: string, type: 'DAR' | 'MASTER_DOC', newLink: string) => Promise<void>;
 }
 
-const emptySession = (): CurrentUserSession => ({ uid: '', currentDept: 'DCC', username: '', userName: '', userEmpId: '', userRole: 'STAFF', roleName: 'Department User', deptDescriptionTh: '', position: '', isAuthenticated: false, mustChangePassword: false, allowedViews: [] });
+const emptySession = (): CurrentUserSession => ({ uid: '', currentDept: 'DCC', username: '', userName: '', userEmpId: '', userRole: 'STAFF', roleName: 'Department User', deptDescriptionTh: '', position: '', signaturePath: '', isAuthenticated: false, mustChangePassword: false, allowedViews: [] });
 const DcsContext = createContext<DcsContextType | undefined>(undefined);
 const hydrateDistribution = (row: any): DistributionRecord => ({ ...row, targets: (row.targets || []).map((target: any) => { const receipt = row.receipts?.[target.dept]; return receipt ? { ...target, isDownloaded: true, status: 'DOWNLOADED', downloadTimestamp: receipt.downloadedAt, downloaderName: receipt.downloaderName, downloaderEmpId: receipt.downloaderEmpId, downloaderPosition: receipt.downloaderPosition, signatureDataUrl: null } : target; }) });
 
