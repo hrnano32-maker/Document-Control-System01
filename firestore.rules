@@ -18,6 +18,7 @@ service cloud.firestore {
         && request.resource.data.receipts[dept].dept == dept
         && request.resource.data.receipts[dept].receivedCopies == resource.data.allocationByDepartment[dept]
         && request.resource.data.receipts[dept].downloaderName is string
+        && request.resource.data.receipts[dept].downloaderUid == request.auth.uid
         && request.resource.data.receipts[dept].downloadedAt is string;
     }
 
