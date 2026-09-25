@@ -619,6 +619,36 @@ export const DarManagement: React.FC = () => {
                 </div>
               )}
 
+              {selectedDarForReview.additionalDocuments && selectedDarForReview.additionalDocuments.length > 0 && (
+                <div className="space-y-2">
+                  <span className="font-bold text-slate-900 block">รายการเอกสารเพิ่มเติมในชุดเดียวกัน:</span>
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-100 text-slate-700">
+                        <tr>
+                          <th className="p-2 text-center">ลำดับ</th>
+                          <th className="p-2 text-left">หมายเลข</th>
+                          <th className="p-2 text-left">ชื่อเอกสาร</th>
+                          <th className="p-2 text-left">ฉบับที่</th>
+                          <th className="p-2 text-left">เหตุผล</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedDarForReview.additionalDocuments.map((item, index) => (
+                          <tr key={index} className="border-t border-slate-200">
+                            <td className="p-2 text-center font-bold">{index + 2}</td>
+                            <td className="p-2 font-mono font-bold">{item.docNo}</td>
+                            <td className="p-2">{item.docNameTh}{item.docNameEn ? <div className="text-[10px] text-slate-500 italic">{item.docNameEn}</div> : null}</td>
+                            <td className="p-2 font-mono">{item.revision}</td>
+                            <td className="p-2">{item.reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {selectedDarForReview.status === 'CANCELLED' && <div className="p-4 rounded-xl border-2 border-rose-300 bg-rose-50 text-rose-900"><div className="font-black">คำขอนี้ถูกยกเลิกแล้ว</div><div className="mt-1">เหตุผล: {selectedDarForReview.cancellationReason || '-'}</div><div className="text-[11px] mt-1">โดย {selectedDarForReview.cancelledBy || '-'} เมื่อ {selectedDarForReview.cancelledAt ? new Date(selectedDarForReview.cancelledAt).toLocaleString('th-TH') : '-'}</div></div>}
 
               {/* Draft File Attachment card */}
