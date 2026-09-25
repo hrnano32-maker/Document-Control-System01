@@ -64,6 +64,7 @@ export const DarManagement: React.FC = () => {
   const [selectedDarForReview, setSelectedDarForReview] = useState<DarRecord | null>(null);
   const [selectedDarForPrint, setSelectedDarForPrint] = useState<DarRecord | null>(null);
   const [registeringDarId, setRegisteringDarId] = useState<string | null>(null);
+  const [downloadingDarId, setDownloadingDarId] = useState<string | null>(null);
 
   // Close on Escape key press
   useEffect(() => {
@@ -129,18 +130,32 @@ export const DarManagement: React.FC = () => {
 
   // Helper to download draft file attached by DAR requester
   const handleDownloadDarDraft = async (dar: DarRecord) => {
+    if (downloadingDarId) return;
     const fileName = dar.attachmentFileName || `${dar.docNo}_Rev${dar.proposedRevision}_DRAFT.docx`;
-    if (dar.attachmentStoragePath) {
-      const link = document.createElement('a');
-      link.href = await getStorageFileUrl(dar.attachmentStoragePath);
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+    if (!dar.attachmentStoragePath) {
+      alert('DAR รายการนี้ไม่มีเส้นทางไฟล์แนบใน Firebase Storage กรุณาติดต่อ DCC ให้อัปโหลดไฟล์ใหม่');
       return;
     }
 
-    alert('DAR รายการนี้ไม่มีไฟล์ร่างแนบ');
+    setDownloadingDarId(dar.id);
+    try {
+      const fileUrl = await getStorageFileUrl(dar.attachmentStoragePath);
+      const link = document.createElement('a');
+      link.href = fileUrl;
+      link.download = fileName;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      window.setTimeout(() => {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(fileUrl);
+      }, 1000);
+    } catch (error) {
+      console.error('DAR attachment download failed', error);
+      alert(`ดาวน์โหลดไฟล์ไม่สำเร็จ: ${error instanceof Error ? error.message : 'กรุณาตรวจสอบสิทธิ์ Firebase Storage แล้วลองใหม่'}`);
+    } finally {
+      setDownloadingDarId(null);
+    }
   };
 
   // Real-time Revision Sequence Analysis
@@ -455,8 +470,8 @@ export const DarManagement: React.FC = () => {
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => handleDownloadDarDraft(dar)} className="h-9 px-3 text-xs text-indigo-700 font-bold flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200">
-                      <Download className="w-3.5 h-3.5" /> ดาวน์โหลด
+                    <button type="button" onClick={() => handleDownloadDarDraft(dar)} disabled={downloadingDarId !== null} className="h-9 px-3 text-xs text-indigo-700 font-bold flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg border border-indigo-200">
+                      {downloadingDarId === dar.id ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> กำลังดาวน์โหลด...</> : <><Download className="w-3.5 h-3.5" /> ดาวน์โหลด</>}
                     </button>
                     <button type="button" onClick={() => openDocumentViewer({title: dar.docNameTh, docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn, docType: dar.docType, revision: dar.proposedRevision, dept: dar.requestDept, fileName: dar.attachmentFileName, fileSize: dar.attachmentFileSize, fileType: dar.attachmentFileType, fileDataUrl: dar.attachmentFileDataUrl, fileStoragePath: dar.attachmentStoragePath, darId: dar.id, reasonForChange: dar.reasonForChange, changeDetails: dar.changeDetails, isoClause: dar.isoClause})} className="h-9 px-3 text-xs text-slate-700 font-semibold flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200">
                       <Eye className="w-3.5 h-3.5" /> เปิดดู
