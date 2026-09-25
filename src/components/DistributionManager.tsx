@@ -22,6 +22,8 @@ import {
   Layers,
   Sparkles,
   Eye,
+  Ban,
+  Trash2,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -36,11 +38,14 @@ export const DistributionManager: React.FC = () => {
     reviewReRequest,
     setActiveView,
     openDocumentViewer,
+    cancelDistribution,
+    deleteDistribution,
   } = useDcs();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [reRequestNote, setReRequestNote] = useState('');
+  const [managingId, setManagingId] = useState<string | null>(null);
   const [reissueFiles, setReissueFiles] = useState<Record<string, { name: string; size: string; type: string; dataUrl: string }>>({});
 
   const filteredDistributions = distributions.filter(dist => {
@@ -89,6 +94,27 @@ export const DistributionManager: React.FC = () => {
     try { await reviewReRequest(reqId, false, reRequestNote || 'ไม่อนุมัติคำร้องขอสำเนา', 0); }
     catch (error) { alert(error instanceof Error ? error.message : 'ปฏิเสธคำขอไม่สำเร็จ'); return; }
     setReRequestNote('');
+  };
+
+  const handleCancelDistribution = async (dist: DistributionRecord) => {
+    const reason = window.prompt('ระบุเหตุผลที่ยกเลิกรายการแจกจ่าย (ระบบจะเก็บประวัติการรับเอกสารไว้)');
+    if (reason === null) return;
+    if (!reason.trim()) { alert('กรุณาระบุเหตุผลการยกเลิก'); return; }
+    if (!window.confirm(`ยืนยันยกเลิกรายการ ${dist.distributionNo}? ผู้รับที่ยังไม่ได้ดาวน์โหลดจะไม่สามารถรับไฟล์ได้อีก`)) return;
+    setManagingId(dist.id);
+    try { await cancelDistribution(dist.id, reason.trim()); }
+    catch (error) { alert(error instanceof Error ? error.message : 'ยกเลิกรายการไม่สำเร็จ'); }
+    finally { setManagingId(null); }
+  };
+
+  const handleDeleteDistribution = async (dist: DistributionRecord) => {
+    const receiptCount = Object.keys(dist.receipts || {}).length;
+    if (receiptCount > 0) { alert('ลบไม่ได้ เนื่องจากมีแผนกรับเอกสารแล้ว กรุณาใช้ปุ่มยกเลิก'); return; }
+    if (!window.confirm(`ยืนยันลบรายการทดลอง ${dist.distributionNo} แบบถาวร? รายการและไฟล์ทั้งหมดจะกู้คืนไม่ได้`)) return;
+    setManagingId(dist.id);
+    try { await deleteDistribution(dist.id); }
+    catch (error) { alert(error instanceof Error ? error.message : 'ลบรายการไม่สำเร็จ'); }
+    finally { setManagingId(null); }
   };
 
   return (
@@ -214,6 +240,7 @@ export const DistributionManager: React.FC = () => {
             <option value="IN_PROGRESS">🟡 อยู่ระหว่างดาวน์โหลด (In Progress)</option>
             <option value="COMPLETED">🟢 ดาวน์โหลดครบทุกแผนกแล้ว (Completed)</option>
             <option value="EXPIRED">🔴 มีหน่วยงานหมดอายุ (Expired)</option>
+            <option value="CANCELLED">⚫ ยกเลิกแล้ว (Cancelled)</option>
           </select>
         </div>
       </div>
@@ -227,7 +254,9 @@ export const DistributionManager: React.FC = () => {
           </div>
         ) : (
           filteredDistributions.map(dist => {
-            const timeInfo = getRemainingTimeText(dist.expirationDate);
+            const timeInfo = dist.status === 'CANCELLED'
+              ? { isExpired: true, text: '⚫ ยกเลิกการแจกจ่ายแล้ว', color: 'bg-slate-100 text-slate-700 border-slate-300' }
+              : getRemainingTimeText(dist.expirationDate);
             const downloadedCount = dist.targets.filter(t => t.isDownloaded).length;
             const totalTargets = dist.targets.length;
             const percent = Math.round((downloadedCount / totalTargets) * 100);
@@ -286,6 +315,27 @@ export const DistributionManager: React.FC = () => {
                       <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
                       ใบแจกจ่าย-เรียกคืน (FM-QS-003-00) / พิมพ์
                     </button>
+                    {currentUser.currentDept === 'DCC' && dist.status !== 'CANCELLED' && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={managingId === dist.id}
+                          onClick={() => handleCancelDistribution(dist)}
+                          className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          <Ban className="w-4 h-4" /> ยกเลิกการแจกจ่าย
+                        </button>
+                        <button
+                          type="button"
+                          disabled={managingId === dist.id || Object.keys(dist.receipts || {}).length > 0}
+                          title={Object.keys(dist.receipts || {}).length > 0 ? 'มีผู้รับเอกสารแล้ว จึงลบไม่ได้ ให้ใช้ปุ่มยกเลิก' : 'ลบรายการทดลองที่ยังไม่มีผู้รับ'}
+                          onClick={() => handleDeleteDistribution(dist)}
+                          className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Trash2 className="w-4 h-4" /> ลบรายการ
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -325,7 +375,7 @@ export const DistributionManager: React.FC = () => {
                     </div>
 
                     {/* Department-specific Action Banner */}
-                    {myTarget && (
+                    {myTarget && dist.status !== 'CANCELLED' && (
                       <div className="pt-2 border-t border-slate-200">
                         {myTarget.isDownloaded ? (
                           <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
@@ -375,6 +425,7 @@ export const DistributionManager: React.FC = () => {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
                     {dist.targets.map(target => {
+                      const isCancelled = dist.status === 'CANCELLED';
                       const isExpired = new Date().getTime() > new Date(dist.expirationDate).getTime();
                       return (
                         <div
@@ -392,7 +443,9 @@ export const DistributionManager: React.FC = () => {
                             <span className="text-xs font-mono text-slate-600 font-semibold bg-white/90 px-2 py-0.5 rounded-md border border-slate-200/60">{target.copyNo}</span>
                           </div>
 
-                          {target.isDownloaded ? (
+                          {isCancelled ? (
+                            <div className="pt-1.5 border-t border-slate-200 text-xs text-slate-600 font-bold">ยกเลิกการแจกจ่ายแล้ว</div>
+                          ) : target.isDownloaded ? (
                             <div className="space-y-0.5 pt-1.5 border-t border-emerald-200/60">
                               <div className="flex items-center gap-1.5 text-xs text-emerald-900 font-bold">
                                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
