@@ -259,6 +259,7 @@ export interface DistributionReceipt {
   downloaderEmpId: string;
   downloaderPosition: string;
   signatureStoragePath: string;
+  downloaderUid?: string;
 }
 
 export interface DistributionRecord {
@@ -385,6 +386,7 @@ export interface CurrentUserSession {
   roleName: 'DCC / Admin' | 'Department User';
   deptDescriptionTh: string;
   position: string;
+  signaturePath: string;
   isAuthenticated: boolean;
   mustChangePassword: boolean;
   allowedViews: ('dashboard' | 'dar' | 'audit' | 'masterlist' | 'distribution' | 'registrations')[];
