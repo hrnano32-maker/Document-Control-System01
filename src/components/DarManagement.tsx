@@ -977,7 +977,7 @@ export const DarManagement: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    ประเภทเอกสาร (Type ตาม QP-QS-001)
+                    ประเภทเอกสาร
                   </label>
                   <select
                     value={docType}
@@ -1113,16 +1113,34 @@ export const DarManagement: React.FC = () => {
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <input value={item.docNo} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, docNo: e.target.value } : row))} placeholder="หมายเลขเอกสาร *" className="px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono" />
-                          <input value={item.docNameTh} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, docNameTh: e.target.value } : row))} placeholder="ชื่อเอกสารภาษาไทย *" className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
-                          <input value={item.docNameEn || ''} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, docNameEn: e.target.value } : row))} placeholder="ชื่อภาษาอังกฤษ (ถ้ามี)" className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
-                          <div className="grid grid-cols-2 gap-2">
-                            <input type="date" value={item.previousEffectiveDate || ''} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, previousEffectiveDate: e.target.value } : row))} title="วันที่เอกสารเดิมบังคับใช้" className="px-2 py-2 border border-slate-300 rounded-lg text-xs" />
-                            <input value={item.revision} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, revision: e.target.value } : row))} placeholder="ฉบับที่ *" className="px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono" />
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1.5">รหัสเอกสาร (Doc No.) <span className="text-rose-500">*</span></label>
+                            <input value={item.docNo} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, docNo: e.target.value } : row))} placeholder="เช่น QP-PD-005 หรือ WI-QA-008" className="w-full h-10 px-3.5 border border-slate-300 rounded-lg text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1.5">วันที่เอกสารเดิมบังคับใช้</label>
+                            <input type="date" value={item.previousEffectiveDate || ''} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, previousEffectiveDate: e.target.value } : row))} className="w-full h-10 px-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1.5">Rev. ที่เสนอ <span className="text-rose-500">*</span></label>
+                            <input value={item.revision} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, revision: e.target.value } : row))} placeholder="เช่น 00, 01, 02" className="w-full h-10 px-3 border border-slate-300 rounded-lg text-sm font-mono font-bold text-indigo-700 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
                           </div>
                         </div>
-                        <input value={item.reason} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, reason: e.target.value } : row))} placeholder="เหตุผล *" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs" />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1.5">ชื่อเอกสารภาษาไทย <span className="text-rose-500">*</span></label>
+                            <input value={item.docNameTh} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, docNameTh: e.target.value } : row))} placeholder="ระบุชื่อเอกสารภาษาไทย" className="w-full h-10 px-3.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1.5">ชื่อเอกสารภาษาอังกฤษ (English Name)</label>
+                            <input value={item.docNameEn || ''} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, docNameEn: e.target.value } : row))} placeholder="ระบุชื่อเอกสารภาษาอังกฤษ (ถ้ามี)" className="w-full h-10 px-3.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1.5">เหตุผลความจำเป็นในการจัดทำ/แก้ไข/ยกเลิก <span className="text-rose-500">*</span></label>
+                          <input value={item.reason} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, reason: e.target.value } : row))} placeholder="ระบุเหตุผลความจำเป็น" className="w-full h-10 px-3.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                        </div>
                       </div>
                     ))}
                   </div>
