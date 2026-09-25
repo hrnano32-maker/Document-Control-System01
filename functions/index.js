@@ -482,7 +482,11 @@ exports.downloadControlledCopyFile = onRequest({
     const receipt = distribution.receipts?.[department];
     if (profile.role !== 'DCC_ADMIN') {
       if (!distribution.targetDepartments?.includes(department)) return response.status(403).json({ error: 'NOT_A_RECIPIENT' });
-      if (!receipt?.downloadedAt || receipt.downloaderUid !== decoded.uid) return response.status(403).json({ error: 'RECEIPT_REQUIRED' });
+      // Older receipts were created before downloaderUid was introduced. They
+      // remain downloadable only by the active account of that same department.
+      if (!receipt?.downloadedAt || (receipt.downloaderUid && receipt.downloaderUid !== decoded.uid)) {
+        return response.status(403).json({ error: 'RECEIPT_REQUIRED' });
+      }
     }
     if (distribution.status === 'CANCELLED' || distribution.storageStatus === 'PURGED') return response.status(410).json({ error: 'FILE_NOT_AVAILABLE' });
     if (Date.now() > Number(distribution.expirationEpoch || 0)) return response.status(410).json({ error: 'DOWNLOAD_EXPIRED' });
