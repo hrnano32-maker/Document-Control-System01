@@ -542,17 +542,30 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
                     </td>
                   </tr>
 
-                  {/* Empty rows 2 to 6 with dashed bottom borders to match paper form */}
-                  {[2, 3, 4, 5, 6].map((rowNum) => (
-                    <tr key={rowNum} className="border-b border-dotted border-black/50 h-7">
-                      <td className="border-r border-black p-1 text-slate-400">{rowNum}</td>
-                      <td className="border-r border-black p-1"></td>
-                      <td className="border-r border-black p-1"></td>
-                      <td className="border-r border-black p-1"></td>
-                      <td className="border-r border-black p-1"></td>
-                      <td className="p-1"></td>
-                    </tr>
-                  ))}
+                  {/* Rows 2 to 6 - populated from additional documents when supplied */}
+                  {[0, 1, 2, 3, 4].map((itemIndex) => {
+                    const item = dar.additionalDocuments?.[itemIndex];
+                    const rowNum = itemIndex + 2;
+                    return (
+                      <tr key={rowNum} className="border-b border-dotted border-black/50 h-7">
+                        <td className="border-r border-black p-1 text-slate-600">{rowNum}</td>
+                        <td className="border-r border-black p-1 align-middle font-mono font-bold text-left">{item?.docNo || ''}</td>
+                        <td className="border-r border-black p-1 align-middle text-left leading-tight">
+                          {item && (
+                            <>
+                              <div className="font-semibold text-black">{item.docNameTh}</div>
+                              {item.docNameEn && <div className="text-[9px] text-slate-700 italic">{item.docNameEn}</div>}
+                            </>
+                          )}
+                        </td>
+                        <td className="border-r border-black p-1 align-middle font-mono text-[10px]">
+                          {item?.previousEffectiveDate ? formatThaiDate(item.previousEffectiveDate) : ''}
+                        </td>
+                        <td className="border-r border-black p-1 align-middle font-mono font-bold">{item?.revision || ''}</td>
+                        <td className="p-1 align-middle text-left text-[10px] leading-tight">{item?.reason || ''}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
