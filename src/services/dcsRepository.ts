@@ -21,6 +21,13 @@ const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 
 const safeName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, '_');
 
+const dataUrlBlob = async (dataUrl: string): Promise<Blob> => {
+  if (!dataUrl || !dataUrl.startsWith('data:')) throw new Error('ข้อมูลไฟล์แนบไม่ถูกต้อง กรุณาเลือกไฟล์ใหม่');
+  const response = await fetch(dataUrl);
+  if (!response.ok) throw new Error('ไม่สามารถอ่านข้อมูลไฟล์แนบได้');
+  return response.blob();
+};
+
 export const subscribeCollection = <T,>(name: string, callback: (rows: T[]) => void) =>
   onSnapshot(query(collection(db, name), orderBy('createdAt', 'desc')), snap => {
     callback(snap.docs.map(item => item.data() as T));
