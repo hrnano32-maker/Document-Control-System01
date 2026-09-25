@@ -23,6 +23,7 @@ export interface DcsUserProfile {
   displayName: string;
   empId?: string;
   position: string;
+  signaturePath?: string;
   allowedViews?: CurrentUserSession['allowedViews'];
   mustChangePassword?: boolean;
 }
@@ -52,6 +53,7 @@ export const loadDcsProfile = async (user: User): Promise<CurrentUserSession> =>
     roleName: profile.roleName,
     deptDescriptionTh: profile.department,
     position: profile.position,
+    signaturePath: profile.signaturePath || '',
     isAuthenticated: true,
     mustChangePassword: profile.mustChangePassword === true,
     allowedViews,
