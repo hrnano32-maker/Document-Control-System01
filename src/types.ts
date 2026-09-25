@@ -241,7 +241,7 @@ export interface DepartmentDistributionTarget {
   reRequestStatus?: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
 }
 
-export type DistributionStatus = 'IN_PROGRESS' | 'COMPLETED' | 'EXPIRED';
+export type DistributionStatus = 'IN_PROGRESS' | 'COMPLETED' | 'EXPIRED' | 'CANCELLED';
 
 export interface DistributionReceipt {
   dept: Department;
@@ -268,6 +268,9 @@ export interface DistributionRecord {
   expirationDate: string; // ISO string (3 days from distributedDate)
   expirationEpoch: number;
   status: DistributionStatus;
+  cancelledAt?: string;
+  cancelledBy?: string;
+  cancellationReason?: string;
   darReferenceId: string;
   targetDepartments: Department[];
   allocationByDepartment: Record<string, number>;
@@ -339,6 +342,8 @@ export type AuditActionType =
   | 'MASTER_LIST_UPDATED'
   | 'CONTROLLED_COPY_STAMPED'
   | 'DISTRIBUTION_INITIATED'
+  | 'DISTRIBUTION_CANCELLED'
+  | 'DISTRIBUTION_DELETED'
   | 'CONTROLLED_COPY_DOWNLOADED'
   | 'SIGNATURE_CAPTURED'
   | 'COPY_RE_REQUESTED'
