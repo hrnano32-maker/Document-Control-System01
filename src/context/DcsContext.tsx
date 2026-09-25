@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionRecord, DocumentViewPayload, MasterDocument } from '../types';
 import { changeDcsPassword, observeDcsAuth, signInDcsUser, signOutDcsUser } from '../services/authService';
-import { acknowledgeDownload, cancelDarRecord, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, deleteDarDraftRecord, patchDarRecord, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAuditForUser, subscribeCollection, subscribeCopyRequests, subscribeDars, subscribeDistributions, writeAudit } from '../services/dcsRepository';
+import { acknowledgeDownload, cancelDarRecord, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, manageDistributionRecord, deleteDarDraftRecord, patchDarRecord, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAuditForUser, subscribeCollection, subscribeCopyRequests, subscribeDars, subscribeDistributions, writeAudit } from '../services/dcsRepository';
 
 type Result = { success: boolean; message: string; downloadUrl?: string; downloadUrls?: string[] };
 interface DcsContextType {
@@ -17,6 +17,8 @@ interface DcsContextType {
   updateDarSignatures: (darId: string, updates: Partial<DarRecord>) => Promise<void>; registerDarToMasterList: (darId: string) => Promise<void>;
   distributions: DistributionRecord[];
   createDistribution: (docId: string, targetDepts: Department[], instructions: string, attachedFiles?: { name: string; size: string; type: string; dataUrl?: string }[]) => Promise<string>;
+  cancelDistribution: (distributionId: string, reason: string) => Promise<void>;
+  deleteDistribution: (distributionId: string) => Promise<void>;
   downloadControlledCopy: (distributionId: string, dept: Department, downloaderName: string, downloaderEmpId: string, downloaderPosition: string, signatureDataUrl: string) => Promise<Result>;
   reRequests: CopyReRequest[];
   createReRequest: (distributionId: string, dept: Department, requestedBy: string, empId: string, reasonType: CopyReRequest['reasonType'], reasonDetails: string) => Promise<void>;
@@ -70,7 +72,7 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     currentUser, setUserName: name => setCurrentUser(prev => ({ ...prev, userName: name })), login, logout: () => { void signOutDcsUser(); setCurrentUser(emptySession()); }, changePassword, isChangePasswordOpen, setIsChangePasswordOpen: open => { if (!open && currentUser.mustChangePassword) return; setIsChangePasswordOpen(open); },
     documents, addDocument: input => saveMasterDocument(currentUser, input), updateDocumentRevision: (id, rev, date, darNo, reason, link) => reviseMasterDocument(currentUser, needDoc(id), rev, date, darNo, reason, link),
     dars, createDar: input => createDarRecord(currentUser, input), reviewDar: (id, status, remarks) => reviewDarRecord(currentUser, needDar(id), status, remarks), cancelDar: (id, reason) => cancelDarRecord(currentUser, needDar(id), reason), deleteDar: id => deleteDarDraftRecord(currentUser, needDar(id)), updateDarSignatures: patchDarRecord, registerDarToMasterList: id => registerDarRecord(currentUser, needDar(id)),
-    distributions, createDistribution: (id, depts, instructions, files) => createDistributionRecord(currentUser, needDoc(id), depts, instructions, files), downloadControlledCopy,
+    distributions, createDistribution: (id, depts, instructions, files) => createDistributionRecord(currentUser, needDoc(id), depts, instructions, files), cancelDistribution: (id, reason) => manageDistributionRecord(currentUser, needDist(id), 'CANCEL', reason), deleteDistribution: id => manageDistributionRecord(currentUser, needDist(id), 'DELETE'), downloadControlledCopy,
     reRequests, createReRequest: (id, dept, name, empId, reason, details) => createCopyRequestRecord(currentUser, needDist(id), dept, name, empId, reason, details), reviewReRequest: async (id, approve, note, _days, file) => { const row = reRequests.find(x => x.id === id); if (!row) throw new Error('ไม่พบคำขอ'); await decideCopyRequest(currentUser, row, approve, note, file); },
     auditLogs, logAudit: (type, docNo, revision, description, details) => writeAudit(currentUser, type, docNo, revision, description, details), resetToDefaultData: () => {},
     activeView, setActiveView: view => { if (currentUser.allowedViews.includes(view as any)) setActiveView(view); }, selectedDocForModal, setSelectedDocForModal, selectedDistributionForSheet, setSelectedDistributionForSheet,
