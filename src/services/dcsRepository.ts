@@ -266,28 +266,71 @@ export const manageDistributionRecord = async (user: CurrentUserSession, distrib
   );
 };
 
-export const acknowledgeDownload = async (user: CurrentUserSession, distribution: DistributionRecord, dept: Department, person: { name: string; empId: string; position: string; signatureDataUrl: string }) => {
+export const acknowledgeDownload = async (
+  user: CurrentUserSession,
+  distribution: DistributionRecord,
+  dept: Department,
+  person: { name: string; empId: string; position: string; signatureDataUrl: string },
+  onProgress?: (message: string, percent: number) => void,
+) => {
   if (user.currentDept !== dept) throw new Error('บัญชีนี้ไม่ตรงกับหน่วยงานผู้รับเอกสาร');
+  if (distribution.status === 'CANCELLED') throw new Error('รายการแจกจ่ายนี้ถูกยกเลิกแล้ว กรุณาติดต่อ DCC');
   const distRef = doc(db, 'dcs_distributions', distribution.id);
   const departmentPaths = distribution.departmentFileLists?.[dept] || (distribution.departmentFiles?.[dept] ? [distribution.departmentFiles[dept]] : []);
   if (!departmentPaths.length || distribution.stampStatus !== 'COMPLETED') throw new Error('ไฟล์ Controlled Copy ของหน่วยงานยังไม่พร้อม กรุณาติดต่อ DCC');
-  const controlledFiles = await Promise.all(departmentPaths.map(path => getBlob(ref(storage, path))));
+
+  const withTimeout = async <T,>(task: Promise<T>, milliseconds: number, message: string): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        task,
+        new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), milliseconds); }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
+  const controlledFiles: Blob[] = [];
+  for (let index = 0; index < departmentPaths.length; index += 1) {
+    onProgress?.(`กำลังเตรียมไฟล์ ${index + 1}/${departmentPaths.length}`, 5 + Math.round(((index + 1) / departmentPaths.length) * 60));
+    controlledFiles.push(await withTimeout(
+      getBlob(ref(storage, departmentPaths[index])),
+      120000,
+      `ดาวน์โหลดไฟล์ที่ ${index + 1} ใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่`,
+    ));
+  }
+
+  onProgress?.('กำลังจัดเก็บลายเซ็นผู้รับเอกสาร', 75);
   const signaturePath = `dcs/signatures/${user.uid}/${distribution.id}/${Date.now()}.png`;
   const normalizedSignature = await normalizeSignatureDataUrl(person.signatureDataUrl);
-  await uploadBytes(ref(storage, signaturePath), await dataUrlBlob(normalizedSignature), { contentType: 'image/png' });
-  await runTransaction(db, async tx => {
-    const snapshot = await tx.get(distRef);
-    const current = snapshot.data() as DistributionRecord & { receipts?: Record<string, any> };
-    if (!current) throw new Error('ไม่พบรายการแจกจ่าย');
-    if (!current.targetDepartments.includes(dept)) throw new Error('หน่วยงานนี้ไม่อยู่ในรายชื่อแจกจ่าย');
-    if (Date.now() > new Date(current.expirationDate).getTime()) throw new Error('สิทธิ์ดาวน์โหลดหมดอายุ กรุณาขอไฟล์ใหม่จาก DCC');
-    if (current.receipts?.[dept]?.downloadedAt) throw new Error('หน่วยงานนี้ดาวน์โหลดฉบับนี้ไปแล้ว');
-    const receipt = { dept, receivedCopies: current.allocationByDepartment[dept], downloadedAt: new Date().toISOString(), downloaderName: person.name, downloaderEmpId: person.empId, downloaderPosition: person.position, signatureStoragePath: signaturePath };
-    const receipts = { ...(current.receipts || {}), [dept]: receipt };
-    const allDownloaded = current.targetDepartments.every(targetDept => Boolean(receipts[targetDept]?.downloadedAt));
-    tx.update(distRef, clean({ receipts, status: allDownloaded ? 'COMPLETED' : 'IN_PROGRESS', allDownloadedAt: allDownloaded ? new Date().toISOString() : null, storageStatus: allDownloaded ? 'PURGE_PENDING' : 'AVAILABLE', updatedAt: new Date().toISOString() }));
-  });
-  await writeAudit(user, 'CONTROLLED_COPY_DOWNLOADED', distribution.docNo, distribution.revision, `หน่วยงาน ${dept} รับและดาวน์โหลด Controlled Copy จำนวน ${controlledFiles.length} ไฟล์`, { distributionNo: distribution.distributionNo, fileCount: controlledFiles.length });
+  await withTimeout(
+    uploadBytes(ref(storage, signaturePath), await dataUrlBlob(normalizedSignature), { contentType: 'image/png' }),
+    60000,
+    'อัปโหลดลายเซ็นใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่',
+  );
+
+  onProgress?.('กำลังบันทึกหลักฐานการรับเอกสาร', 90);
+  try {
+    await withTimeout(runTransaction(db, async tx => {
+      const snapshot = await tx.get(distRef);
+      const current = snapshot.data() as DistributionRecord & { receipts?: Record<string, any> };
+      if (!current) throw new Error('ไม่พบรายการแจกจ่าย');
+      if (current.status === 'CANCELLED') throw new Error('รายการแจกจ่ายนี้ถูกยกเลิกแล้ว กรุณาติดต่อ DCC');
+      if (!current.targetDepartments.includes(dept)) throw new Error('หน่วยงานนี้ไม่อยู่ในรายชื่อแจกจ่าย');
+      if (Date.now() > new Date(current.expirationDate).getTime()) throw new Error('สิทธิ์ดาวน์โหลดหมดอายุ กรุณาขอไฟล์ใหม่จาก DCC');
+      if (current.receipts?.[dept]?.downloadedAt) throw new Error('หน่วยงานนี้ดาวน์โหลดฉบับนี้ไปแล้ว');
+      const receipt = { dept, receivedCopies: current.allocationByDepartment[dept], downloadedAt: new Date().toISOString(), downloaderName: person.name, downloaderEmpId: person.empId, downloaderPosition: person.position, signatureStoragePath: signaturePath };
+      const receipts = { ...(current.receipts || {}), [dept]: receipt };
+      const allDownloaded = current.targetDepartments.every(targetDept => Boolean(receipts[targetDept]?.downloadedAt));
+      tx.update(distRef, clean({ receipts, status: allDownloaded ? 'COMPLETED' : 'IN_PROGRESS', allDownloadedAt: allDownloaded ? new Date().toISOString() : null, storageStatus: allDownloaded ? 'PURGE_PENDING' : 'AVAILABLE', updatedAt: new Date().toISOString() }));
+    }), 60000, 'บันทึกหลักฐานใช้เวลานานเกินไป กรุณาลองใหม่');
+  } catch (error) {
+    await deleteObject(ref(storage, signaturePath)).catch(() => undefined);
+    throw error;
+  }
+  onProgress?.('บันทึกสำเร็จ กรุณากดดาวน์โหลดไฟล์ด้านล่าง', 100);
+  await writeAudit(user, 'CONTROLLED_COPY_DOWNLOADED', distribution.docNo, distribution.revision, `หน่วยงาน ${dept} รับและเตรียมดาวน์โหลด Controlled Copy จำนวน ${controlledFiles.length} ไฟล์`, { distributionNo: distribution.distributionNo, fileCount: controlledFiles.length });
   return controlledFiles.map(file => URL.createObjectURL(file));
 };
 
