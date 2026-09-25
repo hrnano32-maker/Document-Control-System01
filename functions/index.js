@@ -254,6 +254,9 @@ exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, me
   const snapshot = await distRef.get();
   if (!snapshot.exists) throw new HttpsError('not-found', 'ไม่พบรายการแจกจ่าย');
   const data = snapshot.data();
+  const reportProgress = (processingStage, processingDetail, processingPercent) =>
+    distRef.update({ processingStage, processingDetail, processingPercent, updatedAt: new Date().toISOString() });
+  await reportProgress('VALIDATING', 'กำลังตรวจสอบข้อมูลเอกสารและ Revision ล่าสุด', 40);
   if (data.departmentFiles && Object.keys(data.departmentFiles).length) return { departmentFiles: data.departmentFiles };
   if (!data.sourceStoragePath || data.fileType !== 'application/pdf') throw new HttpsError('failed-precondition', 'ต้นฉบับแจกจ่ายต้องเป็น PDF');
   const masterRef = getFirestore().collection('dcs_documents').doc(data.docId);
@@ -271,8 +274,9 @@ exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, me
     : [data.fileName || 'document.pdf'];
 
   const sourceBytesList = [];
-  for (const sourcePath of sourcePaths) {
-    const sourcePdf = await loadPdf(sourcePath);
+  for (let index = 0; index < sourcePaths.length; index += 1) {
+    await reportProgress('READING_PDF', `กำลังตรวจสอบ PDF ต้นฉบับ ${index + 1}/${sourcePaths.length}`, 40 + Math.round(((index + 1) / sourcePaths.length) * 10));
+    const sourcePdf = await loadPdf(sourcePaths[index]);
     sourceBytesList.push(await sourcePdf.save());
   }
 
@@ -280,7 +284,10 @@ exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, me
   const departmentFileLists = {};
   const departmentFileKeys = {};
   const departmentFileKeyLists = {};
-  for (const department of data.targetDepartments || []) {
+  const departments = data.targetDepartments || [];
+  const totalStampJobs = Math.max(1, departments.length * sourceBytesList.length);
+  let completedStampJobs = 0;
+  for (const department of departments) {
     const departmentKey = safeSegment(department);
     const paths = [];
     const keys = [];
@@ -290,6 +297,12 @@ exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, me
       const outputName = `${String(index + 1).padStart(2, '0')}-${safeSegment(fileNames[index] || `document-${index + 1}.pdf`)}`.replace(/\.pdf$/i, '') + '.pdf';
       const path = `dcs/distributions/${distributionId}/controlled/${departmentKey}/${outputName}`;
       await savePdf(copy, path);
+      completedStampJobs += 1;
+      await reportProgress(
+        'STAMPING',
+        `กำลังประทับตราแผนก ${department} — ไฟล์ ${index + 1}/${sourceBytesList.length} (รวม ${completedStampJobs}/${totalStampJobs})`,
+        50 + Math.round((completedStampJobs / totalStampJobs) * 38),
+      );
       paths.push(path);
       keys.push(outputName);
     }
@@ -301,13 +314,14 @@ exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, me
   if (!Object.keys(departmentFileLists).length) throw new HttpsError('failed-precondition', 'ไม่พบแผนกผู้รับเอกสาร');
 
   const archivePaths = [];
+  await reportProgress('ARCHIVING', 'กำลังจัดเก็บต้นฉบับเข้าสู่แฟ้มเอกสารควบคุม', 90);
   for (let index = 0; index < sourceBytesList.length; index += 1) {
     const archivePath = `dcs/archive/${safeSegment(data.docId)}/active/rev-${safeSegment(data.revision)}/${String(index + 1).padStart(2, '0')}-${safeSegment(fileNames[index] || `document-${index + 1}.pdf`)}`.replace(/\.pdf$/i, '') + '.pdf';
     await getStorage().bucket().file(archivePath).save(Buffer.from(sourceBytesList[index]), { resumable: false, contentType: 'application/pdf', metadata: { cacheControl: 'private,no-store,max-age=0' } });
     archivePaths.push(archivePath);
   }
   await Promise.all([
-    distRef.update({ departmentFiles, departmentFileLists, departmentFileKeys, departmentFileKeyLists, fileStoragePath: departmentFileLists[data.targetDepartments[0]][0], fileStoragePaths: departmentFileLists[data.targetDepartments[0]], sourceStoragePath: null, sourceStoragePaths: [], storageStatus: 'AVAILABLE', stampStatus: 'COMPLETED', updatedAt: new Date().toISOString() }),
+    distRef.update({ departmentFiles, departmentFileLists, departmentFileKeys, departmentFileKeyLists, processingStage: 'COMPLETED', processingDetail: 'ประทับตราและเตรียมไฟล์แจกจ่ายครบแล้ว', processingPercent: 100, fileStoragePath: departmentFileLists[data.targetDepartments[0]][0], fileStoragePaths: departmentFileLists[data.targetDepartments[0]], sourceStoragePath: null, sourceStoragePaths: [], storageStatus: 'AVAILABLE', stampStatus: 'COMPLETED', updatedAt: new Date().toISOString() }),
     masterRef.update({ currentFileStoragePath: archivePaths[0], currentFileStoragePaths: archivePaths, updatedAt: new Date().toISOString() }),
     ...sourcePaths.map(sourcePath => getStorage().bucket().file(sourcePath).delete({ ignoreNotFound: true })),
   ]);
