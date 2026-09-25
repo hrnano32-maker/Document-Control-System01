@@ -115,6 +115,41 @@ export const DarManagement: React.FC = () => {
   const [requesterSignature, setRequesterSignature] = useState<string | undefined>(undefined);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
+  const handleDarAttachment = async (file: File) => {
+    setFormError('');
+    if (file.size > 25 * 1024 * 1024) {
+      setAttachedFile(null);
+      setFormError('ไฟล์ PDF ต้องมีขนาดไม่เกิน 25 MB');
+      return;
+    }
+
+    const header = new Uint8Array(await file.slice(0, 5).arrayBuffer());
+    const hasPdfHeader = header.length === 5
+      && header[0] === 0x25
+      && header[1] === 0x50
+      && header[2] === 0x44
+      && header[3] === 0x46
+      && header[4] === 0x2d;
+    if (!file.name.toLowerCase().endsWith('.pdf') || file.type !== 'application/pdf' || !hasPdfHeader) {
+      setAttachedFile(null);
+      setFormError('แนบได้เฉพาะไฟล์ PDF จริงเท่านั้น กรุณาแปลงเอกสารเป็น PDF แล้วเลือกไฟล์ใหม่');
+      return;
+    }
+
+    const sizeStr = file.size > 1024 * 1024
+      ? `${(file.size / (1024 * 1024)).toFixed(2)} MB`
+      : `${(file.size / 1024).toFixed(1)} KB`;
+    const reader = new FileReader();
+    reader.onload = event => setAttachedFile({
+      name: file.name,
+      size: sizeStr,
+      type: 'application/pdf',
+      dataUrl: event.target?.result as string,
+    });
+    reader.onerror = () => setFormError('ไม่สามารถอ่านไฟล์ PDF ได้ กรุณาเลือกไฟล์ใหม่');
+    reader.readAsDataURL(file);
+  };
+
   // Distribution Holders requested in DAR (ตามแบบฟอร์ม FM-QS-001-01)
   const [darDistributionHolders, setDarDistributionHolders] = useState<{ checked: boolean; dept: Department; position: string; copies: string }[]>(
     DEPARTMENTS.filter(item => item.id !== 'DCC').map(item => ({
@@ -1155,7 +1190,7 @@ export const DarManagement: React.FC = () => {
                     อัปโหลดไฟล์ร่างเอกสาร / เอกสารแนบ (Draft Document Attachment)
                   </span>
                   <span className="text-[10px] text-slate-500 font-normal">
-                    (PDF, DOCX, XLSX, PPTX, ภาพ หรือ ZIP)
+                    (รองรับไฟล์ PDF เท่านั้น ขนาดไม่เกิน 25 MB)
                   </span>
                 </label>
 
@@ -1189,25 +1224,11 @@ export const DarManagement: React.FC = () => {
                       setIsDraggingFile(true);
                     }}
                     onDragLeave={() => setIsDraggingFile(false)}
-                    onDrop={(e) => {
+                    onDrop={async (e) => {
                       e.preventDefault();
                       setIsDraggingFile(false);
                       if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                        const file = e.dataTransfer.files[0];
-                        const sizeStr =
-                          file.size > 1024 * 1024
-                            ? (file.size / (1024 * 1024)).toFixed(2) + ' MB'
-                            : (file.size / 1024).toFixed(1) + ' KB';
-                        const reader = new FileReader();
-                        reader.onload = (ev) => {
-                          setAttachedFile({
-                            name: file.name,
-                            size: sizeStr,
-                            type: file.type || file.name.split('.').pop() || 'file',
-                            dataUrl: ev.target?.result as string,
-                          });
-                        };
-                        reader.readAsDataURL(file);
+                        await handleDarAttachment(e.dataTransfer.files[0]);
                       }
                     }}
                     className={`border-2 border-dashed rounded-xl p-4 text-center transition-all ${
@@ -1223,31 +1244,19 @@ export const DarManagement: React.FC = () => {
                         เลือกไฟล์จากเครื่อง
                         <input
                           type="file"
+                          accept="application/pdf,.pdf"
                           className="hidden"
-                          onChange={(e) => {
+                          onChange={async (e) => {
                             if (e.target.files && e.target.files[0]) {
-                              const file = e.target.files[0];
-                              const sizeStr =
-                                file.size > 1024 * 1024
-                                  ? (file.size / (1024 * 1024)).toFixed(2) + ' MB'
-                                  : (file.size / 1024).toFixed(1) + ' KB';
-                              const reader = new FileReader();
-                              reader.onload = (ev) => {
-                                setAttachedFile({
-                                  name: file.name,
-                                  size: sizeStr,
-                                  type: file.type || file.name.split('.').pop() || 'file',
-                                  dataUrl: ev.target?.result as string,
-                                });
-                              };
-                              reader.readAsDataURL(file);
+                              await handleDarAttachment(e.target.files[0]);
                             }
+                            e.currentTarget.value = '';
                           }}
                         />
                       </label>
                     </p>
                     <p className="text-[10px] text-slate-400 mt-0.5">
-                      รองรับ .pdf, .doc, .docx, .xls, .xlsx, .ppt, .pptx, .png, .jpg, .zip
+                      เฉพาะไฟล์ .pdf จริงเท่านั้น ระบบจะตรวจสอบชนิดและเนื้อหาไฟล์ก่อนส่ง
                     </p>
                   </div>
                 )}
