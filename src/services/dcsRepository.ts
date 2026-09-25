@@ -235,7 +235,7 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
   });
   await setDoc(doc(db, 'dcs_distributions', id), { ...record, expirationAt: Timestamp.fromMillis(record.expirationEpoch) });
   try {
-    await httpsCallable(firebaseFunctions, 'stampControlledCopies')({ distributionId: id });
+    await httpsCallable(firebaseFunctions, 'stampControlledCopies', { timeout: 540000 })({ distributionId: id });
   } catch (error) {
     await updateDoc(doc(db, 'dcs_distributions', id), { stampStatus: 'FAILED', storageStatus: 'PURGE_PENDING', updatedAt: new Date().toISOString() });
     throw error;
