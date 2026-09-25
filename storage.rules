@@ -50,7 +50,8 @@ service firebase.storage {
         &&
         firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.targetDepartments.hasAny([profile().department])
         && request.time <= firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.expirationAt
-        && !(profile().department in firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.receipts)
+        && (!(profile().department in firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.receipts)
+          || firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.receipts[profile().department].downloaderUid == request.auth.uid)
       ));
       allow create, update: if isDcc() && request.resource.size < 25 * 1024 * 1024;
       allow delete: if isDcc();
@@ -61,7 +62,8 @@ service firebase.storage {
         firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.departmentFileKeys[profile().department] == departmentKey
         && firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.targetDepartments.hasAny([profile().department])
         && request.time <= firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.expirationAt
-        && !(profile().department in firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.receipts)
+        && (!(profile().department in firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.receipts)
+          || firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.receipts[profile().department].downloaderUid == request.auth.uid)
       ));
       allow create, update: if isDcc() && request.resource.size < 25 * 1024 * 1024;
       allow delete: if isDcc();
