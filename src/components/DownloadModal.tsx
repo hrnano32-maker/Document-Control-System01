@@ -12,7 +12,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { getStorageFileUrl } from '../services/dcsRepository';
+import { downloadStorageFileBlob, getStorageFileUrl } from '../services/dcsRepository';
 
 export const DownloadModal: React.FC = () => {
   const {
@@ -166,30 +166,34 @@ export const DownloadModal: React.FC = () => {
     }
   };
 
-  // Firebase Storage download URLs are cross-origin. Fetching those URLs again in the
-  // browser can be blocked by CORS even though the URL itself is valid. Trigger the
-  // browser download directly instead, so the real PDF response is handled by the
-  // browser rather than being copied through fetch()/Blob.
-  const triggerBrowserDownload = (file: { url: string; name: string }) => {
+  const getReadyStoragePaths = () =>
+    distribution.departmentFileLists?.[dept]
+      || (distribution.departmentFiles?.[dept] ? [distribution.departmentFiles[dept]] : []);
+
+  const saveBlobToDevice = (blob: Blob, name: string) => {
+    const objectUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = file.url;
-    link.download = file.name;
-    link.target = '_blank';
-    link.rel = 'noopener';
+    link.href = objectUrl;
+    link.download = name;
+    link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
     link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
   };
 
-  const downloadReadyFile = (file: { url: string; name: string }, index: number) => {
+  const downloadReadyFile = async (file: { url: string; name: string }, index: number) => {
     setErrorMsg('');
     setDownloadingIndex(index);
     try {
-      triggerBrowserDownload(file);
+      const paths = getReadyStoragePaths();
+      if (!paths[index]) throw new Error('ไม่พบตำแหน่งไฟล์');
+      const blob = await downloadStorageFileBlob(paths[index]);
+      saveBlobToDevice(blob, file.name);
     } catch {
       setErrorMsg(`ดาวน์โหลดไฟล์ที่ ${index + 1} ไม่สำเร็จ กรุณากดใหม่อีกครั้ง`);
     } finally {
-      window.setTimeout(() => setDownloadingIndex(null), 500);
+      setDownloadingIndex(null);
     }
   };
 
@@ -198,11 +202,15 @@ export const DownloadModal: React.FC = () => {
     setErrorMsg('');
     setIsDownloadingAll(true);
     try {
-      // Keep a short gap between files so mobile/desktop browsers do not lose clicks.
+      const paths = getReadyStoragePaths();
+      if (paths.length !== readyDownloads.length) throw new Error('จำนวนไฟล์ไม่ตรงกัน');
+      // Download the real PDF bytes through the Firebase SDK, then save each Blob.
+      // No new browser tabs are opened.
       for (let index = 0; index < readyDownloads.length; index += 1) {
         setDownloadingIndex(index);
-        triggerBrowserDownload(readyDownloads[index]);
-        await new Promise(resolve => window.setTimeout(resolve, 450));
+        const blob = await downloadStorageFileBlob(paths[index]);
+        saveBlobToDevice(blob, readyDownloads[index].name);
+        await new Promise(resolve => window.setTimeout(resolve, 250));
       }
     } catch {
       setErrorMsg('ดาวน์โหลดไฟล์ทั้งหมดไม่สำเร็จ กรุณาลองใหม่ หรือกดดาวน์โหลดทีละไฟล์');
