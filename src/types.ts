@@ -218,6 +218,9 @@ export interface MasterDocument {
   fileSize?: string;
   fileType?: string;
   fileDataUrl?: string;
+  fileNames?: string[];
+  fileSizes?: string[];
+  fileTypes?: string[];
 }
 
 export type TargetDownloadStatus = 'PENDING' | 'DOWNLOADED' | 'EXPIRED' | 'RE_REQUESTED';
@@ -284,13 +287,17 @@ export interface DistributionRecord {
     updatedBy: string;
   };
   departmentFiles?: Record<string, string>;
+  departmentFileLists?: Record<string, string[]>;
   departmentFileKeys?: Record<string, string>;
+  departmentFileKeyLists?: Record<string, string[]>;
   allDownloadedAt?: string | null;
   fileDeletedAt?: string | null;
   storageStatus?: 'PROCESSING' | 'AVAILABLE' | 'PURGE_PENDING' | 'PURGED';
   stampStatus?: 'PROCESSING' | 'COMPLETED' | 'FAILED';
   sourceStoragePath?: string | null;
+  sourceStoragePaths?: string[];
   fileStoragePath?: string;
+  fileStoragePaths?: string[];
   controlledDriveLink?: string;
   instructions: string;
   targets: DepartmentDistributionTarget[];
