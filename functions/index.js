@@ -340,6 +340,56 @@ exports.cancelPreviousRevision = onCall({ region: REGION, timeoutSeconds: 120, m
   return { cancelledPath };
 });
 
+exports.manageDistributionRecord = onCall({ region: REGION, timeoutSeconds: 120, memory: '256MiB' }, async request => {
+  await requireDcc(request);
+  const distributionId = cleanText(request.data?.distributionId, 80);
+  const action = cleanText(request.data?.action, 20).toUpperCase();
+  const reason = cleanText(request.data?.reason, 500);
+  if (!distributionId || !['CANCEL', 'DELETE'].includes(action)) {
+    throw new HttpsError('invalid-argument', 'ข้อมูลคำสั่งจัดการรายการแจกจ่ายไม่ครบ');
+  }
+
+  const db = getFirestore();
+  const distRef = db.collection('dcs_distributions').doc(distributionId);
+  const snapshot = await distRef.get();
+  if (!snapshot.exists) throw new HttpsError('not-found', 'ไม่พบรายการแจกจ่าย');
+  const data = snapshot.data();
+  if (data.stampStatus === 'PROCESSING') {
+    throw new HttpsError('failed-precondition', 'ระบบกำลังประทับตรา กรุณารอให้เสร็จก่อนดำเนินการ');
+  }
+
+  const receiptCount = Object.keys(data.receipts || {}).length;
+  if (action === 'DELETE') {
+    if (receiptCount > 0) {
+      throw new HttpsError('failed-precondition', 'ลบไม่ได้ เนื่องจากมีหน่วยงานรับเอกสารแล้ว กรุณาใช้คำสั่งยกเลิกเพื่อเก็บประวัติ');
+    }
+    await getStorage().bucket().deleteFiles({ prefix: `dcs/distributions/${distributionId}/` });
+    const requests = await db.collection('dcs_copy_requests').where('distributionId', '==', distributionId).get();
+    const batch = db.batch();
+    requests.docs.forEach(item => batch.delete(item.ref));
+    batch.delete(distRef);
+    await batch.commit();
+    return { action, deleted: true, distributionId };
+  }
+
+  if (!reason) throw new HttpsError('invalid-argument', 'กรุณาระบุเหตุผลการยกเลิก');
+  if (data.status === 'CANCELLED') return { action, cancelled: true, distributionId };
+  await getStorage().bucket().deleteFiles({ prefix: `dcs/distributions/${distributionId}/` });
+  const cancelledAt = new Date().toISOString();
+  await distRef.update({
+    status: 'CANCELLED',
+    cancelledAt,
+    cancelledBy: request.auth.uid,
+    cancellationReason: reason,
+    storageStatus: 'PURGED',
+    fileDeletedAt: cancelledAt,
+    departmentFiles: {},
+    departmentFileLists: {},
+    updatedAt: cancelledAt,
+  });
+  return { action, cancelled: true, distributionId };
+});
+
 async function purgeDistribution(snapshot, reason) {
   const data = snapshot.data();
   if (!data || data.storageStatus === 'PURGED') return;
