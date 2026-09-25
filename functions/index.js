@@ -246,7 +246,7 @@ async function cancelStamp(pdf) {
   }
 }
 
-exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 120, memory: '512MiB' }, async request => {
+exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async request => {
   await requireDcc(request);
   const distributionId = String(request.data?.distributionId || '');
   if (!distributionId) throw new HttpsError('invalid-argument', 'ไม่พบเลขที่ใบแจกจ่าย');
