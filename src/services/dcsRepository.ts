@@ -193,7 +193,7 @@ export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord
   await writeAudit(user, 'DOCUMENT_REGISTERED', dar.docNo, dar.proposedRevision, `ขึ้นทะเบียนจาก ${dar.id} เข้า Master List`, { darId: dar.id });
 };
 
-export const createDistributionRecord = async (user: CurrentUserSession, master: MasterDocument, selectedDepartments: Department[], instructions: string, files?: { name: string; size: string; type: string; dataUrl?: string }[]) => {
+export const createDistributionRecord = async (user: CurrentUserSession, master: MasterDocument, selectedDepartments: Department[], instructions: string, files?: { name: string; size: string; type: string; dataUrl?: string }[], onProgress?: (message: string, percent: number) => void) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่แจกจ่ายเอกสารได้');
   const darAllocation = master.distributionDepartments || [];
   if (!darAllocation.length) throw new Error('DAR ต้นทางไม่ได้ระบุหน่วยงานแจกจ่าย');
@@ -203,6 +203,7 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
   if (!files?.length || files.some(file => !file.dataUrl)) throw new Error('ต้องอัปโหลดไฟล์ Controlled Copy ฉบับจริงอย่างน้อย 1 ไฟล์ก่อนแจกจ่าย');
   if (files.length > 20) throw new Error('อัปโหลดได้สูงสุด 20 ไฟล์ต่อชุดแจกจ่าย');
   if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) throw new Error('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น');
+  onProgress?.('กำลังออกเลขที่ใบแจกจ่าย', 2);
   const seq = await nextNumber('distribution');
   const year = new Date().getFullYear();
   const distributionNo = `DC-DIS-${year}-${String(seq).padStart(4, '0')}`;
@@ -212,6 +213,7 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
   try {
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index];
+      onProgress?.(`กำลังอัปโหลดไฟล์ ${index + 1}/${files.length}: ${file.name}`, 5 + Math.round(((index + 1) / files.length) * 30));
       const path = `dcs/distributions/${id}/source/${String(index + 1).padStart(2, '0')}-${safeName(file.name)}`;
       await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl!), { contentType: 'application/pdf' });
       sourceStoragePaths.push(path);
@@ -230,16 +232,27 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
     darReferenceId: master.darReferenceId, targetDepartments: targets.map(t => t.dept), allocationByDepartment, targets, receipts: {},
     instructions, fileName: files[0].name, fileSize: files[0].size, fileType: 'application/pdf',
     fileNames: files.map(file => file.name), fileSizes: files.map(file => file.size), fileTypes: files.map(() => 'application/pdf'),
-    sourceStoragePath: sourceStoragePaths[0], sourceStoragePaths, storageStatus: 'PROCESSING', stampStatus: 'PROCESSING', allDownloadedAt: null, fileDeletedAt: null,
+    sourceStoragePath: sourceStoragePaths[0], sourceStoragePaths, storageStatus: 'PROCESSING', stampStatus: 'PROCESSING', processingStage: 'UPLOADED', processingDetail: `อัปโหลดต้นฉบับครบ ${files.length} ไฟล์`, processingPercent: 38, allDownloadedAt: null, fileDeletedAt: null,
     createdAt: now.toISOString(),
   });
-  await setDoc(doc(db, 'dcs_distributions', id), { ...record, expirationAt: Timestamp.fromMillis(record.expirationEpoch) });
+  const distributionRef = doc(db, 'dcs_distributions', id);
+  await setDoc(distributionRef, { ...record, expirationAt: Timestamp.fromMillis(record.expirationEpoch) });
+  onProgress?.('บันทึกรายการแล้ว กำลังเริ่มประทับตรา', 38);
+  const stopProgress = onSnapshot(distributionRef, snapshot => {
+    const progress = snapshot.data() as DistributionRecord | undefined;
+    if (typeof progress?.processingPercent === 'number') {
+      onProgress?.(progress.processingDetail || progress.processingStage || 'กำลังประมวลผล', progress.processingPercent);
+    }
+  });
   try {
     await httpsCallable(firebaseFunctions, 'stampControlledCopies', { timeout: 540000 })({ distributionId: id });
   } catch (error) {
+    stopProgress();
     await updateDoc(doc(db, 'dcs_distributions', id), { stampStatus: 'FAILED', storageStatus: 'PURGE_PENDING', updatedAt: new Date().toISOString() });
     throw error;
   }
+  stopProgress();
+  onProgress?.('ประทับตราและจัดเตรียมไฟล์ครบแล้ว', 100);
   await writeAudit(user, 'DISTRIBUTION_INITIATED', master.docNo, master.currentRevision, `แจกจ่าย ${distributionNo} จำนวน ${files.length} ไฟล์ ตามรายชื่อหน่วยงานใน ${master.darReferenceId}`, { targets: record.targetDepartments, darTargets: requiredDepartments, dccAddedTargets: finalDepartments.filter(dept => !requiredDepartments.includes(dept)), fileCount: files.length });
   return distributionNo;
 };
