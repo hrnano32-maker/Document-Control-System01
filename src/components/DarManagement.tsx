@@ -700,8 +700,12 @@ export const DarManagement: React.FC = () => {
                           alert('ยังไม่สามารถอนุมัติ/ส่งต่อใบ DAR ได้ กรุณาให้ผู้ขอดำเนินการและผู้อนุมัติในแผนกลงลายเซ็นให้ครบก่อน (ไม่รวม QMR)');
                           return;
                         }
-                        try { await reviewDar(selectedDarForReview.id, 'APPROVED', reviewRemarks); setSelectedDarForReview(null); }
-                        catch (error) { alert(error instanceof Error ? error.message : 'ดำเนินการไม่สำเร็จ'); }
+                        try {
+                          await reviewDar(selectedDarForReview.id, 'APPROVED', reviewRemarks);
+                          await handleRegisterToMasterList(selectedDarForReview.id);
+                        } catch (error) {
+                          alert(error instanceof Error ? error.message : 'อนุมัติสำเร็จ แต่ขึ้นทะเบียน Master List ไม่สำเร็จ กรุณากดขึ้นทะเบียนอีกครั้งจากรายการ DAR');
+                        }
                       }}
                       className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-1 cursor-pointer"
                     >
