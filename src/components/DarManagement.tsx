@@ -63,6 +63,7 @@ export const DarManagement: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedDarForReview, setSelectedDarForReview] = useState<DarRecord | null>(null);
   const [selectedDarForPrint, setSelectedDarForPrint] = useState<DarRecord | null>(null);
+  const [registeringDarId, setRegisteringDarId] = useState<string | null>(null);
 
   // Close on Escape key press
   useEffect(() => {
@@ -247,13 +248,23 @@ export const DarManagement: React.FC = () => {
   };
 
   const handleRegisterToMasterList = async (darId: string) => {
-    try { await registerDarToMasterList(darId); } catch (error) { alert(error instanceof Error ? error.message : 'ขึ้นทะเบียนไม่สำเร็จ'); return; }
-    confetti({
-      particleCount: 80,
-      spread: 70,
-      origin: { y: 0.5 },
-    });
-    setSelectedDarForReview(null);
+    if (registeringDarId) return;
+    setRegisteringDarId(darId);
+    try {
+      await registerDarToMasterList(darId);
+      confetti({
+        particleCount: 80,
+        spread: 70,
+        origin: { y: 0.5 },
+      });
+      setSelectedDarForReview(null);
+      alert('ขึ้นทะเบียนสำเร็จ เอกสารถูกเพิ่มเข้า Master List แล้ว');
+      setActiveView('masterlist');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'ขึ้นทะเบียนไม่สำเร็จ');
+    } finally {
+      setRegisteringDarId(null);
+    }
   };
 
   const handleCancelDar = async (dar: DarRecord) => {
@@ -426,6 +437,23 @@ export const DarManagement: React.FC = () => {
 
                 <div className="p-4 xl:border-l border-slate-100">
                   <span className="block text-[10px] text-slate-400 mb-2">จัดการเอกสาร</span>
+                  {dar.status === 'APPROVED' && currentUser.userRole === 'DCC_ADMIN' && (
+                    <div className="mb-2 rounded-xl border-2 border-emerald-300 bg-emerald-50 p-2.5">
+                      <p className="mb-2 text-[11px] font-bold text-emerald-900">
+                        ขั้นตอนถัดไป: ขึ้นทะเบียนเอกสารเข้า Master List
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleRegisterToMasterList(dar.id)}
+                        disabled={registeringDarId !== null}
+                        className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-black text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {registeringDarId === dar.id
+                          ? <><RefreshCw className="h-4 w-4 animate-spin" /> กำลังขึ้นทะเบียน...</>
+                          : <><Sparkles className="h-4 w-4" /> ขึ้นทะเบียน Master List</>}
+                      </button>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-2">
                     <button type="button" onClick={() => handleDownloadDarDraft(dar)} className="h-9 px-3 text-xs text-indigo-700 font-bold flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200">
                       <Download className="w-3.5 h-3.5" /> ดาวน์โหลด
@@ -657,7 +685,8 @@ export const DarManagement: React.FC = () => {
                     {/* Auto Register button */}
                     {selectedDarForReview.status === 'APPROVED' && <button
                       onClick={() => handleRegisterToMasterList(selectedDarForReview.id)}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md cursor-pointer transition-all"
+                      disabled={registeringDarId !== null}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md cursor-pointer transition-all"
                     >
                       <Sparkles className="w-4 h-4 text-amber-300" />
                       ขึ้นทะเบียน Master List
