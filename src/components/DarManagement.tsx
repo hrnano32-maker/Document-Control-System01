@@ -130,7 +130,7 @@ export const DarManagement: React.FC = () => {
       && header[2] === 0x44
       && header[3] === 0x46
       && header[4] === 0x2d;
-    if (!file.name.toLowerCase().endsWith('.pdf') || file.type !== 'application/pdf' || !hasPdfHeader) {
+    if (!file.name.toLowerCase().endsWith('.pdf') || (file.type && file.type !== 'application/pdf') || !hasPdfHeader) {
       setAttachedFile(null);
       setFormError('แนบได้เฉพาะไฟล์ PDF จริงเท่านั้น กรุณาแปลงเอกสารเป็น PDF แล้วเลือกไฟล์ใหม่');
       return;
