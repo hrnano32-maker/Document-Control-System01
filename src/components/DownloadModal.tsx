@@ -190,15 +190,27 @@ export const DownloadModal: React.FC = () => {
         origin: { y: 0.6 },
       });
 
-      // Download the real controlled file from Firebase Storage after the receipt transaction succeeds.
-      if (result.downloadUrl) {
-        const link = document.createElement('a');
-        link.href = result.downloadUrl;
-        const baseName = distribution.fileName || `${distribution.docNo}_Rev${distribution.revision}_CONTROLLED.pdf`;
-        link.download = `CONTROLLED_${dept}_${baseName}`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+      // Download every PDF in this controlled document set after the receipt transaction succeeds.
+      const downloadUrls = result.downloadUrls?.length ? result.downloadUrls : (result.downloadUrl ? [result.downloadUrl] : []);
+      if (downloadUrls.length) {
+        downloadUrls.forEach((url, index) => {
+          window.setTimeout(() => {
+            const link = document.createElement('a');
+            link.href = url;
+            const baseName = distribution.fileNames?.[index] || distribution.fileName || `${distribution.docNo}_Rev${distribution.revision}_CONTROLLED_${index + 1}.pdf`;
+            link.download = `CONTROLLED_${dept}_${baseName}`;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            window.setTimeout(() => {
+              document.body.removeChild(link);
+              URL.revokeObjectURL(url);
+            }, 1000);
+          }, index * 300);
+        });
+        if (downloadUrls.length > 1) {
+          alert(`กำลังดาวน์โหลด Controlled Copy จำนวน ${downloadUrls.length} ไฟล์ หากเบราว์เซอร์ถามสิทธิ์ กรุณากดอนุญาตดาวน์โหลดหลายไฟล์`);
+        }
       } else {
         // Fallback controlled copy document text
         const controlledDocText = `======================================================
