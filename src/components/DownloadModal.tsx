@@ -12,7 +12,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { downloadStorageFileBlob, getStorageFileUrl } from '../services/dcsRepository';
+import { downloadControlledCopyFromServer, getStorageFileUrl } from '../services/dcsRepository';
 
 export const DownloadModal: React.FC = () => {
   const {
@@ -177,7 +177,7 @@ export const DownloadModal: React.FC = () => {
     const objectUrl = URL.createObjectURL(downloadBlob);
     const link = document.createElement('a');
     link.href = objectUrl;
-    link.download = name.endsWith('.pdf') ? name : `${name}.pdf`;
+    link.download = name;
     link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
@@ -189,12 +189,11 @@ export const DownloadModal: React.FC = () => {
     setErrorMsg('');
     setDownloadingIndex(index);
     try {
-      const paths = getReadyStoragePaths();
-      if (!paths[index]) throw new Error('ไม่พบตำแหน่งไฟล์');
-      const blob = await downloadStorageFileBlob(paths[index]);
+      if (!getReadyStoragePaths()[index]) throw new Error('ไม่พบตำแหน่งไฟล์');
+      const blob = await downloadControlledCopyFromServer(distribution.id, index);
       saveBlobToDevice(blob, file.name);
-    } catch {
-      setErrorMsg(`ดาวน์โหลดไฟล์ที่ ${index + 1} ไม่สำเร็จ กรุณากดใหม่อีกครั้ง`);
+    } catch (caught) {
+      setErrorMsg(caught instanceof Error ? caught.message : `ดาวน์โหลดไฟล์ที่ ${index + 1} ไม่สำเร็จ กรุณากดใหม่อีกครั้ง`);
     } finally {
       setDownloadingIndex(null);
     }
@@ -205,18 +204,11 @@ export const DownloadModal: React.FC = () => {
     setErrorMsg('');
     setIsDownloadingAll(true);
     try {
-      const paths = getReadyStoragePaths();
-      if (paths.length !== readyDownloads.length) throw new Error('จำนวนไฟล์ไม่ตรงกัน');
-      // Download the real PDF bytes through the Firebase SDK, then save each Blob.
-      // No new browser tabs are opened.
-      for (let index = 0; index < readyDownloads.length; index += 1) {
-        setDownloadingIndex(index);
-        const blob = await downloadStorageFileBlob(paths[index]);
-        saveBlobToDevice(blob, readyDownloads[index].name);
-        await new Promise(resolve => window.setTimeout(resolve, 250));
-      }
-    } catch {
-      setErrorMsg('ดาวน์โหลดไฟล์ทั้งหมดไม่สำเร็จ กรุณาลองใหม่ หรือกดดาวน์โหลดทีละไฟล์');
+      setSubmitStatus(`กำลังรวม ${readyDownloads.length} ไฟล์เป็น ZIP`);
+      const blob = await downloadControlledCopyFromServer(distribution.id, 'all');
+      saveBlobToDevice(blob, `CONTROLLED_${distribution.docNo}_Rev${distribution.revision}_${dept.replace(/[^a-zA-Z0-9._-]/g, '_')}.zip`);
+    } catch (caught) {
+      setErrorMsg(caught instanceof Error ? caught.message : 'ดาวน์โหลดไฟล์ทั้งหมดไม่สำเร็จ กรุณาลองใหม่ หรือกดดาวน์โหลดทีละไฟล์');
     } finally {
       setDownloadingIndex(null);
       setIsDownloadingAll(false);
