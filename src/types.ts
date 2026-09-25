@@ -307,6 +307,9 @@ export interface DistributionRecord {
   fileSize?: string;
   fileType?: string;
   fileDataUrl?: string;
+  fileNames?: string[];
+  fileSizes?: string[];
+  fileTypes?: string[];
 }
 
 export interface CopyReRequest {
