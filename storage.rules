@@ -56,6 +56,17 @@ service firebase.storage {
       allow delete: if isDcc();
     }
 
+    match /dcs/distributions/{distributionId}/controlled/{departmentKey}/{fileName} {
+      allow read: if activeUser() && (isDcc() || (
+        firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.departmentFileKeys[profile().department] == departmentKey
+        && firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.targetDepartments.hasAny([profile().department])
+        && request.time <= firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.expirationAt
+        && !(profile().department in firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.receipts)
+      ));
+      allow create, update: if isDcc() && request.resource.size < 25 * 1024 * 1024;
+      allow delete: if isDcc();
+    }
+
     match /dcs/distributions/{distributionId}/source/{fileName} {
       allow read, create, update, delete: if isDcc();
     }
