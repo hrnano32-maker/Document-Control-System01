@@ -380,6 +380,11 @@ export const decideCopyRequest = async (user: CurrentUserSession, request: CopyR
 
 export const getStorageFileUrl = async (path: string) => getDownloadURL(ref(storage, path));
 
+export const downloadStorageFileBlob = async (path: string): Promise<Blob> => {
+  const snapshot = await import('firebase/storage').then(({ getBlob }) => getBlob(ref(storage, path)));
+  return snapshot;
+};
+
 export const saveDistributionSheetRecord = async (
   user: CurrentUserSession,
   distribution: DistributionRecord,
