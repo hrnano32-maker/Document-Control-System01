@@ -219,18 +219,19 @@ async function savePdf(pdf, path) {
   });
 }
 
-async function controlledStamp(pdf) {
+async function controlledStamp(pdf, department) {
   const stamp = await pdf.embedPng(Buffer.from(CONTROLLED_COPY_STAMP_PNG, 'base64'));
+  const font = await pdf.embedFont(StandardFonts.HelveticaBold);
   for (const page of pdf.getPages()) {
     const { width, height } = page.getSize();
     const stampWidth = Math.min(150, width * 0.3);
     const stampHeight = stampWidth * (stamp.height / stamp.width);
-    page.drawImage(stamp, {
-      x: Math.max(12, width - stampWidth - 18),
-      y: Math.max(12, height - stampHeight - 18),
-      width: stampWidth,
-      height: stampHeight,
-    });
+    const x = Math.max(12, width - stampWidth - 18);
+    const y = Math.max(28, height - stampHeight - 34);
+    page.drawImage(stamp, { x, y, width: stampWidth, height: stampHeight });
+    const departmentText = `DEPARTMENT: ${department}`;
+    const size = Math.max(8, Math.min(11, stampWidth / 14));
+    page.drawText(departmentText, { x, y: Math.max(12, y - size - 3), size, font, color: RED });
   }
 }
 
@@ -261,29 +262,56 @@ exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 120, me
     throw new HttpsError('failed-precondition', 'แจกจ่ายได้เฉพาะ Revision ล่าสุดที่ Active อยู่ใน Master List');
   }
 
-  const sourcePdf = await loadPdf(data.sourceStoragePath);
-  const sourceBytes = await sourcePdf.save();
-  const departmentFiles = {};
-  const departmentFileKeys = {};
-  for (const department of data.targetDepartments || []) {
-    const copy = await PDFDocument.load(sourceBytes);
-    await controlledStamp(copy);
-    const departmentKey = safeSegment(department);
-    const path = `dcs/distributions/${distributionId}/controlled/${departmentKey}.pdf`;
-    await savePdf(copy, path);
-    departmentFiles[department] = path;
-    departmentFileKeys[department] = departmentKey;
-  }
-  if (!Object.keys(departmentFiles).length) throw new HttpsError('failed-precondition', 'ไม่พบแผนกผู้รับเอกสาร');
+  const sourcePaths = Array.isArray(data.sourceStoragePaths) && data.sourceStoragePaths.length
+    ? data.sourceStoragePaths
+    : [data.sourceStoragePath].filter(Boolean);
+  if (!sourcePaths.length) throw new HttpsError('failed-precondition', 'ไม่พบไฟล์ PDF ต้นฉบับ');
+  const fileNames = Array.isArray(data.fileNames) && data.fileNames.length
+    ? data.fileNames
+    : [data.fileName || 'document.pdf'];
 
-  const archivePath = `dcs/archive/${safeSegment(data.docId)}/active/rev-${safeSegment(data.revision)}.pdf`;
-  await getStorage().bucket().file(archivePath).save(Buffer.from(sourceBytes), { resumable: false, contentType: 'application/pdf', metadata: { cacheControl: 'private,no-store,max-age=0' } });
+  const sourceBytesList = [];
+  for (const sourcePath of sourcePaths) {
+    const sourcePdf = await loadPdf(sourcePath);
+    sourceBytesList.push(await sourcePdf.save());
+  }
+
+  const departmentFiles = {};
+  const departmentFileLists = {};
+  const departmentFileKeys = {};
+  const departmentFileKeyLists = {};
+  for (const department of data.targetDepartments || []) {
+    const departmentKey = safeSegment(department);
+    const paths = [];
+    const keys = [];
+    for (let index = 0; index < sourceBytesList.length; index += 1) {
+      const copy = await PDFDocument.load(sourceBytesList[index]);
+      await controlledStamp(copy, department);
+      const outputName = `${String(index + 1).padStart(2, '0')}-${safeSegment(fileNames[index] || `document-${index + 1}.pdf`)}`.replace(/\.pdf$/i, '') + '.pdf';
+      const path = `dcs/distributions/${distributionId}/controlled/${departmentKey}/${outputName}`;
+      await savePdf(copy, path);
+      paths.push(path);
+      keys.push(outputName);
+    }
+    departmentFiles[department] = paths[0];
+    departmentFileLists[department] = paths;
+    departmentFileKeys[department] = departmentKey;
+    departmentFileKeyLists[department] = keys;
+  }
+  if (!Object.keys(departmentFileLists).length) throw new HttpsError('failed-precondition', 'ไม่พบแผนกผู้รับเอกสาร');
+
+  const archivePaths = [];
+  for (let index = 0; index < sourceBytesList.length; index += 1) {
+    const archivePath = `dcs/archive/${safeSegment(data.docId)}/active/rev-${safeSegment(data.revision)}/${String(index + 1).padStart(2, '0')}-${safeSegment(fileNames[index] || `document-${index + 1}.pdf`)}`.replace(/\.pdf$/i, '') + '.pdf';
+    await getStorage().bucket().file(archivePath).save(Buffer.from(sourceBytesList[index]), { resumable: false, contentType: 'application/pdf', metadata: { cacheControl: 'private,no-store,max-age=0' } });
+    archivePaths.push(archivePath);
+  }
   await Promise.all([
-    distRef.update({ departmentFiles, departmentFileKeys, fileStoragePath: departmentFiles[data.targetDepartments[0]], sourceStoragePath: null, storageStatus: 'AVAILABLE', stampStatus: 'COMPLETED', updatedAt: new Date().toISOString() }),
-    masterRef.update({ currentFileStoragePath: archivePath, updatedAt: new Date().toISOString() }),
-    getStorage().bucket().file(data.sourceStoragePath).delete({ ignoreNotFound: true }),
+    distRef.update({ departmentFiles, departmentFileLists, departmentFileKeys, departmentFileKeyLists, fileStoragePath: departmentFileLists[data.targetDepartments[0]][0], fileStoragePaths: departmentFileLists[data.targetDepartments[0]], sourceStoragePath: null, sourceStoragePaths: [], storageStatus: 'AVAILABLE', stampStatus: 'COMPLETED', updatedAt: new Date().toISOString() }),
+    masterRef.update({ currentFileStoragePath: archivePaths[0], currentFileStoragePaths: archivePaths, updatedAt: new Date().toISOString() }),
+    ...sourcePaths.map(sourcePath => getStorage().bucket().file(sourcePath).delete({ ignoreNotFound: true })),
   ]);
-  return { departmentFiles };
+  return { departmentFiles, departmentFileLists };
 });
 
 exports.cancelPreviousRevision = onCall({ region: REGION, timeoutSeconds: 120, memory: '512MiB' }, async request => {
