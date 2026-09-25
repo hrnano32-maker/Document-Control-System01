@@ -40,6 +40,9 @@ export const DownloadModal: React.FC = () => {
   const [signatureType, setSignatureType] = useState<'DRAW' | 'UPLOAD'>('DRAW');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitStatus, setSubmitStatus] = useState('');
+  const [submitPercent, setSubmitPercent] = useState(0);
+  const [readyDownloads, setReadyDownloads] = useState<Array<{ url: string; name: string }>>([]);
 
   // Canvas drawing ref
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -69,6 +72,7 @@ export const DownloadModal: React.FC = () => {
   }, [selectedDistributionForDownload, setSelectedDistributionForDownload]);
 
   const handleClose = () => {
+    readyDownloads.forEach(file => URL.revokeObjectURL(file.url));
     setSelectedDistributionForDownload(null);
   };
 
@@ -172,6 +176,8 @@ export const DownloadModal: React.FC = () => {
     }
 
     setIsSubmitting(true);
+    setSubmitStatus('กำลังตรวจสอบสิทธิ์รับเอกสาร');
+    setSubmitPercent(2);
 
     const result = await downloadControlledCopy(
       distribution.id,
@@ -179,82 +185,28 @@ export const DownloadModal: React.FC = () => {
       downloaderName.trim(),
       downloaderEmpId.trim(),
       downloaderPosition.trim(),
-      signatureData
+      signatureData,
+      (message, percent) => {
+        setSubmitStatus(message);
+        setSubmitPercent(percent);
+      }
     );
 
     if (result.success) {
-      // Trigger celebratory confetti
-      confetti({
-        particleCount: 80,
-        spread: 60,
-        origin: { y: 0.6 },
-      });
-
-      // Download every PDF in this controlled document set after the receipt transaction succeeds.
-      const downloadUrls = result.downloadUrls?.length ? result.downloadUrls : (result.downloadUrl ? [result.downloadUrl] : []);
-      if (downloadUrls.length) {
-        downloadUrls.forEach((url, index) => {
-          window.setTimeout(() => {
-            const link = document.createElement('a');
-            link.href = url;
-            const baseName = distribution.fileNames?.[index] || distribution.fileName || `${distribution.docNo}_Rev${distribution.revision}_CONTROLLED_${index + 1}.pdf`;
-            link.download = `CONTROLLED_${dept}_${baseName}`;
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            link.click();
-            window.setTimeout(() => {
-              document.body.removeChild(link);
-              URL.revokeObjectURL(url);
-            }, 1000);
-          }, index * 300);
-        });
-        if (downloadUrls.length > 1) {
-          alert(`กำลังดาวน์โหลด Controlled Copy จำนวน ${downloadUrls.length} ไฟล์ หากเบราว์เซอร์ถามสิทธิ์ กรุณากดอนุญาตดาวน์โหลดหลายไฟล์`);
-        }
-      } else {
-        // Fallback controlled copy document text
-        const controlledDocText = `======================================================
-         OFFICIAL CONTROLLED COPY (สำเนาควบคุม)
-         Document Control System (ISO 9001 / IATF 16949)
-======================================================
-Document No:      ${distribution.docNo}
-Document Name:    ${distribution.docNameTh} (${distribution.docNameEn})
-Type:             ${distribution.docType}
-Revision:         Rev.${distribution.revision}
-Effective Date:   ${distribution.effectiveDate}
-Distribution No:  ${distribution.distributionNo}
-
---- CONTROLLED ALLOCATION ---
-Recipient Dept:   ${dept}
-Copy Number:      Copy 1/1 (SINGLE AUTHORIZED WORKSTATION COPY)
-Downloader Name:  ${downloaderName}
-Employee ID:      ${downloaderEmpId || 'N/A'}
-Position:         ${downloaderPosition || 'N/A'}
-Download Date:    ${new Date().toLocaleDateString('th-TH')}
-Download Time:    ${new Date().toLocaleTimeString('th-TH')}
-Status:           DOWNLOADED & LOCKED 🔒
-
---- STORAGE OBLIGATION ---
-This electronic Controlled Copy must be retained exclusively on the designated 
-departmental workstation for operational use. Re-distribution or un-authorized 
-duplication is strictly prohibited under DCC procedure.
-======================================================`;
-
-        const blob = new Blob([controlledDocText], { type: 'text/plain;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `CONTROLLED_${distribution.docNo}_Rev${distribution.revision}_${dept.replace(/[^A-Za-z0-9]/g, '_')}_Copy1-1.txt`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      }
-
-      setTimeout(() => {
+      confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
+      const urls = result.downloadUrls?.length ? result.downloadUrls : (result.downloadUrl ? [result.downloadUrl] : []);
+      if (!urls.length) {
         setIsSubmitting(false);
-        setSelectedDistributionForDownload(null);
-      }, 500);
+        setErrorMsg('บันทึกการรับสำเร็จ แต่ไม่พบไฟล์ดาวน์โหลด กรุณาติดต่อ DCC');
+        return;
+      }
+      setReadyDownloads(urls.map((url, index) => {
+        const baseName = distribution.fileNames?.[index] || distribution.fileName || `${distribution.docNo}_Rev${distribution.revision}_CONTROLLED_${index + 1}.pdf`;
+        return { url, name: `CONTROLLED_${dept}_${baseName}` };
+      }));
+      setSubmitStatus('บันทึกการรับสำเร็จ กรุณากดดาวน์โหลดไฟล์ทีละรายการ');
+      setSubmitPercent(100);
+      setIsSubmitting(false);
     } else {
       setIsSubmitting(false);
       setErrorMsg(result.message);
@@ -521,6 +473,42 @@ duplication is strictly prohibited under DCC procedure.
             </div>
           )}
 
+          {isSubmitting && (
+            <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-indigo-900">
+                <span>{submitStatus || 'กำลังดำเนินการ...'}</span>
+                <span>{submitPercent}%</span>
+              </div>
+              <div className="h-2.5 bg-indigo-100 rounded-full overflow-hidden">
+                <div className="h-full bg-indigo-600 transition-all duration-300" style={{ width: `${submitPercent}%` }} />
+              </div>
+              <p className="text-[10px] text-indigo-700">กรุณาอย่าปิดหน้าต่าง ระยะเวลาขึ้นอยู่กับจำนวนและขนาดไฟล์ PDF</p>
+            </div>
+          )}
+
+          {readyDownloads.length > 0 && (
+            <div className="p-4 bg-emerald-50 border-2 border-emerald-300 rounded-xl space-y-3">
+              <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                บันทึกการรับเอกสารสำเร็จ — กดดาวน์โหลดไฟล์ด้านล่าง
+              </div>
+              <p className="text-[11px] text-emerald-800">เพื่อป้องกันโทรศัพท์บล็อกการดาวน์โหลดหลายไฟล์ กรุณากดดาวน์โหลดทีละไฟล์และตรวจสอบโฟลเดอร์ Download</p>
+              <div className="space-y-2">
+                {readyDownloads.map((file, index) => (
+                  <a
+                    key={file.url}
+                    href={file.url}
+                    download={file.name}
+                    className="w-full px-4 py-3 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl font-bold text-xs flex items-center justify-between gap-3"
+                  >
+                    <span className="truncate">ไฟล์ที่ {index + 1}: {file.name}</span>
+                    <Download className="w-4 h-4 shrink-0" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Error Message */}
           {errorMsg && (
             <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl flex items-center gap-2 text-xs">
@@ -548,7 +536,7 @@ duplication is strictly prohibited under DCC procedure.
               {target?.isDownloaded || isExpired ? 'ปิดหน้าต่าง' : 'ยกเลิก / ปิด'}
             </button>
 
-            {!target?.isDownloaded && (
+            {!target?.isDownloaded && readyDownloads.length === 0 && (
               <button
                 type="button"
                 id="btn-confirm-download-controlled"
@@ -557,7 +545,7 @@ duplication is strictly prohibited under DCC procedure.
                 className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
               >
                 <Download className="w-4 h-4" />
-                {isSubmitting ? 'กำลังบันทึกหลักฐาน...' : 'ยืนยัน & ดาวน์โหลด Controlled Copy'}
+                {isSubmitting ? (submitStatus || 'กำลังดำเนินการ...') : 'ยืนยัน & เตรียมไฟล์ Controlled Copy'}
               </button>
             )}
           </div>
