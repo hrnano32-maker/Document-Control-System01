@@ -13,7 +13,7 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { db, firebaseFunctions, storage } from '../lib/firebase';
+import { auth, db, firebaseFunctions, storage } from '../lib/firebase';
 import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionRecord, MasterDocument } from '../types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -392,6 +392,32 @@ export const getStorageFileUrl = async (path: string) => getDownloadURL(ref(stor
 export const downloadStorageFileBlob = async (path: string): Promise<Blob> => {
   const snapshot = await import('firebase/storage').then(({ getBlob }) => getBlob(ref(storage, path)));
   return snapshot;
+};
+
+const CONTROLLED_DOWNLOAD_ENDPOINT = 'https://asia-southeast1-dar-online-form.cloudfunctions.net/downloadControlledCopyFile';
+
+export const downloadControlledCopyFromServer = async (
+  distributionId: string,
+  fileIndex: number | 'all',
+): Promise<Blob> => {
+  if (!auth.currentUser) throw new Error('กรุณาเข้าสู่ระบบใหม่');
+  const token = await auth.currentUser.getIdToken();
+  const query = new URLSearchParams({ distributionId });
+  if (fileIndex === 'all') query.set('all', '1');
+  else query.set('index', String(fileIndex));
+  const response = await fetch(`${CONTROLLED_DOWNLOAD_ENDPOINT}?${query.toString()}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    const code = await response.json().then(value => value?.error).catch(() => 'DOWNLOAD_FAILED');
+    if (code === 'DOWNLOAD_EXPIRED') throw new Error('สิทธิ์ดาวน์โหลดหมดอายุแล้ว');
+    if (code === 'FILE_NOT_AVAILABLE') throw new Error('ไฟล์ถูกยกเลิกหรือลบแล้ว');
+    if (code === 'RECEIPT_REQUIRED') throw new Error('ไม่พบหลักฐานการรับเอกสารของบัญชีนี้');
+    throw new Error('เซิร์ฟเวอร์ไม่สามารถส่งไฟล์ได้ กรุณาลองใหม่');
+  }
+  return response.blob();
 };
 
 export const saveDistributionSheetRecord = async (
