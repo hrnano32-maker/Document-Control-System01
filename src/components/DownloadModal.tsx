@@ -40,6 +40,7 @@ export const DownloadModal: React.FC = () => {
   const [submitPercent, setSubmitPercent] = useState(0);
   const [readyDownloads, setReadyDownloads] = useState<Array<{ url: string; name: string }>>([]);
   const [downloadingIndex, setDownloadingIndex] = useState<number | null>(null);
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
 
   // Calculate remaining time
   const expiryTime = new Date(distribution.expirationDate).getTime();
@@ -165,25 +166,49 @@ export const DownloadModal: React.FC = () => {
     }
   };
 
-  const downloadReadyFile = async (file: { url: string; name: string }, index: number) => {
+  // Firebase Storage download URLs are cross-origin. Fetching those URLs again in the
+  // browser can be blocked by CORS even though the URL itself is valid. Trigger the
+  // browser download directly instead, so the real PDF response is handled by the
+  // browser rather than being copied through fetch()/Blob.
+  const triggerBrowserDownload = (file: { url: string; name: string }) => {
+    const link = document.createElement('a');
+    link.href = file.url;
+    link.download = file.name;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const downloadReadyFile = (file: { url: string; name: string }, index: number) => {
     setErrorMsg('');
     setDownloadingIndex(index);
     try {
-      const response = await fetch(file.url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = objectUrl;
-      link.download = file.name;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+      triggerBrowserDownload(file);
     } catch {
-      setErrorMsg(`ดาวน์โหลดไฟล์ที่ ${index + 1} ไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วกดใหม่`);
+      setErrorMsg(`ดาวน์โหลดไฟล์ที่ ${index + 1} ไม่สำเร็จ กรุณากดใหม่อีกครั้ง`);
+    } finally {
+      window.setTimeout(() => setDownloadingIndex(null), 500);
+    }
+  };
+
+  const downloadAllReadyFiles = async () => {
+    if (!readyDownloads.length || isDownloadingAll) return;
+    setErrorMsg('');
+    setIsDownloadingAll(true);
+    try {
+      // Keep a short gap between files so mobile/desktop browsers do not lose clicks.
+      for (let index = 0; index < readyDownloads.length; index += 1) {
+        setDownloadingIndex(index);
+        triggerBrowserDownload(readyDownloads[index]);
+        await new Promise(resolve => window.setTimeout(resolve, 450));
+      }
+    } catch {
+      setErrorMsg('ดาวน์โหลดไฟล์ทั้งหมดไม่สำเร็จ กรุณาลองใหม่ หรือกดดาวน์โหลดทีละไฟล์');
     } finally {
       setDownloadingIndex(null);
+      setIsDownloadingAll(false);
     }
   };
 
@@ -413,14 +438,26 @@ export const DownloadModal: React.FC = () => {
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 บันทึกการรับเอกสารสำเร็จ — กดดาวน์โหลดไฟล์ด้านล่าง
               </div>
-              <p className="text-[11px] text-emerald-800">เพื่อป้องกันโทรศัพท์บล็อกการดาวน์โหลดหลายไฟล์ กรุณากดดาวน์โหลดทีละไฟล์และตรวจสอบโฟลเดอร์ Download</p>
+              <p className="text-[11px] text-emerald-800">ไฟล์พร้อมดาวน์โหลดแล้ว สามารถดาวน์โหลดทั้งหมดในครั้งเดียว หรือเลือกดาวน์โหลดทีละไฟล์ได้</p>
+              {readyDownloads.length > 1 && (
+                <button
+                  type="button"
+                  id="btn-download-all-controlled-files"
+                  onClick={() => void downloadAllReadyFiles()}
+                  disabled={isDownloadingAll || downloadingIndex !== null}
+                  className="w-full px-4 py-3 bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-400 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                >
+                  <Download className="w-4 h-4 shrink-0" />
+                  {isDownloadingAll ? `กำลังดาวน์โหลด ${readyDownloads.length} ไฟล์...` : `ดาวน์โหลดไฟล์ทั้งหมด (${readyDownloads.length} ไฟล์)`}
+                </button>
+              )}
               <div className="space-y-2">
                 {readyDownloads.map((file, index) => (
                   <button
                     type="button"
                     key={file.url}
-                    onClick={() => void downloadReadyFile(file, index)}
-                    disabled={downloadingIndex !== null}
+                    onClick={() => downloadReadyFile(file, index)}
+                    disabled={downloadingIndex !== null || isDownloadingAll}
                     className="w-full px-4 py-3 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl font-bold text-xs flex items-center justify-between gap-3"
                   >
                     <span className="truncate">{downloadingIndex === index ? 'กำลังดาวน์โหลด...' : `ไฟล์ที่ ${index + 1}: ${file.name}`}</span>
