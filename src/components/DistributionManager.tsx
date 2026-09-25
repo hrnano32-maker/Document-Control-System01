@@ -47,6 +47,7 @@ export const DistributionManager: React.FC = () => {
   const [reRequestNote, setReRequestNote] = useState('');
   const [managingId, setManagingId] = useState<string | null>(null);
   const [reissueFiles, setReissueFiles] = useState<Record<string, { name: string; size: string; type: string; dataUrl: string }>>({});
+  const isDcc = currentUser.currentDept === 'DCC';
 
   const filteredDistributions = distributions.filter(dist => {
     const matchSearch =
@@ -136,7 +137,7 @@ export const DistributionManager: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        {isDcc && <div className="flex items-center gap-2 flex-wrap">
           <button
             disabled
             title="เลือกใบแจกจ่ายที่ผู้รับดาวน์โหลดครบแล้วจากรายการด้านล่าง"
@@ -153,7 +154,7 @@ export const DistributionManager: React.FC = () => {
             <Send className="w-4 h-4" />
             + แจกจ่ายเอกสารจาก Master List
           </button>
-        </div>
+        </div>}
       </div>
 
       {/* DCC Re-Requests Alert Queue (If any pending) */}
@@ -308,13 +309,13 @@ export const DistributionManager: React.FC = () => {
                       <Eye className="w-4 h-4 text-indigo-600" />
                       ดูเอกสารฉบับนี้
                     </button>}
-                    <button
+                    {isDcc && <button
                       onClick={() => setSelectedDistributionForSheet(dist)}
                       className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
                     >
                       <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
                       ใบแจกจ่าย-เรียกคืน (FM-QS-003-00) / พิมพ์
-                    </button>
+                    </button>}
                     {currentUser.currentDept === 'DCC' && dist.status !== 'CANCELLED' && (
                       <>
                         <button
@@ -416,8 +417,8 @@ export const DistributionManager: React.FC = () => {
 
                 </div>
 
-                {/* Target Departments Matrix Chips */}
-                <div className="pt-3.5 border-t border-slate-100">
+                {/* DCC sees the full receipt matrix. Department users only see their own receipt/download status. */}
+                {isDcc && <div className="pt-3.5 border-t border-slate-100">
                   <div className="text-xs sm:text-sm font-bold text-slate-800 mb-2.5 flex items-center justify-between">
                     <span>รายชื่อหน่วยงานผู้รับและการลงนามรับทราบ:</span>
                     <span className="text-xs text-slate-500 font-normal">ระบบจำกัด 1 แผนก = 1 ดาวน์โหลด</span>
@@ -485,7 +486,7 @@ export const DistributionManager: React.FC = () => {
                       );
                     })}
                   </div>
-                </div>
+                </div>}
 
               </div>
             );
