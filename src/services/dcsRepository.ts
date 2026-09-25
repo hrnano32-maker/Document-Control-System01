@@ -193,10 +193,13 @@ export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord
   await writeAudit(user, 'DOCUMENT_REGISTERED', dar.docNo, dar.proposedRevision, `ขึ้นทะเบียนจาก ${dar.id} เข้า Master List`, { darId: dar.id });
 };
 
-export const createDistributionRecord = async (user: CurrentUserSession, master: MasterDocument, instructions: string, files?: { name: string; size: string; type: string; dataUrl?: string }[]) => {
+export const createDistributionRecord = async (user: CurrentUserSession, master: MasterDocument, selectedDepartments: Department[], instructions: string, files?: { name: string; size: string; type: string; dataUrl?: string }[]) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่แจกจ่ายเอกสารได้');
-  const allocation = master.distributionDepartments || [];
-  if (!allocation.length) throw new Error('DAR ต้นทางไม่ได้ระบุหน่วยงานแจกจ่าย');
+  const darAllocation = master.distributionDepartments || [];
+  if (!darAllocation.length) throw new Error('DAR ต้นทางไม่ได้ระบุหน่วยงานแจกจ่าย');
+  const requiredDepartments = darAllocation.map(item => item.dept);
+  const finalDepartments = Array.from(new Set([...requiredDepartments, ...(selectedDepartments || [])]));
+  const allocation = finalDepartments.map(dept => darAllocation.find(item => item.dept === dept) || ({ dept, copies: 1, position: `ผู้รับผิดชอบเอกสารประจำ ${dept} (DCC เพิ่ม)` }));
   if (!files?.length || files.some(file => !file.dataUrl)) throw new Error('ต้องอัปโหลดไฟล์ Controlled Copy ฉบับจริงอย่างน้อย 1 ไฟล์ก่อนแจกจ่าย');
   if (files.length > 20) throw new Error('อัปโหลดได้สูงสุด 20 ไฟล์ต่อชุดแจกจ่าย');
   if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) throw new Error('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น');
@@ -237,7 +240,7 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
     await updateDoc(doc(db, 'dcs_distributions', id), { stampStatus: 'FAILED', storageStatus: 'PURGE_PENDING', updatedAt: new Date().toISOString() });
     throw error;
   }
-  await writeAudit(user, 'DISTRIBUTION_INITIATED', master.docNo, master.currentRevision, `แจกจ่าย ${distributionNo} จำนวน ${files.length} ไฟล์ ตามรายชื่อหน่วยงานใน ${master.darReferenceId}`, { targets: record.targetDepartments, fileCount: files.length });
+  await writeAudit(user, 'DISTRIBUTION_INITIATED', master.docNo, master.currentRevision, `แจกจ่าย ${distributionNo} จำนวน ${files.length} ไฟล์ ตามรายชื่อหน่วยงานใน ${master.darReferenceId}`, { targets: record.targetDepartments, darTargets: requiredDepartments, dccAddedTargets: finalDepartments.filter(dept => !requiredDepartments.includes(dept)), fileCount: files.length });
   return distributionNo;
 };
 
