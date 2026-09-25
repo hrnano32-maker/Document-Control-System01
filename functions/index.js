@@ -5,8 +5,9 @@ const { getAuth } = require('firebase-admin/auth');
 const { randomBytes } = require('node:crypto');
 const sharp = require('sharp');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
 const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
+const archiver = require('archiver');
 
 initializeApp();
 
@@ -441,4 +442,98 @@ exports.purgeExpiredDistributions = onSchedule({
     ...completed.docs.map(snapshot => purgeDistribution(snapshot, 'ALL_DEPARTMENTS_DOWNLOADED')),
     ...expired.docs.filter(snapshot => !completedIds.has(snapshot.id)).map(snapshot => purgeDistribution(snapshot, 'DOWNLOAD_WINDOW_EXPIRED')),
   ]);
+});
+
+const setDownloadCors = response => {
+  response.set('Access-Control-Allow-Origin', '*');
+  response.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  response.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  response.set('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length, X-File-Count');
+  response.set('Cache-Control', 'private, no-store, max-age=0');
+};
+
+exports.downloadControlledCopyFile = onRequest({
+  region: REGION,
+  timeoutSeconds: 540,
+  memory: '1GiB',
+}, async (request, response) => {
+  setDownloadCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'GET') return response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
+
+  try {
+    const authorization = String(request.get('authorization') || '');
+    if (!authorization.startsWith('Bearer ')) return response.status(401).json({ error: 'UNAUTHENTICATED' });
+    const decoded = await getAuth().verifyIdToken(authorization.slice(7));
+    const distributionId = cleanText(request.query.distributionId, 100);
+    if (!distributionId) return response.status(400).json({ error: 'MISSING_DISTRIBUTION' });
+
+    const db = getFirestore();
+    const [profileSnapshot, distributionSnapshot] = await Promise.all([
+      db.collection('users').doc(decoded.uid).get(),
+      db.collection('dcs_distributions').doc(distributionId).get(),
+    ]);
+    if (!profileSnapshot.exists || profileSnapshot.data().active !== true) return response.status(403).json({ error: 'INACTIVE_USER' });
+    if (!distributionSnapshot.exists) return response.status(404).json({ error: 'DISTRIBUTION_NOT_FOUND' });
+
+    const profile = profileSnapshot.data();
+    const distribution = distributionSnapshot.data();
+    const department = profile.department;
+    const receipt = distribution.receipts?.[department];
+    if (profile.role !== 'DCC_ADMIN') {
+      if (!distribution.targetDepartments?.includes(department)) return response.status(403).json({ error: 'NOT_A_RECIPIENT' });
+      if (!receipt?.downloadedAt || receipt.downloaderUid !== decoded.uid) return response.status(403).json({ error: 'RECEIPT_REQUIRED' });
+    }
+    if (distribution.status === 'CANCELLED' || distribution.storageStatus === 'PURGED') return response.status(410).json({ error: 'FILE_NOT_AVAILABLE' });
+    if (Date.now() > Number(distribution.expirationEpoch || 0)) return response.status(410).json({ error: 'DOWNLOAD_EXPIRED' });
+
+    const paths = distribution.departmentFileLists?.[department]
+      || (distribution.departmentFiles?.[department] ? [distribution.departmentFiles[department]] : []);
+    if (!paths.length) return response.status(404).json({ error: 'FILES_NOT_FOUND' });
+    const sourceNames = Array.isArray(distribution.fileNames) ? distribution.fileNames : [distribution.fileName || 'document.pdf'];
+    const outputNames = paths.map((_, index) => `CONTROLLED_${safeSegment(department)}_${safeSegment(sourceNames[index] || `document-${index + 1}.pdf`)}`);
+    const bucket = getStorage().bucket();
+
+    if (String(request.query.all || '') === '1') {
+      const zipName = `CONTROLLED_${safeSegment(distribution.docNo)}_Rev${safeSegment(distribution.revision)}_${safeSegment(department)}.zip`;
+      response.status(200);
+      response.set('Content-Type', 'application/zip');
+      response.set('Content-Disposition', `attachment; filename="${zipName}"`);
+      response.set('X-File-Count', String(paths.length));
+      const archive = archiver('zip', { zlib: { level: 6 } });
+      archive.on('warning', error => console.warn('CONTROLLED_ZIP_WARNING', distributionId, error));
+      archive.on('error', error => response.destroy(error));
+      const completed = new Promise((resolve, reject) => {
+        response.once('finish', resolve);
+        response.once('error', reject);
+      });
+      archive.pipe(response);
+      paths.forEach((path, index) => archive.append(bucket.file(path).createReadStream(), { name: outputNames[index] }));
+      await archive.finalize();
+      await completed;
+      return;
+    }
+
+    const index = Number(request.query.index);
+    if (!Number.isInteger(index) || index < 0 || index >= paths.length) return response.status(400).json({ error: 'INVALID_FILE_INDEX' });
+    const file = bucket.file(paths[index]);
+    const [exists] = await file.exists();
+    if (!exists) return response.status(404).json({ error: 'FILE_NOT_FOUND' });
+    const [metadata] = await file.getMetadata();
+    response.status(200);
+    response.set('Content-Type', 'application/octet-stream');
+    response.set('Content-Disposition', `attachment; filename="${outputNames[index]}"`);
+    if (metadata.size) response.set('Content-Length', String(metadata.size));
+    await new Promise((resolve, reject) => {
+      const stream = file.createReadStream();
+      stream.once('error', reject);
+      response.once('finish', resolve);
+      response.once('error', reject);
+      stream.pipe(response);
+    });
+  } catch (error) {
+    console.error('CONTROLLED_DOWNLOAD_FAILED', error);
+    if (!response.headersSent) response.status(500).json({ error: 'DOWNLOAD_FAILED' });
+    else response.destroy(error);
+  }
 });
