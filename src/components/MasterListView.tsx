@@ -47,7 +47,7 @@ export const MasterListView: React.FC = () => {
   const [distInstructions, setDistInstructions] = useState('');
   const [distSuccessMsg, setDistSuccessMsg] = useState('');
   const [distError, setDistError] = useState('');
-  const [distFile, setDistFile] = useState<{ name: string; size: string; type: string; dataUrl: string } | null>(null);
+  const [distFiles, setDistFiles] = useState<{ name: string; size: string; type: string; dataUrl: string }[]>([]);
   const [isDistributing, setIsDistributing] = useState(false);
 
   // Close modals on Escape key press
@@ -88,10 +88,10 @@ export const MasterListView: React.FC = () => {
   };
 
   const handleConfirmDistribution = async () => {
-    if (!quickDistributeDoc || targetDepts.length === 0 || !distFile) return;
+    if (!quickDistributeDoc || targetDepts.length === 0 || distFiles.length === 0) return;
     setDistError(''); setIsDistributing(true);
     try {
-      const distNo = await createDistribution(quickDistributeDoc.id, targetDepts as any, distInstructions, distFile);
+      const distNo = await createDistribution(quickDistributeDoc.id, targetDepts as any, distInstructions, distFiles);
       setDistSuccessMsg(`สร้างใบแจกจ่ายเลขที่ ${distNo} สำเร็จเรียบร้อย!`);
     } catch (error) {
       setDistError(error instanceof Error ? error.message : 'สร้างรายการแจกจ่ายไม่สำเร็จ');
@@ -752,14 +752,29 @@ export const MasterListView: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">ไฟล์ Controlled Copy ฉบับจริง <span className="text-rose-600">*</span></label>
-                    <input type="file" accept="application/pdf,.pdf" onChange={event => {
-                      const file = event.target.files?.[0]; if (!file) return;
-                      if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) { setDistError('ไฟล์ Controlled Copy ต้องเป็น PDF เท่านั้น'); event.target.value = ''; return; }
-                      if (file.size > 25 * 1024 * 1024) { setDistError('ไฟล์ต้องมีขนาดไม่เกิน 25 MB'); return; }
-                      const reader = new FileReader(); reader.onload = () => setDistFile({ name: file.name, size: `${(file.size / 1024 / 1024).toFixed(2)} MB`, type: file.type || 'application/octet-stream', dataUrl: String(reader.result) }); reader.readAsDataURL(file);
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">ไฟล์ Controlled Copy ฉบับจริง เลือกพร้อมกันได้หลายไฟล์ <span className="text-rose-600">*</span></label>
+                    <input type="file" multiple accept="application/pdf,.pdf" onChange={async event => {
+                      const files = Array.from(event.target.files || []);
+                      setDistError('');
+                      if (!files.length) { setDistFiles([]); return; }
+                      if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) { setDistError('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น'); event.target.value = ''; setDistFiles([]); return; }
+                      if (files.some(file => file.size > 25 * 1024 * 1024)) { setDistError('PDF แต่ละไฟล์ต้องมีขนาดไม่เกิน 25 MB'); event.target.value = ''; setDistFiles([]); return; }
+                      if (files.length > 20) { setDistError('เลือก PDF ได้สูงสุด 20 ไฟล์ต่อชุดแจกจ่าย'); event.target.value = ''; setDistFiles([]); return; }
+                      const loaded = await Promise.all(files.map(file => new Promise<{ name: string; size: string; type: string; dataUrl: string }>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve({ name: file.name, size: `${(file.size / 1024 / 1024).toFixed(2)} MB`, type: 'application/pdf', dataUrl: String(reader.result) });
+                        reader.onerror = () => reject(new Error(`อ่านไฟล์ ${file.name} ไม่สำเร็จ`));
+                        reader.readAsDataURL(file);
+                      })));
+                      setDistFiles(loaded);
                     }} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white" />
-                    <p className="mt-1 text-[10px] text-slate-500">ระบบจะประทับตราสีแดง CONTROLLED COPY และชื่อแผนกบนทุกหน้าโดยอัตโนมัติ</p>
+                    {distFiles.length > 0 && (
+                      <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-[11px] text-emerald-900">
+                        <strong>เลือกแล้ว {distFiles.length} ไฟล์:</strong>
+                        <ul className="mt-1 list-disc pl-5">{distFiles.map(file => <li key={file.name}>{file.name} ({file.size})</li>)}</ul>
+                      </div>
+                    )}
+                    <p className="mt-1 text-[10px] text-slate-500">ระบบจะประทับตราสีแดง CONTROLLED COPY และชื่อแผนกบนทุกหน้าของ PDF ทุกไฟล์โดยอัตโนมัติ</p>
                   </div>
 
                   <div>
@@ -799,7 +814,7 @@ export const MasterListView: React.FC = () => {
                 <button
                   type="button"
                   id="btn-confirm-quick-distribute"
-                  disabled={targetDepts.length === 0 || !distFile || isDistributing}
+                  disabled={targetDepts.length === 0 || distFiles.length === 0 || isDistributing}
                   onClick={handleConfirmDistribution}
                   className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 rounded-lg shadow-sm flex items-center gap-1.5 cursor-pointer transition-all"
                 >
