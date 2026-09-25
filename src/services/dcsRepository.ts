@@ -12,7 +12,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { deleteObject, getBlob, ref, uploadBytes } from 'firebase/storage';
+import { deleteObject, getBlob, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { db, firebaseFunctions, storage } from '../lib/firebase';
 import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionRecord, MasterDocument } from '../types';
 import { normalizeSignatureDataUrl } from '../utils/signatureImage';
@@ -287,7 +287,7 @@ export const decideCopyRequest = async (user: CurrentUserSession, request: CopyR
   await writeAudit(user, 'RE_REQUEST_APPROVED', request.docNo, request.revision, `${approve ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอ ${request.id}`, { note });
 };
 
-export const getStorageFileUrl = async (path: string) => URL.createObjectURL(await getBlob(ref(storage, path)));
+export const getStorageFileUrl = async (path: string) => getDownloadURL(ref(storage, path));
 
 export const saveDistributionSheetRecord = async (
   user: CurrentUserSession,
