@@ -193,19 +193,30 @@ export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord
   await writeAudit(user, 'DOCUMENT_REGISTERED', dar.docNo, dar.proposedRevision, `ขึ้นทะเบียนจาก ${dar.id} เข้า Master List`, { darId: dar.id });
 };
 
-export const createDistributionRecord = async (user: CurrentUserSession, master: MasterDocument, instructions: string, file?: { name: string; size: string; type: string; dataUrl?: string }) => {
+export const createDistributionRecord = async (user: CurrentUserSession, master: MasterDocument, instructions: string, files?: { name: string; size: string; type: string; dataUrl?: string }[]) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่แจกจ่ายเอกสารได้');
   const allocation = master.distributionDepartments || [];
   if (!allocation.length) throw new Error('DAR ต้นทางไม่ได้ระบุหน่วยงานแจกจ่าย');
-  if (!file?.dataUrl) throw new Error('ต้องอัปโหลดไฟล์ Controlled Copy ฉบับจริงก่อนแจกจ่าย');
-  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) throw new Error('ไฟล์ Controlled Copy ต้องเป็น PDF เท่านั้น');
+  if (!files?.length || files.some(file => !file.dataUrl)) throw new Error('ต้องอัปโหลดไฟล์ Controlled Copy ฉบับจริงอย่างน้อย 1 ไฟล์ก่อนแจกจ่าย');
+  if (files.length > 20) throw new Error('อัปโหลดได้สูงสุด 20 ไฟล์ต่อชุดแจกจ่าย');
+  if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) throw new Error('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น');
   const seq = await nextNumber('distribution');
   const year = new Date().getFullYear();
   const distributionNo = `DC-DIS-${year}-${String(seq).padStart(4, '0')}`;
   const id = distributionNo;
   const now = new Date();
-  const path = `dcs/distributions/${id}/source/${safeName(file.name)}`;
-  await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl), { contentType: 'application/pdf' });
+  const sourceStoragePaths: string[] = [];
+  try {
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index];
+      const path = `dcs/distributions/${id}/source/${String(index + 1).padStart(2, '0')}-${safeName(file.name)}`;
+      await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl!), { contentType: 'application/pdf' });
+      sourceStoragePaths.push(path);
+    }
+  } catch (error) {
+    await Promise.all(sourceStoragePaths.map(path => deleteObject(ref(storage, path)).catch(() => undefined)));
+    throw error;
+  }
   const targets = allocation.map(item => ({ dept: item.dept, allocatedCopies: item.copies, copyNo: `${item.copies} สำเนา`, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' as const }));
   const allocationByDepartment = Object.fromEntries(allocation.map(item => [item.dept, item.copies]));
   const record: DistributionRecord & { createdAt: string; receipts: Record<string, unknown> } = clean({
@@ -214,8 +225,9 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
     effectiveDate: master.effectiveDate, distributedBy: user.userName, distributedDate: now.toISOString(),
     expirationDate: new Date(now.getTime() + 3 * DAY_MS).toISOString(), expirationEpoch: now.getTime() + 3 * DAY_MS, status: 'IN_PROGRESS',
     darReferenceId: master.darReferenceId, targetDepartments: targets.map(t => t.dept), allocationByDepartment, targets, receipts: {},
-    instructions, fileName: file.name, fileSize: file.size, fileType: 'application/pdf',
-    sourceStoragePath: path, storageStatus: 'PROCESSING', stampStatus: 'PROCESSING', allDownloadedAt: null, fileDeletedAt: null,
+    instructions, fileName: files[0].name, fileSize: files[0].size, fileType: 'application/pdf',
+    fileNames: files.map(file => file.name), fileSizes: files.map(file => file.size), fileTypes: files.map(() => 'application/pdf'),
+    sourceStoragePath: sourceStoragePaths[0], sourceStoragePaths, storageStatus: 'PROCESSING', stampStatus: 'PROCESSING', allDownloadedAt: null, fileDeletedAt: null,
     createdAt: now.toISOString(),
   });
   await setDoc(doc(db, 'dcs_distributions', id), { ...record, expirationAt: Timestamp.fromMillis(record.expirationEpoch) });
@@ -225,16 +237,16 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
     await updateDoc(doc(db, 'dcs_distributions', id), { stampStatus: 'FAILED', storageStatus: 'PURGE_PENDING', updatedAt: new Date().toISOString() });
     throw error;
   }
-  await writeAudit(user, 'DISTRIBUTION_INITIATED', master.docNo, master.currentRevision, `แจกจ่าย ${distributionNo} ตามรายชื่อหน่วยงานใน ${master.darReferenceId}`, { targets: record.targetDepartments });
+  await writeAudit(user, 'DISTRIBUTION_INITIATED', master.docNo, master.currentRevision, `แจกจ่าย ${distributionNo} จำนวน ${files.length} ไฟล์ ตามรายชื่อหน่วยงานใน ${master.darReferenceId}`, { targets: record.targetDepartments, fileCount: files.length });
   return distributionNo;
 };
 
 export const acknowledgeDownload = async (user: CurrentUserSession, distribution: DistributionRecord, dept: Department, person: { name: string; empId: string; position: string; signatureDataUrl: string }) => {
   if (user.currentDept !== dept) throw new Error('บัญชีนี้ไม่ตรงกับหน่วยงานผู้รับเอกสาร');
   const distRef = doc(db, 'dcs_distributions', distribution.id);
-  const departmentPath = distribution.departmentFiles?.[dept];
-  if (!departmentPath || distribution.stampStatus !== 'COMPLETED') throw new Error('ไฟล์ Controlled Copy ของหน่วยงานยังไม่พร้อม กรุณาติดต่อ DCC');
-  const controlledFile = await getBlob(ref(storage, departmentPath));
+  const departmentPaths = distribution.departmentFileLists?.[dept] || (distribution.departmentFiles?.[dept] ? [distribution.departmentFiles[dept]] : []);
+  if (!departmentPaths.length || distribution.stampStatus !== 'COMPLETED') throw new Error('ไฟล์ Controlled Copy ของหน่วยงานยังไม่พร้อม กรุณาติดต่อ DCC');
+  const controlledFiles = await Promise.all(departmentPaths.map(path => getBlob(ref(storage, path))));
   const signaturePath = `dcs/signatures/${user.uid}/${distribution.id}/${Date.now()}.png`;
   const normalizedSignature = await normalizeSignatureDataUrl(person.signatureDataUrl);
   await uploadBytes(ref(storage, signaturePath), await dataUrlBlob(normalizedSignature), { contentType: 'image/png' });
@@ -250,8 +262,8 @@ export const acknowledgeDownload = async (user: CurrentUserSession, distribution
     const allDownloaded = current.targetDepartments.every(targetDept => Boolean(receipts[targetDept]?.downloadedAt));
     tx.update(distRef, clean({ receipts, status: allDownloaded ? 'COMPLETED' : 'IN_PROGRESS', allDownloadedAt: allDownloaded ? new Date().toISOString() : null, storageStatus: allDownloaded ? 'PURGE_PENDING' : 'AVAILABLE', updatedAt: new Date().toISOString() }));
   });
-  await writeAudit(user, 'CONTROLLED_COPY_DOWNLOADED', distribution.docNo, distribution.revision, `หน่วยงาน ${dept} รับและดาวน์โหลด Controlled Copy`, { distributionNo: distribution.distributionNo });
-  return URL.createObjectURL(controlledFile);
+  await writeAudit(user, 'CONTROLLED_COPY_DOWNLOADED', distribution.docNo, distribution.revision, `หน่วยงาน ${dept} รับและดาวน์โหลด Controlled Copy จำนวน ${controlledFiles.length} ไฟล์`, { distributionNo: distribution.distributionNo, fileCount: controlledFiles.length });
+  return controlledFiles.map(file => URL.createObjectURL(file));
 };
 
 export const createCopyRequestRecord = async (user: CurrentUserSession, distribution: DistributionRecord, dept: Department, requestedBy: string, empId: string, reasonType: CopyReRequest['reasonType'], reasonDetails: string) => {
