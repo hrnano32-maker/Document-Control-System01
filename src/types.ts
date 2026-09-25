@@ -1,7 +1,6 @@
 export type Department = 
   | 'DCC'
-  | 'QA'
-  | 'QC'
+  | 'QA/QC'
   | 'Production 1'
   | 'Production 2/3'
   | 'HR'
@@ -18,8 +17,7 @@ export type Department =
 
 export const DEPARTMENTS: { id: Department; aaCode: string; nameTh: string; nameEn: string; icon: string; color: string }[] = [
   { id: 'DCC', aaCode: 'QS', nameTh: 'ศูนย์ควบคุมเอกสาร (DCC / Quality System)', nameEn: 'Document Control Center', icon: 'ShieldCheck', color: 'indigo' },
-  { id: 'QA', aaCode: 'QA', nameTh: 'ฝ่ายประกันคุณภาพ (QA)', nameEn: 'Quality Assurance', icon: 'CheckCircle2', color: 'emerald' },
-  { id: 'QC', aaCode: 'QC', nameTh: 'ฝ่ายควบคุมคุณภาพ (QC)', nameEn: 'Quality Control', icon: 'FileCheck', color: 'teal' },
+  { id: 'QA/QC', aaCode: 'QA', nameTh: 'ฝ่ายประกันและควบคุมคุณภาพ (QA/QC)', nameEn: 'Quality Assurance / Quality Control', icon: 'CheckCircle2', color: 'emerald' },
   { id: 'Production 1', aaCode: 'PD', nameTh: 'ฝ่ายผลิต 1 (Main Assembly)', nameEn: 'Production 1', icon: 'Factory', color: 'blue' },
   { id: 'Production 2/3', aaCode: 'PD', nameTh: 'ฝ่ายผลิต 2/3 (Sub & Assyst)', nameEn: 'Production 2/3', icon: 'Cpu', color: 'cyan' },
   { id: 'HR', aaCode: 'HR', nameTh: 'ทรัพยากรบุคคลและธุรการ (HR)', nameEn: 'Human Resources', icon: 'Users', color: 'pink' },
