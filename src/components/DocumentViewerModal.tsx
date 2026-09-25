@@ -78,17 +78,35 @@ export const DocumentViewerModal: React.FC = () => {
     setSelectedDocumentForView(null);
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     const fileName = doc.fileName || `${doc.docNo || 'DOCUMENT'}_Rev${doc.revision || '00'}.${isPdf ? 'pdf' : isImage ? 'png' : 'docx'}`;
+    let downloadSource = fileSource;
 
-    if (fileSource) {
-      // Direct binary download from stored DataURL
+    if (!downloadSource && doc.fileStoragePath) {
+      setFileLoading(true);
+      setFileError('');
+      try {
+        downloadSource = await getStorageFileUrl(doc.fileStoragePath);
+        setResolvedFileUrl(downloadSource);
+      } catch (error) {
+        console.error('Document download failed', error);
+        const message = error instanceof Error ? error.message : 'กรุณาตรวจสอบสิทธิ์ Firebase Storage';
+        setFileError(`ดาวน์โหลดไฟล์ไม่สำเร็จ: ${message}`);
+        alert(`ดาวน์โหลดไฟล์ไม่สำเร็จ: ${message}`);
+        return;
+      } finally {
+        setFileLoading(false);
+      }
+    }
+
+    if (downloadSource) {
       const link = document.createElement('a');
-      link.href = fileSource;
+      link.href = downloadSource;
       link.download = fileName;
+      link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
+      window.setTimeout(() => document.body.removeChild(link), 1000);
       return;
     }
 
