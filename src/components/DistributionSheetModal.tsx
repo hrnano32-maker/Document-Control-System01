@@ -130,11 +130,39 @@ export const DistributionSheetModal: React.FC = () => {
   const buildRowsFromDar = (dar?: DarRecord, dist?: DistributionRecord): DistributionRowData[] => {
     if (!dist) return [];
     const savedRows = dist.distributionSheet?.rows;
-    if (savedRows?.length) return savedRows.map((row, index) => ({ id: `saved-${index}-${row.dept || 'row'}`, dept: row.dept, position: row.position, copies: row.copies, receiveDate: row.dept && dist.receipts?.[row.dept]?.downloadedAt ? dist.receipts[row.dept].downloadedAt.split('T')[0] : '', receiveSignerName: row.dept ? dist.receipts?.[row.dept]?.downloaderName : '', returnDate: row.returnDate || '', returnSignerName: row.returnSignerName || '', returnSignatureStoragePath: row.returnSignatureStoragePath }));
+    const targetDepartments = new Set((dist.targets || []).map(target => target.dept));
+    const savedDepartments = new Set((savedRows || []).map(row => row.dept).filter(Boolean));
+    const savedRowsMatchTargets = targetDepartments.size > 0
+      && targetDepartments.size === savedDepartments.size
+      && [...targetDepartments].every(dept => savedDepartments.has(dept));
+    if (savedRows?.length && savedRowsMatchTargets) {
+      return savedRows.map((row, index) => ({ id: `saved-${index}-${row.dept || 'row'}`, dept: row.dept, position: row.position, copies: row.copies, receiveDate: row.dept && dist.receipts?.[row.dept]?.downloadedAt ? dist.receipts[row.dept].downloadedAt.split('T')[0] : '', receiveSignerName: row.dept ? dist.receipts?.[row.dept]?.downloaderName : '', returnDate: row.returnDate || '', returnSignerName: row.returnSignerName || '', returnSignatureStoragePath: row.returnSignatureStoragePath }));
+    }
 
     const distDate = dist.distributedDate ? dist.distributedDate.split('T')[0] : new Date().toISOString().split('T')[0];
 
-    // Case 1: The DAR has distributionHolders specified
+    // Case 1: The actual distribution targets are the source of truth for FM-QS-003.
+    // This keeps the printed sheet synchronized when DCC adds/removes recipient departments.
+    if (dist.targets && dist.targets.length > 0) {
+      return dist.targets.map((target, idx) => {
+        const receipt = dist.receipts?.[target.dept];
+        return ({
+        id: `target-row-${idx}-${target.dept}`,
+        dept: target.dept,
+        position: receipt?.downloaderPosition
+          ? `${target.dept} — ${receipt.downloaderPosition}`
+          : `ผู้รับผิดชอบเอกสารประจำ ${target.dept}`,
+        copies: String(target.allocatedCopies || 1),
+        receiveDate: receipt?.downloadedAt ? receipt.downloadedAt.split('T')[0] : '',
+        receiveSignerName: receipt?.downloaderName || '',
+        returnSignature: undefined,
+        returnDate: '',
+        returnSignerName: '',
+        sourceDarId: dar?.id,
+      });});
+    }
+
+    // Case 2: Use DAR holders only before a real distribution target list exists.
     if (dar && dar.distributionHolders && dar.distributionHolders.length > 0) {
       const checkedHolders = dar.distributionHolders.filter(h => h.checked);
       if (checkedHolders.length > 0) {
@@ -155,24 +183,6 @@ export const DistributionSheetModal: React.FC = () => {
           };
         });
       }
-    }
-
-    // Case 2: If DAR doesn't have distributionHolders, check distribution record targets
-    if (dist.targets && dist.targets.length > 0) {
-      return dist.targets.map((target, idx) => {
-        const receipt = dist.receipts?.[target.dept];
-        return ({
-        id: `target-row-${idx}-${target.dept}`,
-        dept: target.dept,
-        position: receipt?.downloaderPosition || `หัวหน้าแผนก / ผู้รับผิดชอบฝ่าย ${target.dept}`,
-        copies: String(target.allocatedCopies || 1),
-        receiveDate: receipt?.downloadedAt ? receipt.downloadedAt.split('T')[0] : '',
-        receiveSignerName: receipt?.downloaderName || '',
-        returnSignature: undefined,
-        returnDate: '',
-        returnSignerName: '',
-        sourceDarId: dar?.id,
-      });});
     }
 
     // Case 3: Default fallback: request dept + QA
