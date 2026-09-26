@@ -22,6 +22,7 @@ import {
 import confetti from 'canvas-confetti';
 import { printElementById, openPrintInNewTab, downloadPrintableHtml } from '../utils/printHelper';
 import { getStorageFileUrl, saveDistributionSheetRecord } from '../services/dcsRepository';
+import { normalizeSignatureDataUrl } from '../utils/signatureImage';
 import { COMPANY } from '../config/company';
 import { NanoLogo } from './NanoLogo';
 
@@ -252,14 +253,22 @@ export const DistributionSheetModal: React.FC = () => {
     const loadReceiptSignatures = async () => {
       const receipts = selectedDistributionForSheet?.receipts || {};
       const signatures = await Promise.all((Object.values(receipts) as DistributionReceipt[]).filter(receipt => receipt.signatureStoragePath).map(async receipt => {
-        try { return [receipt.dept, await getStorageFileUrl(receipt.signatureStoragePath)] as const; }
+        try {
+          const url = await getStorageFileUrl(receipt.signatureStoragePath);
+          try { return [receipt.dept, await normalizeSignatureDataUrl(url)] as const; }
+          catch { return [receipt.dept, url] as const; }
+        }
         catch { return [receipt.dept, ''] as const; }
       }));
       if (cancelled) return;
       const byDept = Object.fromEntries(signatures);
       const returnPaths = selectedDistributionForSheet?.distributionSheet?.rows || [];
       const returned = await Promise.all(returnPaths.filter(row => row.returnSignatureStoragePath).map(async row => {
-        try { return [`${row.dept || ''}|${row.position}`, await getStorageFileUrl(row.returnSignatureStoragePath!)] as const; }
+        try {
+          const url = await getStorageFileUrl(row.returnSignatureStoragePath!);
+          try { return [`${row.dept || ''}|${row.position}`, await normalizeSignatureDataUrl(url)] as const; }
+          catch { return [`${row.dept || ''}|${row.position}`, url] as const; }
+        }
         catch { return [`${row.dept || ''}|${row.position}`, ''] as const; }
       }));
       if (cancelled) return;
@@ -912,7 +921,7 @@ export const DistributionSheetModal: React.FC = () => {
                               <img
                                 src={row.receiveSignature}
                                 alt="Receive Signature"
-                                className="max-h-7 max-w-[90px] object-contain"
+                                className="h-7 w-[90px] object-contain"
                               />
                             </div>
                           ) : (
@@ -944,7 +953,7 @@ export const DistributionSheetModal: React.FC = () => {
                               <img
                                 src={row.returnSignature}
                                 alt="Return Signature"
-                                className="max-h-7 max-w-[90px] object-contain"
+                                className="h-7 w-[90px] object-contain"
                               />
                               <button
                                 type="button"
