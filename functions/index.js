@@ -191,6 +191,55 @@ exports.updateOwnSignature = onCall({ region: REGION, timeoutSeconds: 60, memory
   return { signaturePath, updatedAt };
 });
 
+exports.adminUpdateUserSignature = onCall({ region: REGION, timeoutSeconds: 60, memory: '256MiB' }, async request => {
+  await requireDcc(request);
+  const registrationId = cleanText(request.data?.registrationId, 80);
+  const dataUrl = String(request.data?.signatureDataUrl || '');
+  const prefix = 'data:image/png;base64,';
+  if (!registrationId) throw new HttpsError('invalid-argument', 'ไม่พบข้อมูลแผนกผู้ใช้งาน');
+  if (!dataUrl.startsWith(prefix)) throw new HttpsError('invalid-argument', 'รูปแบบลายเซ็นไม่ถูกต้อง');
+  const bytes = Buffer.from(dataUrl.slice(prefix.length), 'base64');
+  if (!bytes.length || bytes.length > 2 * 1024 * 1024 || !validSignatureMagic(bytes, 'image/png')) {
+    throw new HttpsError('invalid-argument', 'ไฟล์ลายเซ็นไม่ถูกต้องหรือมีขนาดเกิน 2 MB');
+  }
+  const db = getFirestore();
+  const registrationRef = db.collection('dcs_user_registrations').doc(registrationId);
+  const [registration, reviewer] = await Promise.all([
+    registrationRef.get(),
+    db.collection('users').doc(request.auth.uid).get(),
+  ]);
+  if (!registration.exists) throw new HttpsError('not-found', 'ไม่พบข้อมูลลงทะเบียนของแผนกนี้');
+  const row = registration.data();
+  const normalized = await normalizeSignature(bytes);
+  const updatedAt = new Date().toISOString();
+  let signaturePath;
+  if (row.status === 'APPROVED' && row.authUid) {
+    signaturePath = `dcs/signatures/${row.authUid}/profile-signature.png`;
+    await getStorage().bucket().file(signaturePath).save(normalized, { resumable: false, contentType: 'image/png', metadata: { cacheControl: 'private,no-store,max-age=0' } });
+    await Promise.all([
+      db.collection('users').doc(row.authUid).update({ signaturePath, signatureUpdatedAt: updatedAt, updatedAt }),
+      registrationRef.update({ signaturePath, permanentSignaturePath: signaturePath, signatureUpdatedAt: updatedAt, signatureUpdatedByUid: request.auth.uid }),
+    ]);
+  } else {
+    signaturePath = `dcs/onboarding/${safeSegment(registrationId)}/signature.png`;
+    await getStorage().bucket().file(signaturePath).save(normalized, { resumable: false, contentType: 'image/png', metadata: { cacheControl: 'private,no-store,max-age=0' } });
+    await registrationRef.update({ signaturePath, signatureContentType: 'image/png', signatureUpdatedAt: updatedAt, signatureUpdatedByUid: request.auth.uid });
+  }
+  await db.collection('dcs_audit_logs').add({
+    timestamp: updatedAt,
+    createdAt: updatedAt,
+    actor: `${reviewer.data()?.displayName || 'DCC'} (${reviewer.data()?.department || 'DCC'})`,
+    actorDept: reviewer.data()?.department || 'DCC',
+    actorUid: request.auth.uid,
+    actionType: 'ADMIN_SIGNATURE_UPDATED',
+    docNo: 'USER-PROFILE',
+    revision: '-',
+    description: `DCC เพิ่มหรือเปลี่ยนลายเซ็นของ ${row.displayName} (${row.department})`,
+    details: { registrationId, targetUid: row.authUid || null, department: row.department, signaturePath },
+  });
+  return { signaturePath, updatedAt };
+});
+
 exports.resetDepartmentTemporaryPassword = onCall({ region: REGION, timeoutSeconds: 30, memory: '256MiB' }, async request => {
   await requireDcc(request);
   const registrationId = cleanText(request.data?.registrationId, 80);
