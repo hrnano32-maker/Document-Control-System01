@@ -154,6 +154,43 @@ exports.reviewDepartmentRegistration = onCall({ region: REGION, timeoutSeconds: 
   return { status: 'APPROVED', username, temporaryPassword: password, displayName: registration.displayName, department: registration.department };
 });
 
+exports.updateOwnSignature = onCall({ region: REGION, timeoutSeconds: 60, memory: '256MiB' }, async request => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'กรุณาเข้าสู่ระบบใหม่');
+  const dataUrl = String(request.data?.signatureDataUrl || '');
+  const prefix = 'data:image/png;base64,';
+  if (!dataUrl.startsWith(prefix)) throw new HttpsError('invalid-argument', 'รูปแบบลายเซ็นไม่ถูกต้อง');
+  const bytes = Buffer.from(dataUrl.slice(prefix.length), 'base64');
+  if (!bytes.length || bytes.length > 2 * 1024 * 1024 || !validSignatureMagic(bytes, 'image/png')) {
+    throw new HttpsError('invalid-argument', 'ไฟล์ลายเซ็นไม่ถูกต้องหรือมีขนาดเกิน 2 MB');
+  }
+  const db = getFirestore();
+  const profileRef = db.collection('users').doc(request.auth.uid);
+  const profile = await profileRef.get();
+  if (!profile.exists || profile.data().active !== true) throw new HttpsError('permission-denied', 'บัญชีไม่มีสิทธิ์ใช้งาน');
+  const signaturePath = `dcs/signatures/${request.auth.uid}/profile-signature.png`;
+  const normalized = await normalizeSignature(bytes);
+  await getStorage().bucket().file(signaturePath).save(normalized, {
+    resumable: false,
+    contentType: 'image/png',
+    metadata: { cacheControl: 'private,no-store,max-age=0' },
+  });
+  const updatedAt = new Date().toISOString();
+  await profileRef.update({ signaturePath, signatureUpdatedAt: updatedAt, updatedAt });
+  await db.collection('dcs_audit_logs').add({
+    timestamp: updatedAt,
+    createdAt: updatedAt,
+    actor: `${profile.data().displayName || profile.data().username} (${profile.data().department})`,
+    actorDept: profile.data().department,
+    actorUid: request.auth.uid,
+    actionType: 'USER_SIGNATURE_UPDATED',
+    docNo: 'USER-PROFILE',
+    revision: '-',
+    description: 'ผู้ใช้งานเพิ่มหรือเปลี่ยนลายเซ็นประจำบัญชี',
+    details: { signaturePath },
+  });
+  return { signaturePath, updatedAt };
+});
+
 exports.resetDepartmentTemporaryPassword = onCall({ region: REGION, timeoutSeconds: 30, memory: '256MiB' }, async request => {
   await requireDcc(request);
   const registrationId = cleanText(request.data?.registrationId, 80);
