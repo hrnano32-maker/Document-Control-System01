@@ -11,7 +11,8 @@ import {
   User,
 } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { auth, db, usernameToInternalEmail } from '../lib/firebase';
+import { httpsCallable } from 'firebase/functions';
+import { auth, db, firebaseFunctions, usernameToInternalEmail } from '../lib/firebase';
 import { CurrentUserSession, Department } from '../types';
 
 export interface DcsUserProfile {
@@ -72,6 +73,14 @@ export const signInDcsUser = async (username: string, password: string, remember
 };
 
 export const signOutDcsUser = () => signOut(auth);
+export const updateOwnSignature = async (signatureDataUrl: string) => {
+  const result = await httpsCallable<{ signatureDataUrl: string }, { signaturePath: string }>(
+    firebaseFunctions,
+    'updateOwnSignature',
+    { timeout: 60000 },
+  )({ signatureDataUrl });
+  return result.data.signaturePath;
+};
 export const changeDcsPassword = async (oldPassword: string, newPassword: string) => {
   if (!auth.currentUser) throw new Error('กรุณาเข้าสู่ระบบใหม่');
   if (!auth.currentUser.email) throw new Error('บัญชีนี้ไม่มีอีเมลสำหรับยืนยันตัวตน');
