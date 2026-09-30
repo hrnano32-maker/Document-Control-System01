@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionRecord, DocumentViewPayload, MasterDocument } from '../types';
-import { changeDcsPassword, observeDcsAuth, signInDcsUser, signOutDcsUser } from '../services/authService';
+import { changeDcsPassword, observeDcsAuth, signInDcsUser, signOutDcsUser, updateOwnSignature } from '../services/authService';
 import { acknowledgeDownload, cancelDarRecord, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, manageDistributionRecord, deleteDarDraftRecord, patchDarRecord, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAuditForUser, subscribeMasterDocuments, subscribeCopyRequests, subscribeDars, subscribeDistributions, writeAudit } from '../services/dcsRepository';
 
 type Result = { success: boolean; message: string; downloadUrl?: string; downloadUrls?: string[] };
@@ -8,6 +8,7 @@ interface DcsContextType {
   currentUser: CurrentUserSession; setUserName: (name: string) => void;
   login: (username: string, password: string, rememberMe?: boolean) => Promise<Result>; logout: () => void;
   changePassword: (oldPassword: string, newPassword: string) => Promise<Result>; isChangePasswordOpen: boolean; setIsChangePasswordOpen: (open: boolean) => void;
+  updateSignature: (signatureDataUrl: string) => Promise<Result>;
   documents: MasterDocument[]; addDocument: (doc: Omit<MasterDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'>) => Promise<void>;
   updateDocumentRevision: (docId: string, newRev: string, effectiveDate: string, darNo: string, reason: string, driveLink: string) => Promise<void>;
   dars: DarRecord[]; createDar: (dar: Omit<DarRecord, 'id' | 'requestDate' | 'status'>) => Promise<string>;
@@ -66,10 +67,11 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const needDist = (id: string) => { const row = distributions.find(x => x.id === id); if (!row) throw new Error('ไม่พบรายการแจกจ่าย'); return row; };
   const login = async (username: string, password: string, remember = false): Promise<Result> => { try { setCurrentUser(await signInDcsUser(username, password, remember)); return { success: true, message: 'เข้าสู่ระบบสำเร็จ' }; } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }; } };
   const changePassword = async (oldPassword: string, newPassword: string): Promise<Result> => { try { await changeDcsPassword(oldPassword, newPassword); setCurrentUser(prev => ({ ...prev, mustChangePassword: false })); return { success: true, message: 'เปลี่ยนรหัสผ่านสำเร็จ' }; } catch { return { success: false, message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง หรือเซสชันหมดอายุ' }; } };
+  const updateSignature = async (signatureDataUrl: string): Promise<Result> => { try { const signaturePath = await updateOwnSignature(signatureDataUrl); setCurrentUser(prev => ({ ...prev, signaturePath })); return { success: true, message: 'บันทึกลายเซ็นใหม่สำเร็จ' }; } catch (error) { return { success: false, message: error instanceof Error ? error.message : 'บันทึกลายเซ็นไม่สำเร็จ' }; } };
   const downloadControlledCopy = async (id: string, dept: Department, name: string, empId: string, position: string, signature: string, onProgress?: (message: string, percent: number) => void): Promise<Result> => { try { const downloadUrls = await acknowledgeDownload(currentUser, needDist(id), dept, { name, empId, position, signatureDataUrl: signature }, onProgress); return { success: true, message: 'บันทึกการรับเอกสารสำเร็จ', downloadUrl: downloadUrls[0], downloadUrls }; } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'ดำเนินการไม่สำเร็จ' }; } };
 
   const value: DcsContextType = {
-    currentUser, setUserName: name => setCurrentUser(prev => ({ ...prev, userName: name })), login, logout: () => { void signOutDcsUser(); setCurrentUser(emptySession()); }, changePassword, isChangePasswordOpen, setIsChangePasswordOpen: open => { if (!open && currentUser.mustChangePassword) return; setIsChangePasswordOpen(open); },
+    currentUser, setUserName: name => setCurrentUser(prev => ({ ...prev, userName: name })), login, logout: () => { void signOutDcsUser(); setCurrentUser(emptySession()); }, changePassword, updateSignature, isChangePasswordOpen, setIsChangePasswordOpen: open => { if (!open && currentUser.mustChangePassword) return; setIsChangePasswordOpen(open); },
     documents, addDocument: input => saveMasterDocument(currentUser, input), updateDocumentRevision: (id, rev, date, darNo, reason, link) => reviseMasterDocument(currentUser, needDoc(id), rev, date, darNo, reason, link),
     dars, createDar: input => createDarRecord(currentUser, input), reviewDar: (id, status, remarks) => reviewDarRecord(currentUser, needDar(id), status, remarks), cancelDar: (id, reason) => cancelDarRecord(currentUser, needDar(id), reason), deleteDar: id => deleteDarDraftRecord(currentUser, needDar(id)), updateDarSignatures: patchDarRecord, registerDarToMasterList: id => registerDarRecord(currentUser, needDar(id)),
     distributions, createDistribution: (id, depts, instructions, files, onProgress) => createDistributionRecord(currentUser, needDoc(id), depts, instructions, files, onProgress), cancelDistribution: (id, reason) => manageDistributionRecord(currentUser, needDist(id), 'CANCEL', reason), deleteDistribution: id => manageDistributionRecord(currentUser, needDist(id), 'DELETE'), downloadControlledCopy,
