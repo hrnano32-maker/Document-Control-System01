@@ -10,15 +10,18 @@ import {
   Clock,
   HardDrive,
   ShieldCheck,
+  Upload,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { downloadControlledCopyFromServer, getStorageFileUrl } from '../services/dcsRepository';
+import { normalizeSignatureDataUrl } from '../utils/signatureImage';
 
 export const DownloadModal: React.FC = () => {
   const {
     selectedDistributionForDownload,
     setSelectedDistributionForDownload,
     downloadControlledCopy,
+    updateSignature,
     currentUser,
   } = useDcs();
 
@@ -34,6 +37,7 @@ export const DownloadModal: React.FC = () => {
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [signatureData, setSignatureData] = useState<string>('');
   const [isLoadingSignature, setIsLoadingSignature] = useState(true);
+  const [isUpdatingSignature, setIsUpdatingSignature] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitStatus, setSubmitStatus] = useState('');
@@ -163,6 +167,32 @@ export const DownloadModal: React.FC = () => {
     } else {
       setIsSubmitting(false);
       setErrorMsg(result.message);
+    }
+  };
+
+  const handleSignatureFile = async (file?: File) => {
+    if (!file) return;
+    setErrorMsg('');
+    if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 2 * 1024 * 1024) {
+      setErrorMsg('ลายเซ็นต้องเป็นไฟล์ PNG หรือ JPG ขนาดไม่เกิน 2 MB');
+      return;
+    }
+    setIsUpdatingSignature(true);
+    try {
+      const source = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('อ่านไฟล์ลายเซ็นไม่สำเร็จ'));
+        reader.readAsDataURL(file);
+      });
+      const normalized = await normalizeSignatureDataUrl(source);
+      const result = await updateSignature(normalized);
+      if (!result.success) throw new Error(result.message);
+      setSignatureData(normalized);
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'เปลี่ยนลายเซ็นไม่สำเร็จ');
+    } finally {
+      setIsUpdatingSignature(false);
     }
   };
 
@@ -382,12 +412,28 @@ export const DownloadModal: React.FC = () => {
                     <PenTool className="w-4 h-4 text-indigo-600" />
                     2. ลายมือชื่ออิเล็กทรอนิกส์ (Digital Signature) <span className="text-rose-500">*</span>
                   </h4>
-                  <span className="px-2 py-1 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">เซ็นด่วนจากบัญชี</span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-1 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">เซ็นด่วนจากบัญชี</span>
+                    <label className={`px-2 py-1 rounded text-[10px] font-bold border flex items-center gap-1 transition-colors ${isUpdatingSignature ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 cursor-pointer'}`}>
+                      <Upload className="w-3 h-3" />
+                      {signatureData ? 'เปลี่ยนลายเซ็น' : 'เพิ่มลายเซ็น'}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+                        disabled={isUpdatingSignature}
+                        className="hidden"
+                        onChange={async event => {
+                          await handleSignatureFile(event.target.files?.[0]);
+                          event.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
                 </div>
 
                 <div className="border-2 border-emerald-200 rounded-xl p-3 bg-emerald-50/40 text-center">
-                  {isLoadingSignature ? (
-                    <span className="text-xs text-slate-500">กำลังโหลดลายเซ็นที่ลงทะเบียน...</span>
+                  {isLoadingSignature || isUpdatingSignature ? (
+                    <span className="text-xs text-slate-500">{isUpdatingSignature ? 'กำลังตัดพื้นหลังและบันทึกลายเซ็นใหม่...' : 'กำลังโหลดลายเซ็นที่ลงทะเบียน...'}</span>
                   ) : signatureData ? (
                     <div className="space-y-1">
                       <img src={signatureData} alt="ลายเซ็นที่ลงทะเบียน" className="h-20 max-w-full mx-auto object-contain bg-white rounded border p-1" />
