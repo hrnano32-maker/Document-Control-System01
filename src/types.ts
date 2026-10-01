@@ -276,6 +276,7 @@ export interface DistributionRecord {
   distributedDate: string; // ISO string
   expirationDate: string; // ISO string (3 days from distributedDate)
   expirationEpoch: number;
+  departmentExpirationEpoch?: Partial<Record<Department, number>>;
   status: DistributionStatus;
   cancelledAt?: string;
   cancelledBy?: string;
