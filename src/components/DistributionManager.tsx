@@ -46,6 +46,7 @@ export const DistributionManager: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [reRequestNote, setReRequestNote] = useState('');
   const [managingId, setManagingId] = useState<string | null>(null);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   const [reissueFiles, setReissueFiles] = useState<Record<string, { name: string; size: string; type: string; dataUrl: string }[]>>({});
   const isDcc = currentUser.currentDept === 'DCC';
 
@@ -82,8 +83,11 @@ export const DistributionManager: React.FC = () => {
   };
 
   const handleApproveReRequest = async (reqId: string) => {
+    if (processingRequestId) return;
+    setProcessingRequestId(reqId);
     try { await reviewReRequest(reqId, true, reRequestNote || 'อนุมัติออกไฟล์ใหม่ ให้ดาวน์โหลดภายใน 3 วัน', 3, reissueFiles[reqId]); }
     catch (error) { alert(error instanceof Error ? error.message : 'อนุมัติคำขอไม่สำเร็จ'); return; }
+    finally { setProcessingRequestId(null); }
     confetti({
       particleCount: 50,
       spread: 60,
@@ -111,7 +115,10 @@ export const DistributionManager: React.FC = () => {
   const handleDeleteDistribution = async (dist: DistributionRecord) => {
     const receiptCount = Object.keys(dist.receipts || {}).length;
     if (receiptCount > 0) { alert('ลบไม่ได้ เนื่องจากมีแผนกรับเอกสารแล้ว กรุณาใช้ปุ่มยกเลิก'); return; }
-    if (!window.confirm(`ยืนยันลบรายการทดลอง ${dist.distributionNo} แบบถาวร? รายการและไฟล์ทั้งหมดจะกู้คืนไม่ได้`)) return;
+    const deleteMessage = dist.reissueOf
+      ? `ยืนยันลบรายการออกไฟล์ใหม่ชุดนี้ทั้งหมด (รวมรายการซ้ำ) และเริ่มคำขอใหม่? รายการและไฟล์ที่ยังไม่มีผู้รับจะถูกลบถาวร`
+      : `ยืนยันลบรายการทดลอง ${dist.distributionNo} แบบถาวร? รายการและไฟล์ทั้งหมดจะกู้คืนไม่ได้`;
+    if (!window.confirm(deleteMessage)) return;
     setManagingId(dist.id);
     try { await deleteDistribution(dist.id); }
     catch (error) { alert(error instanceof Error ? error.message : 'ลบรายการไม่สำเร็จ'); }
@@ -200,11 +207,11 @@ export const DistributionManager: React.FC = () => {
                   <input type="file" multiple accept="application/pdf,.pdf" onChange={async event => { const files = Array.from(event.target.files || []); if (!files.length) return; if (files.length > 20) { alert('แนบได้สูงสุด 20 ไฟล์ต่อชุด'); event.target.value = ''; return; } if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) { alert('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น'); event.target.value = ''; return; } if (files.some(file => file.size > 25 * 1024 * 1024)) { alert('แต่ละไฟล์ต้องมีขนาดไม่เกิน 25 MB'); event.target.value = ''; return; } const selected = await Promise.all(files.map(file => new Promise<{ name: string; size: string; type: string; dataUrl: string }>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve({ name: file.name, size: `${(file.size / 1024 / 1024).toFixed(2)} MB`, type: 'application/pdf', dataUrl: String(reader.result) }); reader.onerror = () => reject(new Error(`อ่านไฟล์ ${file.name} ไม่สำเร็จ`)); reader.readAsDataURL(file); }))); setReissueFiles(prev => ({ ...prev, [req.id]: selected })); }} className="max-w-72 text-[11px]" title="เลือกไฟล์ Controlled Copy ฉบับใหม่ได้หลายไฟล์ (PDF)" />
                   <button
                     onClick={() => handleApproveReRequest(req.id)}
-                    disabled={!reissueFiles[req.id]?.length}
+                    disabled={!reissueFiles[req.id]?.length || processingRequestId !== null}
                     className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1 cursor-pointer transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    อนุมัติและออกไฟล์ใหม่ 3 วัน
+                    {processingRequestId === req.id ? 'กำลังดำเนินการ… ห้ามกดซ้ำ' : 'อนุมัติและออกไฟล์ใหม่ 3 วัน'}
                   </button>
                   <button
                     onClick={() => handleRejectReRequest(req.id)}
