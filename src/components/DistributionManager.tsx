@@ -47,7 +47,6 @@ export const DistributionManager: React.FC = () => {
   const [reRequestNote, setReRequestNote] = useState('');
   const [managingId, setManagingId] = useState<string | null>(null);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
-  const [reissueFiles, setReissueFiles] = useState<Record<string, { name: string; size: string; type: string; dataUrl: string }[]>>({});
   const isDcc = currentUser.currentDept === 'DCC';
 
   const filteredDistributions = distributions.filter(dist => {
@@ -85,7 +84,7 @@ export const DistributionManager: React.FC = () => {
   const handleApproveReRequest = async (reqId: string) => {
     if (processingRequestId) return;
     setProcessingRequestId(reqId);
-    try { await reviewReRequest(reqId, true, reRequestNote || 'อนุมัติออกไฟล์ใหม่ ให้ดาวน์โหลดภายใน 3 วัน', 3, reissueFiles[reqId]); }
+    try { await reviewReRequest(reqId, true, reRequestNote || 'อนุมัติเปิดสิทธิ์รับเอกสารอีก 3 วันในใบแจกจ่ายเดิม', 3); }
     catch (error) { alert(error instanceof Error ? error.message : 'อนุมัติคำขอไม่สำเร็จ'); return; }
     finally { setProcessingRequestId(null); }
     confetti({
@@ -204,14 +203,13 @@ export const DistributionManager: React.FC = () => {
 
                 <div className="space-y-2 pt-2 border-t border-slate-100">
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <input type="file" multiple accept="application/pdf,.pdf" onChange={async event => { const files = Array.from(event.target.files || []); if (!files.length) return; if (files.length > 20) { alert('แนบได้สูงสุด 20 ไฟล์ต่อชุด'); event.target.value = ''; return; } if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) { alert('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น'); event.target.value = ''; return; } if (files.some(file => file.size > 25 * 1024 * 1024)) { alert('แต่ละไฟล์ต้องมีขนาดไม่เกิน 25 MB'); event.target.value = ''; return; } const selected = await Promise.all(files.map(file => new Promise<{ name: string; size: string; type: string; dataUrl: string }>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve({ name: file.name, size: `${(file.size / 1024 / 1024).toFixed(2)} MB`, type: 'application/pdf', dataUrl: String(reader.result) }); reader.onerror = () => reject(new Error(`อ่านไฟล์ ${file.name} ไม่สำเร็จ`)); reader.readAsDataURL(file); }))); setReissueFiles(prev => ({ ...prev, [req.id]: selected })); }} className="max-w-72 text-[11px]" title="เลือกไฟล์ Controlled Copy ฉบับใหม่ได้หลายไฟล์ (PDF)" />
                   <button
                     onClick={() => handleApproveReRequest(req.id)}
-                    disabled={!reissueFiles[req.id]?.length || processingRequestId !== null}
+                    disabled={processingRequestId !== null}
                     className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1 cursor-pointer transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    {processingRequestId === req.id ? 'กำลังดำเนินการ… ห้ามกดซ้ำ' : 'อนุมัติและออกไฟล์ใหม่ 3 วัน'}
+                    {processingRequestId === req.id ? 'กำลังเปิดสิทธิ์… ห้ามกดซ้ำ' : 'เปิดสิทธิ์รับอีก 3 วันในรายการเดิม'}
                   </button>
                   <button
                     onClick={() => handleRejectReRequest(req.id)}
@@ -220,7 +218,9 @@ export const DistributionManager: React.FC = () => {
                     ไม่อนุมัติ
                   </button>
                   </div>
-                  {reissueFiles[req.id]?.length > 0 && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-[10px] text-emerald-900"><b>เลือกแล้ว {reissueFiles[req.id].length} ไฟล์:</b><ul className="mt-1 list-disc pl-4 space-y-0.5">{reissueFiles[req.id].map(file => <li key={`${file.name}-${file.size}`}>{file.name} ({file.size})</li>)}</ul></div>}
+                  <p className="text-[10px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg p-2">
+                    ระบบจะเปิดสิทธิ์เฉพาะแผนกผู้ขอในใบแจกจ่ายเดิม ไม่สร้างเลขใบแจกจ่ายใหม่
+                  </p>
                 </div>
               </div>
             ))}
