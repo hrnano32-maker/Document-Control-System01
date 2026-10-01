@@ -526,11 +526,14 @@ export const downloadControlledCopyFromServer = async (
 export const saveDistributionSheetRecord = async (
   user: CurrentUserSession,
   distribution: DistributionRecord,
+  sheetDocNo: string,
+  sheetDocNameTh: string,
   receiveRevision: string,
   returnRevision: string,
   rows: Array<{ id: string; dept?: string; position: string; copies: string; returnDate: string; returnSignerName?: string; returnSignature?: string; returnSignatureStoragePath?: string }>,
 ) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่บันทึกใบแจกจ่าย-เรียกคืนได้');
+  if (!sheetDocNo.trim() || !sheetDocNameTh.trim()) throw new Error('กรุณาระบุรหัสเอกสารและชื่อเอกสารบนใบแจกจ่ายให้ครบ');
   if (!rows.length || rows.some(row => !row.position.trim() || !Number.isInteger(Number(row.copies)) || Number(row.copies) < 1)) throw new Error('กรุณาระบุตำแหน่งผู้ถือครองและจำนวนสำเนาเป็นจำนวนเต็มอย่างน้อย 1');
   if (rows.some(row => Boolean(row.returnDate) !== Boolean(row.returnSignature || row.returnSignatureStoragePath))) throw new Error('ข้อมูลเรียกคืนต้องมีลายเซ็นและวันที่คืนให้ครบทั้งสองรายการ');
   const storedRows = await Promise.all(rows.map(async row => {
@@ -545,7 +548,7 @@ export const saveDistributionSheetRecord = async (
   const removedPaths = (distribution.distributionSheet?.rows || []).map(row => row.returnSignatureStoragePath).filter((path): path is string => Boolean(path) && !retainedPaths.has(path));
   await Promise.all(removedPaths.map(path => deleteObject(ref(storage, path)).catch(() => undefined)));
   const updatedAt = new Date().toISOString();
-  await updateDoc(doc(db, 'dcs_distributions', distribution.id), clean({ distributionSheet: { receiveRevision, returnRevision, rows: storedRows, updatedAt, updatedBy: user.userName }, updatedAt }));
+  await updateDoc(doc(db, 'dcs_distributions', distribution.id), clean({ distributionSheet: { docNo: sheetDocNo.trim(), docNameTh: sheetDocNameTh.trim(), receiveRevision, returnRevision, rows: storedRows, updatedAt, updatedBy: user.userName }, updatedAt }));
   await writeAudit(user, 'SIGNATURE_CAPTURED', distribution.docNo, distribution.revision, `บันทึกใบแจกจ่าย-เรียกคืน ${distribution.distributionNo}`, { distributionNo: distribution.distributionNo });
 };
 
