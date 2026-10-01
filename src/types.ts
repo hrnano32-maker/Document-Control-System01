@@ -309,6 +309,7 @@ export interface DistributionRecord {
   processingStage?: string;
   processingDetail?: string;
   processingPercent?: number;
+  reissueOf?: string;
   sourceStoragePath?: string | null;
   sourceStoragePaths?: string[];
   fileStoragePath?: string;
@@ -340,10 +341,12 @@ export interface CopyReRequest {
   reasonType: 'EXPIRED_DOWNLOAD_WINDOW' | 'FILE_LOST_OR_DAMAGED' | 'ADDITIONAL_WORKSTATION' | 'AUDIT_PREPARATION' | 'OTHER';
   reasonDetails: string;
   requestDate: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  status: 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REJECTED';
   dccDecisionBy?: string;
   dccDecisionDate?: string;
   dccDecisionNote?: string;
+  reissuedDistributionId?: string;
+  processingError?: string;
 }
 
 export type AuditActionType =
