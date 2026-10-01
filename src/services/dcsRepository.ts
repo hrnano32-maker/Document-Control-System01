@@ -398,15 +398,12 @@ export const decideCopyRequest = async (user: CurrentUserSession, request: CopyR
 
     const oldSnap = await getDoc(doc(db, 'dcs_distributions', request.distributionId));
     if (!oldSnap.exists()) throw new Error('ไม่พบรายการแจกจ่ายต้นทาง');
-    const old = oldSnap.data() as DistributionRecord;
-    const seq = await nextNumber('distribution');
-    const id = `DC-DIS-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
     if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) throw new Error('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น');
     const sourceStoragePaths: string[] = [];
     try {
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
-        const path = `dcs/distributions/${id}/source/${String(index + 1).padStart(2, '0')}-${safeName(file.name)}`;
+        const path = `dcs/distributions/${request.distributionId}/reissue/${request.id}/source/${String(index + 1).padStart(2, '0')}-${safeName(file.name)}`;
         await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl), { contentType: 'application/pdf' });
         sourceStoragePaths.push(path);
       }
@@ -414,25 +411,30 @@ export const decideCopyRequest = async (user: CurrentUserSession, request: CopyR
       await Promise.all(sourceStoragePaths.map(path => deleteObject(ref(storage, path)).catch(() => undefined)));
       throw error;
     }
-    const copies = old.allocationByDepartment?.[request.dept] || 1;
-    const now = new Date();
-    const reissued = clean({ ...old, id, distributionNo: id, distributedBy: user.userName, distributedDate: now.toISOString(), expirationDate: new Date(now.getTime() + 3 * DAY_MS).toISOString(), expirationEpoch: now.getTime() + 3 * DAY_MS, status: 'IN_PROGRESS', targetDepartments: [request.dept], allocationByDepartment: { [request.dept]: copies }, targets: [{ dept: request.dept, allocatedCopies: copies, copyNo: `${copies} สำเนา`, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' }], receipts: {}, departmentFiles: {}, departmentFileLists: {}, departmentFileKeys: {}, departmentFileKeyLists: {}, fileName: files[0].name, fileSize: files[0].size, fileType: 'application/pdf', fileNames: files.map(file => file.name), fileSizes: files.map(file => file.size), fileTypes: files.map(() => 'application/pdf'), fileStoragePath: null, fileStoragePaths: [], sourceStoragePath: sourceStoragePaths[0], sourceStoragePaths, stampStatus: 'PROCESSING', storageStatus: 'PROCESSING', processingStage: 'UPLOADED', processingDetail: `อัปโหลดต้นฉบับครบ ${files.length} ไฟล์`, processingPercent: 38, allDownloadedAt: null, fileDeletedAt: null, reissueOf: old.id, createdAt: now.toISOString(), updatedAt: now.toISOString() });
     try {
-      await setDoc(doc(db, 'dcs_distributions', id), { ...reissued, expirationAt: Timestamp.fromMillis(now.getTime() + 3 * DAY_MS) });
-      reissuedDistributionId = id;
-      await updateDoc(requestRef, { reissuedDistributionId: id, updatedAt: new Date().toISOString() });
-      await httpsCallable(firebaseFunctions, 'stampControlledCopies')({ distributionId: id });
+      reissuedDistributionId = request.distributionId;
+      await updateDoc(requestRef, clean({
+        sourceStoragePaths,
+        fileNames: files.map(file => file.name),
+        fileSizes: files.map(file => file.size),
+        pendingDecisionNote: note,
+        reissuedDistributionId: request.distributionId,
+        processingDetail: `อัปโหลดครบ ${files.length} ไฟล์ กำลังออกสำเนาใหม่ในใบแจกจ่ายเดิม`,
+        processingPercent: 35,
+        updatedAt: new Date().toISOString(),
+      }));
+      await httpsCallable(firebaseFunctions, 'reissueControlledCopies', { timeout: 540000 })({ distributionId: request.distributionId, requestId: request.id });
     } catch (error) {
       await updateDoc(requestRef, clean({
-        status: reissuedDistributionId ? 'PROCESSING' : 'PENDING',
-        reissuedDistributionId: reissuedDistributionId || null,
+        status: 'PROCESSING',
+        reissuedDistributionId: request.distributionId,
         processingError: error instanceof Error ? error.message : String(error),
         updatedAt: new Date().toISOString(),
       })).catch(() => undefined);
       throw error;
     }
   }
-  await updateDoc(doc(db, 'dcs_copy_requests', request.id), clean({ status: approve ? 'APPROVED' : 'REJECTED', dccDecisionBy: user.userName, dccDecisionDate: new Date().toISOString(), dccDecisionNote: note, reissuedDistributionId, updatedAt: new Date().toISOString() }));
+  if (!approve) await updateDoc(doc(db, 'dcs_copy_requests', request.id), clean({ status: 'REJECTED', dccDecisionBy: user.userName, dccDecisionDate: new Date().toISOString(), dccDecisionNote: note, reissuedDistributionId, updatedAt: new Date().toISOString() }));
   await writeAudit(user, 'RE_REQUEST_APPROVED', request.docNo, request.revision, `${approve ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอ ${request.id}`, { note });
 };
 
