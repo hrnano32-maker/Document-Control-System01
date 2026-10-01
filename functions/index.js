@@ -441,7 +441,7 @@ exports.cancelPreviousRevision = onCall({ region: REGION, timeoutSeconds: 120, m
   return { cancelledPath };
 });
 
-exports.manageDistributionRecord = onCall({ region: REGION, timeoutSeconds: 120, memory: '256MiB' }, async request => {
+exports.manageDistributionRecord = onCall({ region: REGION, timeoutSeconds: 540, memory: '512MiB' }, async request => {
   await requireDcc(request);
   const distributionId = cleanText(request.data?.distributionId, 80);
   const action = cleanText(request.data?.action, 20).toUpperCase();
@@ -455,22 +455,64 @@ exports.manageDistributionRecord = onCall({ region: REGION, timeoutSeconds: 120,
   const snapshot = await distRef.get();
   if (!snapshot.exists) throw new HttpsError('not-found', 'ไม่พบรายการแจกจ่าย');
   const data = snapshot.data();
-  if (data.stampStatus === 'PROCESSING') {
-    throw new HttpsError('failed-precondition', 'ระบบกำลังประทับตรา กรุณารอให้เสร็จก่อนดำเนินการ');
-  }
-
   const receiptCount = Object.keys(data.receipts || {}).length;
   if (action === 'DELETE') {
-    if (receiptCount > 0) {
+    // A reissue can leave several PROCESSING records when a previous approval
+    // failed after the record was created. Deleting any one of those records
+    // intentionally resets the whole unreceived reissue batch so DCC can start
+    // the request again from a clean state.
+    const relatedSnapshot = data.reissueOf
+      ? await db.collection('dcs_distributions').where('reissueOf', '==', data.reissueOf).get()
+      : null;
+    const relatedDocs = relatedSnapshot?.docs || [snapshot];
+    const receivedRecord = relatedDocs.find(item => Object.keys(item.data().receipts || {}).length > 0);
+    if (receiptCount > 0 || receivedRecord) {
       throw new HttpsError('failed-precondition', 'ลบไม่ได้ เนื่องจากมีหน่วยงานรับเอกสารแล้ว กรุณาใช้คำสั่งยกเลิกเพื่อเก็บประวัติ');
     }
-    await getStorage().bucket().deleteFiles({ prefix: `dcs/distributions/${distributionId}/` });
-    const requests = await db.collection('dcs_copy_requests').where('distributionId', '==', distributionId).get();
-    const batch = db.batch();
-    requests.docs.forEach(item => batch.delete(item.ref));
-    batch.delete(distRef);
-    await batch.commit();
-    return { action, deleted: true, distributionId };
+    await Promise.all(relatedDocs.map(item => getStorage().bucket().deleteFiles({ prefix: `dcs/distributions/${item.id}/` })));
+
+    const originalDistributionId = data.reissueOf || distributionId;
+    const requests = await db.collection('dcs_copy_requests').where('distributionId', '==', originalDistributionId).get();
+    const now = new Date().toISOString();
+    const writes = [];
+    let batch = db.batch();
+    let operationCount = 0;
+    const flush = () => {
+      if (!operationCount) return;
+      writes.push(batch.commit());
+      batch = db.batch();
+      operationCount = 0;
+    };
+    relatedDocs.forEach(item => {
+      batch.delete(item.ref);
+      operationCount += 1;
+      if (operationCount >= 400) flush();
+    });
+    requests.docs.forEach(item => {
+      const requestData = item.data();
+      if (!data.reissueOf && item.id !== distributionId) {
+        batch.delete(item.ref);
+      } else if (requestData.dept === data.targetDepartments?.[0]) {
+        batch.set(item.ref, {
+          status: 'PENDING',
+          dccDecisionBy: null,
+          dccDecisionDate: null,
+          dccDecisionNote: null,
+          reissuedDistributionId: null,
+          processingError: null,
+          updatedAt: now,
+        }, { merge: true });
+      }
+      operationCount += 1;
+      if (operationCount >= 400) flush();
+    });
+    flush();
+    await Promise.all(writes);
+    return { action, deleted: true, distributionId, deletedCount: relatedDocs.length, requestReset: Boolean(data.reissueOf) };
+  }
+
+  if (data.stampStatus === 'PROCESSING') {
+    throw new HttpsError('failed-precondition', 'ระบบกำลังประทับตรา กรุณารอให้เสร็จก่อนดำเนินการ');
   }
 
   if (!reason) throw new HttpsError('invalid-argument', 'กรุณาระบุเหตุผลการยกเลิก');
