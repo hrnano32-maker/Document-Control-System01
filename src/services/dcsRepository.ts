@@ -304,6 +304,17 @@ export const manageDistributionRecord = async (user: CurrentUserSession, distrib
   );
 };
 
+export const normalizeQaQcDepartments = async (user: CurrentUserSession, distributionId: string) => {
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่รวมข้อมูล QA/QC ได้');
+  const callable = httpsCallable<{ distributionId: string }, { normalized: boolean; targetCount?: number; keptReceipt?: boolean }>(
+    firebaseFunctions,
+    'normalizeQaQcDepartments',
+    { timeout: 540000 },
+  );
+  const result = await callable({ distributionId });
+  return result.data;
+};
+
 export const acknowledgeDownload = async (
   user: CurrentUserSession,
   distribution: DistributionRecord,
