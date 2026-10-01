@@ -373,22 +373,33 @@ export const createCopyRequestRecord = async (user: CurrentUserSession, distribu
   await writeAudit(user, 'COPY_RE_REQUESTED', record.docNo, record.revision, `ยื่นคำขอไฟล์ใหม่ ${id}`, { distributionNo: record.distributionNo, dept });
 };
 
-export const decideCopyRequest = async (user: CurrentUserSession, request: CopyReRequest, approve: boolean, note: string, file?: { name: string; size: string; type: string; dataUrl: string }) => {
+export const decideCopyRequest = async (user: CurrentUserSession, request: CopyReRequest, approve: boolean, note: string, files?: { name: string; size: string; type: string; dataUrl: string }[]) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่พิจารณาคำขอได้');
   let reissuedDistributionId = '';
   if (approve) {
-    if (!file?.dataUrl) throw new Error('กรุณาอัปโหลดไฟล์ Controlled Copy ฉบับใหม่ก่อนอนุมัติ');
+    if (!files?.length || files.some(file => !file.dataUrl)) throw new Error('กรุณาอัปโหลดไฟล์ Controlled Copy ฉบับใหม่อย่างน้อย 1 ไฟล์ก่อนอนุมัติ');
+    if (files.length > 20) throw new Error('อัปโหลดได้สูงสุด 20 ไฟล์ต่อชุด');
     const oldSnap = await getDoc(doc(db, 'dcs_distributions', request.distributionId));
     if (!oldSnap.exists()) throw new Error('ไม่พบรายการแจกจ่ายต้นทาง');
     const old = oldSnap.data() as DistributionRecord;
     const seq = await nextNumber('distribution');
     const id = `DC-DIS-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) throw new Error('ไฟล์ Controlled Copy ต้องเป็น PDF เท่านั้น');
-    const path = `dcs/distributions/${id}/source/${safeName(file.name)}`;
-    await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl), { contentType: 'application/pdf' });
+    if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) throw new Error('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น');
+    const sourceStoragePaths: string[] = [];
+    try {
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        const path = `dcs/distributions/${id}/source/${String(index + 1).padStart(2, '0')}-${safeName(file.name)}`;
+        await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl), { contentType: 'application/pdf' });
+        sourceStoragePaths.push(path);
+      }
+    } catch (error) {
+      await Promise.all(sourceStoragePaths.map(path => deleteObject(ref(storage, path)).catch(() => undefined)));
+      throw error;
+    }
     const copies = old.allocationByDepartment?.[request.dept] || 1;
     const now = new Date();
-    const reissued = clean({ ...old, id, distributionNo: id, distributedBy: user.userName, distributedDate: now.toISOString(), expirationDate: new Date(now.getTime() + 3 * DAY_MS).toISOString(), expirationEpoch: now.getTime() + 3 * DAY_MS, status: 'IN_PROGRESS', targetDepartments: [request.dept], allocationByDepartment: { [request.dept]: copies }, targets: [{ dept: request.dept, allocatedCopies: copies, copyNo: `${copies} สำเนา`, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' }], receipts: {}, departmentFiles: {}, departmentFileKeys: {}, fileName: file.name, fileSize: file.size, fileType: 'application/pdf', fileStoragePath: null, sourceStoragePath: path, stampStatus: 'PROCESSING', storageStatus: 'PROCESSING', allDownloadedAt: null, fileDeletedAt: null, reissueOf: old.id, createdAt: now.toISOString(), updatedAt: now.toISOString() });
+    const reissued = clean({ ...old, id, distributionNo: id, distributedBy: user.userName, distributedDate: now.toISOString(), expirationDate: new Date(now.getTime() + 3 * DAY_MS).toISOString(), expirationEpoch: now.getTime() + 3 * DAY_MS, status: 'IN_PROGRESS', targetDepartments: [request.dept], allocationByDepartment: { [request.dept]: copies }, targets: [{ dept: request.dept, allocatedCopies: copies, copyNo: `${copies} สำเนา`, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' }], receipts: {}, departmentFiles: {}, departmentFileLists: {}, departmentFileKeys: {}, departmentFileKeyLists: {}, fileName: files[0].name, fileSize: files[0].size, fileType: 'application/pdf', fileNames: files.map(file => file.name), fileSizes: files.map(file => file.size), fileTypes: files.map(() => 'application/pdf'), fileStoragePath: null, fileStoragePaths: [], sourceStoragePath: sourceStoragePaths[0], sourceStoragePaths, stampStatus: 'PROCESSING', storageStatus: 'PROCESSING', processingStage: 'UPLOADED', processingDetail: `อัปโหลดต้นฉบับครบ ${files.length} ไฟล์`, processingPercent: 38, allDownloadedAt: null, fileDeletedAt: null, reissueOf: old.id, createdAt: now.toISOString(), updatedAt: now.toISOString() });
     await setDoc(doc(db, 'dcs_distributions', id), { ...reissued, expirationAt: Timestamp.fromMillis(now.getTime() + 3 * DAY_MS) });
     await httpsCallable(firebaseFunctions, 'stampControlledCopies')({ distributionId: id });
     reissuedDistributionId = id;
