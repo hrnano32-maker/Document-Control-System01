@@ -436,21 +436,40 @@ exports.reissueControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, 
   }
   const department = copyRequest.dept;
   if (!data.targetDepartments?.includes(department)) throw new HttpsError('failed-precondition', 'แผนกผู้ขอไม่อยู่ในใบแจกจ่ายต้นฉบับ');
-  const sourcePaths = Array.isArray(copyRequest.sourceStoragePaths) ? copyRequest.sourceStoragePaths : [];
-  const fileNames = Array.isArray(copyRequest.fileNames) ? copyRequest.fileNames : [];
-  if (!sourcePaths.length) throw new HttpsError('failed-precondition', 'ไม่พบไฟล์ PDF สำหรับออกสำเนาใหม่');
+  const bucket = getStorage().bucket();
+  const existingPaths = data.departmentFileLists?.[department]
+    || (data.departmentFiles?.[department] ? [data.departmentFiles[department]] : []);
+  const existingChecks = await Promise.all(existingPaths.map(path => bucket.file(path).exists()));
+  let paths = existingPaths.filter((_, index) => existingChecks[index]?.[0]);
+  let keys = data.departmentFileKeyLists?.[department] || paths.map(path => path.split('/').pop());
 
-  const paths = [];
-  const keys = [];
-  for (let index = 0; index < sourcePaths.length; index += 1) {
-    await requestRef.update({ processingDetail: `กำลังประทับตราไฟล์ ${index + 1}/${sourcePaths.length}`, processingPercent: 40 + Math.round(((index + 1) / sourcePaths.length) * 50), updatedAt: new Date().toISOString() });
-    const pdf = await loadPdf(sourcePaths[index]);
-    await controlledStamp(pdf, department);
-    const outputName = `${String(index + 1).padStart(2, '0')}-${safeSegment(fileNames[index] || `document-${index + 1}.pdf`)}`.replace(/\.pdf$/i, '') + '.pdf';
-    const path = `dcs/distributions/${distributionId}/controlled/${safeSegment(department)}/${outputName}`;
-    await savePdf(pdf, path);
-    paths.push(path);
-    keys.push(outputName);
+  // Normally only the expired permission is reopened. If the scheduled purge
+  // already removed the controlled files, rebuild only this department's files
+  // from the active Master List archive without creating another distribution.
+  if (!paths.length || paths.length !== existingPaths.length) {
+    const masterSnapshot = await db.collection('dcs_documents').doc(data.docId).get();
+    if (!masterSnapshot.exists) throw new HttpsError('failed-precondition', 'ไม่พบเอกสารต้นฉบับใน Master List');
+    const master = masterSnapshot.data();
+    if (master.currentRevision !== data.revision || master.status !== 'ACTIVE') {
+      throw new HttpsError('failed-precondition', 'ไม่สามารถเปิดสิทธิ์ได้ เพราะ Revision นี้ไม่ใช่ฉบับใช้งานปัจจุบัน');
+    }
+    const sourcePaths = Array.isArray(master.currentFileStoragePaths) && master.currentFileStoragePaths.length
+      ? master.currentFileStoragePaths
+      : [master.currentFileStoragePath].filter(Boolean);
+    if (!sourcePaths.length) throw new HttpsError('failed-precondition', 'ไม่พบไฟล์ต้นฉบับที่จัดเก็บใน Master List');
+    const fileNames = Array.isArray(data.fileNames) && data.fileNames.length ? data.fileNames : [data.fileName || 'document.pdf'];
+    paths = [];
+    keys = [];
+    for (let index = 0; index < sourcePaths.length; index += 1) {
+      await requestRef.update({ processingDetail: `กำลังกู้ไฟล์เดิมสำหรับแผนก ${department} ${index + 1}/${sourcePaths.length}`, processingPercent: 40 + Math.round(((index + 1) / sourcePaths.length) * 50), updatedAt: new Date().toISOString() });
+      const pdf = await loadPdf(sourcePaths[index]);
+      await controlledStamp(pdf, department);
+      const outputName = `${String(index + 1).padStart(2, '0')}-${safeSegment(fileNames[index] || `document-${index + 1}.pdf`)}`.replace(/\.pdf$/i, '') + '.pdf';
+      const path = `dcs/distributions/${distributionId}/controlled/${safeSegment(department)}/${outputName}`;
+      await savePdf(pdf, path);
+      paths.push(path);
+      keys.push(outputName);
+    }
   }
 
   const now = new Date();
@@ -487,14 +506,13 @@ exports.reissueControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, 
     status: 'APPROVED',
     dccDecisionBy: copyRequest.processingByName || request.auth.uid,
     dccDecisionDate: now.toISOString(),
-    dccDecisionNote: copyRequest.pendingDecisionNote || 'อนุมัติออกสำเนาใหม่ในใบแจกจ่ายเดิม',
+    dccDecisionNote: copyRequest.pendingDecisionNote || 'อนุมัติเปิดสิทธิ์รับเอกสารอีก 3 วันในใบแจกจ่ายเดิม',
     reissuedDistributionId: distributionId,
-    processingDetail: 'ออกสำเนาใหม่ในใบแจกจ่ายเดิมสำเร็จ',
+    processingDetail: 'เปิดสิทธิ์รับเอกสารในใบแจกจ่ายเดิมสำเร็จ',
     processingPercent: 100,
     updatedAt: now.toISOString(),
   });
   await batch.commit();
-  await Promise.all(sourcePaths.map(sourcePath => getStorage().bucket().file(sourcePath).delete({ ignoreNotFound: true })));
   return { distributionId, requestId, department, fileCount: paths.length };
 });
 
