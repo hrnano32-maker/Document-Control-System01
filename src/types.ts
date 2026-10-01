@@ -286,6 +286,8 @@ export interface DistributionRecord {
   allocationByDepartment: Record<string, number>;
   receipts?: Record<string, DistributionReceipt>;
   distributionSheet?: {
+    docNo?: string;
+    docNameTh?: string;
     receiveRevision: string;
     returnRevision: string;
     rows: Array<{
