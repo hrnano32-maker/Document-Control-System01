@@ -379,8 +379,6 @@ export const decideCopyRequest = async (user: CurrentUserSession, request: CopyR
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่พิจารณาคำขอได้');
   let reissuedDistributionId = '';
   if (approve) {
-    if (!files?.length || files.some(file => !file.dataUrl)) throw new Error('กรุณาอัปโหลดไฟล์ Controlled Copy ฉบับใหม่อย่างน้อย 1 ไฟล์ก่อนอนุมัติ');
-    if (files.length > 20) throw new Error('อัปโหลดได้สูงสุด 20 ไฟล์ต่อชุด');
     const requestRef = doc(db, 'dcs_copy_requests', request.id);
     await runTransaction(db, async transaction => {
       const current = await transaction.get(requestRef);
@@ -398,31 +396,13 @@ export const decideCopyRequest = async (user: CurrentUserSession, request: CopyR
       }));
     });
 
-    const oldSnap = await getDoc(doc(db, 'dcs_distributions', request.distributionId));
-    if (!oldSnap.exists()) throw new Error('ไม่พบรายการแจกจ่ายต้นทาง');
-    if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) throw new Error('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น');
-    const sourceStoragePaths: string[] = [];
-    try {
-      for (let index = 0; index < files.length; index += 1) {
-        const file = files[index];
-        const path = `dcs/distributions/${request.distributionId}/reissue/${request.id}/source/${String(index + 1).padStart(2, '0')}-${safeName(file.name)}`;
-        await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl), { contentType: 'application/pdf' });
-        sourceStoragePaths.push(path);
-      }
-    } catch (error) {
-      await Promise.all(sourceStoragePaths.map(path => deleteObject(ref(storage, path)).catch(() => undefined)));
-      throw error;
-    }
     try {
       reissuedDistributionId = request.distributionId;
       await updateDoc(requestRef, clean({
-        sourceStoragePaths,
-        fileNames: files.map(file => file.name),
-        fileSizes: files.map(file => file.size),
         pendingDecisionNote: note,
         reissuedDistributionId: request.distributionId,
-        processingDetail: `อัปโหลดครบ ${files.length} ไฟล์ กำลังออกสำเนาใหม่ในใบแจกจ่ายเดิม`,
-        processingPercent: 35,
+        processingDetail: 'กำลังเปิดสิทธิ์รับเอกสารอีก 3 วันในใบแจกจ่ายเดิม',
+        processingPercent: 25,
         updatedAt: new Date().toISOString(),
       }));
       await httpsCallable(firebaseFunctions, 'reissueControlledCopies', { timeout: 540000 })({ distributionId: request.distributionId, requestId: request.id });
