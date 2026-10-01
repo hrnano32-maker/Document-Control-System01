@@ -248,11 +248,12 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
   }
   const targets = allocation.map(item => ({ dept: item.dept, allocatedCopies: item.copies, copyNo: `${item.copies} สำเนา`, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' as const }));
   const allocationByDepartment = Object.fromEntries(allocation.map(item => [item.dept, item.copies]));
+  const departmentExpirationEpoch = Object.fromEntries(targets.map(target => [target.dept, now.getTime() + 3 * DAY_MS]));
   const record: DistributionRecord & { createdAt: string; receipts: Record<string, unknown> } = clean({
     id, distributionNo, docId: master.id, docNo: master.docNo, docNameTh: master.docNameTh,
     docNameEn: master.docNameEn, docType: master.docType, revision: master.currentRevision,
     effectiveDate: master.effectiveDate, distributedBy: user.userName, distributedDate: now.toISOString(),
-    expirationDate: new Date(now.getTime() + 3 * DAY_MS).toISOString(), expirationEpoch: now.getTime() + 3 * DAY_MS, status: 'IN_PROGRESS',
+    expirationDate: new Date(now.getTime() + 3 * DAY_MS).toISOString(), expirationEpoch: now.getTime() + 3 * DAY_MS, departmentExpirationEpoch, status: 'IN_PROGRESS',
     darReferenceId: master.darReferenceId, targetDepartments: targets.map(t => t.dept), allocationByDepartment, targets, receipts: {},
     instructions, fileName: files[0].name, fileSize: files[0].size, fileType: 'application/pdf',
     fileNames: files.map(file => file.name), fileSizes: files.map(file => file.size), fileTypes: files.map(() => 'application/pdf'),
@@ -352,7 +353,8 @@ export const acknowledgeDownload = async (
       if (!current) throw new Error('ไม่พบรายการแจกจ่าย');
       if (current.status === 'CANCELLED') throw new Error('รายการแจกจ่ายนี้ถูกยกเลิกแล้ว กรุณาติดต่อ DCC');
       if (!current.targetDepartments.includes(dept)) throw new Error('หน่วยงานนี้ไม่อยู่ในรายชื่อแจกจ่าย');
-      if (Date.now() > new Date(current.expirationDate).getTime()) throw new Error('สิทธิ์ดาวน์โหลดหมดอายุ กรุณาขอไฟล์ใหม่จาก DCC');
+      const departmentExpiry = current.departmentExpirationEpoch?.[dept] || new Date(current.expirationDate).getTime();
+      if (Date.now() > departmentExpiry) throw new Error('สิทธิ์ดาวน์โหลดหมดอายุ กรุณาขอไฟล์ใหม่จาก DCC');
       if (current.receipts?.[dept]?.downloadedAt) throw new Error('หน่วยงานนี้ดาวน์โหลดฉบับนี้ไปแล้ว');
       const receipt = { dept, receivedCopies: current.allocationByDepartment[dept], downloadedAt: new Date().toISOString(), downloaderName: person.name, downloaderEmpId: person.empId, downloaderPosition: person.position, downloaderUid: user.uid, signatureStoragePath: user.signaturePath };
       const receipts = { ...(current.receipts || {}), [dept]: receipt };
