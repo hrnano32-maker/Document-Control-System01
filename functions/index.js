@@ -460,6 +460,11 @@ exports.reissueControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, 
     ? { ...target, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' }
     : target);
   const history = Array.isArray(data.copyReissueHistory) ? data.copyReissueHistory : [];
+  const departmentExpirationEpoch = Object.fromEntries((data.targetDepartments || []).map(target => [
+    target,
+    Number(data.departmentExpirationEpoch?.[target] || data.expirationEpoch || now.getTime()),
+  ]));
+  departmentExpirationEpoch[department] = now.getTime() + 3 * 24 * 60 * 60 * 1000;
   const batch = db.batch();
   batch.update(distRef, {
     receipts,
@@ -468,6 +473,7 @@ exports.reissueControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, 
     expirationDate: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
     expirationEpoch: now.getTime() + 3 * 24 * 60 * 60 * 1000,
     expirationAt: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000),
+    departmentExpirationEpoch,
     departmentFiles: { ...(data.departmentFiles || {}), [department]: paths[0] },
     departmentFileLists: { ...(data.departmentFileLists || {}), [department]: paths },
     departmentFileKeys: { ...(data.departmentFileKeys || {}), [department]: safeSegment(department) },
@@ -694,7 +700,8 @@ exports.downloadControlledCopyFile = onRequest({
       }
     }
     if (distribution.status === 'CANCELLED' || distribution.storageStatus === 'PURGED') return response.status(410).json({ error: 'FILE_NOT_AVAILABLE' });
-    if (Date.now() > Number(distribution.expirationEpoch || 0)) return response.status(410).json({ error: 'DOWNLOAD_EXPIRED' });
+    const departmentExpiry = Number(distribution.departmentExpirationEpoch?.[department] || distribution.expirationEpoch || 0);
+    if (Date.now() > departmentExpiry) return response.status(410).json({ error: 'DOWNLOAD_EXPIRED' });
 
     const paths = distribution.departmentFileLists?.[department]
       || (distribution.departmentFiles?.[department] ? [distribution.departmentFiles[department]] : []);
