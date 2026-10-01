@@ -931,25 +931,14 @@ export const DistributionSheetModal: React.FC = () => {
                           </div>
                         </td>
 
-                        {/* หน่วยงานผู้รับเอกสาร — แบบพิมพ์แสดงเฉพาะชื่อแผนก */}
+                        {/* หน่วยงานผู้รับเอกสาร — แสดงเฉพาะชื่อแผนก */}
                         <td className="border-r border-black p-1 text-left align-middle relative">
                           {isBlankMode ? (
                             <div className="min-h-[22px]"></div>
                           ) : (
-                            <>
-                              <span className="hidden print:inline px-1 text-[12px] font-medium text-black">
-                                {row.dept || selectedDistributionForSheet?.targets?.[idx]?.dept || row.position}
-                              </span>
-                              <div className="flex items-center gap-1 print:hidden">
-                              <input
-                                type="text"
-                                value={row.position}
-                                onChange={(e) => updateRow(idx, 'position', e.target.value)}
-                                placeholder="ระบุตำแหน่งงาน เช่น ผู้จัดการฝ่ายผลิต..."
-                                className="w-full bg-transparent px-1 py-0.5 text-[12px] font-medium text-black focus:outline-none focus:bg-indigo-50/60 rounded"
-                              />
-                              </div>
-                            </>
+                            <span className="px-1 text-[12px] font-medium text-black">
+                              {row.dept || selectedDistributionForSheet?.targets?.[idx]?.dept || ''}
+                            </span>
                           )}
                         </td>
 
