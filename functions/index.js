@@ -634,6 +634,103 @@ exports.manageDistributionRecord = onCall({ region: REGION, timeoutSeconds: 540,
   return { action, cancelled: true, distributionId };
 });
 
+const QA_QC_ALIASES = new Set(['QA', 'QC', 'QA/QC']);
+const canonicalDepartment = value => QA_QC_ALIASES.has(value) ? 'QA/QC' : value;
+
+exports.normalizeQaQcDepartments = onCall({ region: REGION, timeoutSeconds: 540, memory: '512MiB' }, async request => {
+  await requireDcc(request);
+  const db = getFirestore();
+  const distributionId = cleanText(request.data?.distributionId, 80);
+  if (!distributionId) throw new HttpsError('invalid-argument', 'ไม่พบเลขที่ใบแจกจ่าย');
+  const distRef = db.collection('dcs_distributions').doc(distributionId);
+  const snapshot = await distRef.get();
+  if (!snapshot.exists) throw new HttpsError('not-found', 'ไม่พบรายการแจกจ่าย');
+  const data = snapshot.data();
+
+  const aliases = (data.targetDepartments || []).filter(dept => QA_QC_ALIASES.has(dept));
+  if (!aliases.length) return { normalized: false, distributionId };
+
+  const targetDepartments = [...new Set((data.targetDepartments || []).map(canonicalDepartment))];
+  const aliasTargets = (data.targets || []).filter(target => QA_QC_ALIASES.has(target.dept));
+  const chosenTarget = aliasTargets.find(target => target.isDownloaded)
+    || aliasTargets.find(target => target.dept === 'QA/QC')
+    || aliasTargets[0];
+  const targets = [];
+  for (const target of data.targets || []) {
+    const dept = canonicalDepartment(target.dept);
+    if (dept === 'QA/QC') {
+      if (!targets.some(item => item.dept === 'QA/QC')) targets.push({ ...chosenTarget, dept: 'QA/QC' });
+    } else if (!targets.some(item => item.dept === dept)) targets.push({ ...target, dept });
+  }
+
+  const sourceReceipt = data.receipts?.['QA/QC'] || data.receipts?.QA || data.receipts?.QC;
+  const receipts = Object.fromEntries(Object.entries(data.receipts || {}).filter(([dept]) => !QA_QC_ALIASES.has(dept)));
+  if (sourceReceipt) receipts['QA/QC'] = { ...sourceReceipt, dept: 'QA/QC' };
+
+  const normalizeMap = (source = {}, mode = 'first') => {
+    const output = Object.fromEntries(Object.entries(source).filter(([dept]) => !QA_QC_ALIASES.has(dept)));
+    const values = ['QA/QC', 'QA', 'QC'].map(key => source[key]).filter(value => value !== undefined && value !== null);
+    if (values.length) output['QA/QC'] = mode === 'max' ? Math.max(...values.map(Number)) : values[0];
+    return output;
+  };
+
+  const sheet = data.distributionSheet;
+  let distributionSheet = sheet;
+  if (sheet?.rows) {
+    const normalizedRows = [];
+    for (const row of sheet.rows) {
+      const dept = canonicalDepartment(row.dept);
+      const normalized = { ...row, dept, position: String(row.position || '').replace(/\b(?:QA|QC|QA\/QC)\b/g, 'QA/QC') };
+      const existingIndex = normalizedRows.findIndex(item => item.dept === 'QA/QC');
+      if (dept !== 'QA/QC' || existingIndex < 0) normalizedRows.push(normalized);
+      else if (!normalizedRows[existingIndex].receiveSignatureStoragePath && normalized.receiveSignatureStoragePath) normalizedRows[existingIndex] = normalized;
+    }
+    distributionSheet = { ...sheet, rows: normalizedRows, updatedAt: new Date().toISOString(), updatedBy: request.auth.uid };
+  }
+
+  const allDownloaded = targetDepartments.every(dept => Boolean(receipts[dept]?.downloadedAt));
+  const update = {
+    targetDepartments,
+    targets,
+    receipts,
+    allocationByDepartment: normalizeMap(data.allocationByDepartment, 'max'),
+    departmentFiles: normalizeMap(data.departmentFiles),
+    departmentFileLists: normalizeMap(data.departmentFileLists),
+    departmentFileKeys: normalizeMap(data.departmentFileKeys),
+    departmentFileKeyLists: normalizeMap(data.departmentFileKeyLists),
+    departmentExpirationEpoch: normalizeMap(data.departmentExpirationEpoch, 'max'),
+    distributionSheet,
+    status: allDownloaded ? 'COMPLETED' : (data.status === 'CANCELLED' ? 'CANCELLED' : 'IN_PROGRESS'),
+    allDownloadedAt: allDownloaded ? (data.allDownloadedAt || new Date().toISOString()) : null,
+    qaQcNormalizedAt: new Date().toISOString(),
+    qaQcNormalizedBy: request.auth.uid,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const batch = db.batch();
+  batch.update(distRef, update);
+  if (data.darReferenceId) {
+    const darRef = db.collection('dcs_dars').doc(data.darReferenceId);
+    const darSnapshot = await darRef.get();
+    if (darSnapshot.exists && Array.isArray(darSnapshot.data().distributionHolders)) {
+      const holders = [];
+      for (const holder of darSnapshot.data().distributionHolders) {
+        const dept = canonicalDepartment(holder.dept);
+        const normalized = { ...holder, dept, position: String(holder.position || '').replace(/\b(?:QA|QC|QA\/QC)\b/g, 'QA/QC') };
+        const existingIndex = holders.findIndex(item => item.dept === 'QA/QC');
+        if (dept !== 'QA/QC' || existingIndex < 0) holders.push(normalized);
+        else if (!holders[existingIndex].checked && normalized.checked) holders[existingIndex] = normalized;
+      }
+      batch.update(darRef, { distributionHolders: holders, updatedAt: new Date().toISOString() });
+    }
+  }
+  await batch.commit();
+
+  const users = await db.collection('users').where('department', 'in', ['QA', 'QC']).get();
+  await Promise.all(users.docs.map(user => user.ref.update({ department: 'QA/QC', updatedAt: new Date().toISOString() })));
+  return { normalized: true, distributionId, mergedAliases: aliases, targetCount: targetDepartments.length, keptReceipt: Boolean(sourceReceipt) };
+});
+
 async function purgeDistribution(snapshot, reason) {
   const data = snapshot.data();
   if (!data || data.storageStatus === 'PURGED') return;
