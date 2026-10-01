@@ -14,7 +14,7 @@ import {
 import { httpsCallable } from 'firebase/functions';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { auth, db, firebaseFunctions, storage } from '../lib/firebase';
-import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionRecord, MasterDocument } from '../types';
+import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -49,11 +49,70 @@ export const subscribeAudit = (callback: (rows: AuditLogEntry[]) => void) =>
 
 export const subscribeDars = (user: CurrentUserSession, callback: (rows: DarRecord[]) => void) => {
   const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('createdAt', 'desc')] : [where('requestDept', '==', user.currentDept), orderBy('createdAt', 'desc')];
-  return onSnapshot(query(collection(db, 'dcs_dars'), ...constraints), snap => callback(snap.docs.map(item => item.data() as DarRecord).filter(item => user.userRole === 'DCC_ADMIN' || item.status !== 'CANCELLED')));
+  return onSnapshot(query(collection(db, 'dcs_dars'), ...constraints), snap => callback(snap.docs.map(item => normalizeDarQaQc(item.data() as DarRecord)).filter(item => user.userRole === 'DCC_ADMIN' || item.status !== 'CANCELLED')));
 };
+
+const isLegacyQaQc = (value: unknown) => ['QA', 'QC', 'QA/QC'].includes(String(value));
+const canonicalQaQc = (value: unknown): Department => isLegacyQaQc(value) ? 'QA/QC' : value as Department;
+
+const normalizeDarQaQc = (dar: DarRecord): DarRecord => {
+  if (!dar.distributionHolders?.some(holder => ['QA', 'QC'].includes(String(holder.dept)))) return dar;
+  const holders: NonNullable<DarRecord['distributionHolders']> = [];
+  for (const holder of dar.distributionHolders) {
+    const dept = canonicalQaQc(holder.dept);
+    const normalized = { ...holder, dept, position: String(holder.position || '').replace(/QA\/QC|QA|QC/g, 'QA/QC') };
+    const existingIndex = holders.findIndex(item => item.dept === dept);
+    if (existingIndex < 0) holders.push(normalized);
+    else if (!holders[existingIndex].checked && normalized.checked) holders[existingIndex] = normalized;
+  }
+  return { ...dar, distributionHolders: holders };
+};
+
+const normalizeDistributionQaQc = (distribution: DistributionRecord): DistributionRecord => {
+  if (!distribution.targetDepartments.some(dept => ['QA', 'QC'].includes(String(dept)))) return distribution;
+  const targetDepartments = [...new Set(distribution.targetDepartments.map(canonicalQaQc))];
+  const aliasTargets = distribution.targets.filter(target => isLegacyQaQc(target.dept));
+  const chosenTarget = aliasTargets.find(target => target.isDownloaded)
+    || aliasTargets.find(target => String(target.dept) === 'QA/QC')
+    || aliasTargets[0];
+  const targets: DistributionRecord['targets'] = [];
+  for (const target of distribution.targets) {
+    const dept = canonicalQaQc(target.dept);
+    if (dept === 'QA/QC') {
+      if (!targets.some(item => item.dept === 'QA/QC') && chosenTarget) targets.push({ ...chosenTarget, dept: 'QA/QC' });
+    } else if (!targets.some(item => item.dept === dept)) targets.push({ ...target, dept });
+  }
+  const sourceReceipt = distribution.receipts?.['QA/QC']
+    || (distribution.receipts as Record<string, DistributionReceipt> | undefined)?.QA
+    || (distribution.receipts as Record<string, DistributionReceipt> | undefined)?.QC;
+  const receipts = Object.fromEntries(Object.entries(distribution.receipts || {}).filter(([dept]) => !isLegacyQaQc(dept))) as Record<string, DistributionReceipt>;
+  if (sourceReceipt) receipts['QA/QC'] = { ...sourceReceipt, dept: 'QA/QC' };
+  const normalizeMap = <T,>(source?: Record<string, T>, chooseMax = false): Record<string, T> | undefined => {
+    if (!source) return source;
+    const output = Object.fromEntries(Object.entries(source).filter(([dept]) => !isLegacyQaQc(dept))) as Record<string, T>;
+    const values = ['QA/QC', 'QA', 'QC'].map(key => source[key]).filter(value => value !== undefined);
+    if (values.length) output['QA/QC'] = (chooseMax ? Math.max(...values.map(value => Number(value))) : values[0]) as T;
+    return output;
+  };
+  const allDownloaded = targetDepartments.every(dept => Boolean(receipts[dept]?.downloadedAt));
+  return {
+    ...distribution,
+    targetDepartments,
+    targets,
+    receipts,
+    allocationByDepartment: normalizeMap(distribution.allocationByDepartment, true) || {},
+    departmentFiles: normalizeMap(distribution.departmentFiles),
+    departmentFileLists: normalizeMap(distribution.departmentFileLists),
+    departmentFileKeys: normalizeMap(distribution.departmentFileKeys),
+    departmentFileKeyLists: normalizeMap(distribution.departmentFileKeyLists),
+    departmentExpirationEpoch: normalizeMap(distribution.departmentExpirationEpoch, true),
+    status: distribution.status === 'CANCELLED' ? 'CANCELLED' : allDownloaded ? 'COMPLETED' : 'IN_PROGRESS',
+  };
+};
+
 export const subscribeDistributions = (user: CurrentUserSession, callback: (rows: DistributionRecord[]) => void) => {
   const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('createdAt', 'desc')] : [where('targetDepartments', 'array-contains', user.currentDept), orderBy('createdAt', 'desc')];
-  return onSnapshot(query(collection(db, 'dcs_distributions'), ...constraints), snap => callback(snap.docs.map(item => item.data() as DistributionRecord)));
+  return onSnapshot(query(collection(db, 'dcs_distributions'), ...constraints), snap => callback(snap.docs.map(item => normalizeDistributionQaQc(item.data() as DistributionRecord))));
 };
 export const subscribeCopyRequests = (user: CurrentUserSession, callback: (rows: CopyReRequest[]) => void) => {
   const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('createdAt', 'desc')] : [where('dept', '==', user.currentDept), orderBy('createdAt', 'desc')];
