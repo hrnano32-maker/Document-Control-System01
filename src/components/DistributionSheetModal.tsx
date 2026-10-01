@@ -77,6 +77,8 @@ export const DistributionSheetModal: React.FC = () => {
   // Revisions for Receiving (รับ) and Returning (คืน)
   const [receiveRev, setReceiveRev] = useState<string>('');
   const [returnRev, setReturnRev] = useState<string>('');
+  const [sheetDocNo, setSheetDocNo] = useState<string>('');
+  const [sheetDocNameTh, setSheetDocNameTh] = useState<string>('');
 
   // Hidden file inputs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -213,6 +215,8 @@ export const DistributionSheetModal: React.FC = () => {
   // Initialize rows whenever selectedDistributionForSheet or initial DAR changes
   useEffect(() => {
     if (selectedDistributionForSheet) {
+      setSheetDocNo(selectedDistributionForSheet.distributionSheet?.docNo || selectedDistributionForSheet.docNo);
+      setSheetDocNameTh(selectedDistributionForSheet.distributionSheet?.docNameTh || selectedDistributionForSheet.docNameTh);
       const darToUse = initialDar;
       if (darToUse) {
         setActiveDarId(darToUse.id);
@@ -489,7 +493,7 @@ export const DistributionSheetModal: React.FC = () => {
     if (currentUser.userRole !== 'DCC_ADMIN') { alert('เฉพาะ DCC เท่านั้นที่บันทึกข้อมูลเรียกคืนได้'); return; }
     setIsSaving(true);
     try {
-      await saveDistributionSheetRecord(currentUser, dist, receiveRev, returnRev, rows);
+      await saveDistributionSheetRecord(currentUser, dist, sheetDocNo, sheetDocNameTh, receiveRev, returnRev, rows);
       setIsSaved(true);
       confetti({ particleCount: 35, spread: 60, origin: { y: 0.7 } });
       setTimeout(() => setIsSaved(false), 3000);
@@ -501,22 +505,22 @@ export const DistributionSheetModal: React.FC = () => {
   const handlePrint = () => {
     if (!canPrint) { alert('ยังพิมพ์ใบแจกจ่ายไม่ได้: ต้องรอให้ทุกหน่วยงานตาม DAR ดาวน์โหลดรับเอกสารครบก่อน'); return; }
     void handleSave();
-    printElementById('distribution-recall-sheet', `FM-QS-003-00_${dist.docNo}_Distribution`);
+    printElementById('distribution-recall-sheet', `FM-QS-003-00_${sheetDocNo || dist.docNo}_Distribution`);
   };
 
   const handleOpenTab = () => {
     if (!canPrint) { alert('ยังเปิดใบพิมพ์ไม่ได้: จำนวนผู้รับเอกสารยังไม่ครบตาม DAR'); return; }
     void handleSave();
-    const success = openPrintInNewTab('distribution-recall-sheet', `FM-QS-003-00_${dist.docNo}_Distribution`);
+    const success = openPrintInNewTab('distribution-recall-sheet', `FM-QS-003-00_${sheetDocNo || dist.docNo}_Distribution`);
     if (!success) {
-      printElementById('distribution-recall-sheet', `FM-QS-003-00_${dist.docNo}_Distribution`);
+      printElementById('distribution-recall-sheet', `FM-QS-003-00_${sheetDocNo || dist.docNo}_Distribution`);
     }
   };
 
   const handleDownload = () => {
     if (!canPrint) { alert('ยังดาวน์โหลดใบแจกจ่ายไม่ได้: จำนวนผู้รับเอกสารยังไม่ครบตาม DAR'); return; }
     void handleSave();
-    downloadPrintableHtml('distribution-recall-sheet', `Distribution_Recall_${dist.docNo}`);
+    downloadPrintableHtml('distribution-recall-sheet', `Distribution_Recall_${sheetDocNo || dist.docNo}`);
   };
 
   const totalCopiesCount = rows.reduce((sum, r) => sum + (parseInt(r.copies, 10) || 0), 0);
@@ -808,12 +812,26 @@ export const DistributionSheetModal: React.FC = () => {
             {/* Optional Document Metadata Banner (For easy tracking) */}
             {showDocMetadataHeader && (
               <div className="mb-3 p-2.5 bg-slate-50 border border-black text-xs flex flex-wrap items-center justify-between gap-2">
-                <div>
+                <div className="flex flex-wrap items-center gap-1">
                   <span className="text-slate-600 font-medium">รหัสเอกสาร: </span>
-                  <strong className="font-mono text-black font-bold text-sm">{dist.docNo}</strong>
+                  <span className="hidden print:inline font-mono text-black font-bold text-sm">{sheetDocNo}</span>
+                  <input
+                    type="text"
+                    value={sheetDocNo}
+                    onChange={(event) => { setSheetDocNo(event.target.value); setIsSaved(false); }}
+                    placeholder="พิมพ์รหัสเอกสาร"
+                    className="print:hidden w-44 rounded border border-slate-300 bg-white px-2 py-1 font-mono text-sm font-bold text-black focus:border-indigo-500 focus:outline-none"
+                  />
                   <span className="mx-2 text-slate-400">|</span>
                   <span className="text-slate-600 font-medium">ชื่อเอกสาร: </span>
-                  <strong className="text-black font-semibold">{dist.docNameTh}</strong>
+                  <span className="hidden print:inline text-black font-semibold">{sheetDocNameTh}</span>
+                  <input
+                    type="text"
+                    value={sheetDocNameTh}
+                    onChange={(event) => { setSheetDocNameTh(event.target.value); setIsSaved(false); }}
+                    placeholder="พิมพ์ชื่อเอกสาร"
+                    className="print:hidden min-w-[220px] flex-1 rounded border border-slate-300 bg-white px-2 py-1 font-semibold text-black focus:border-indigo-500 focus:outline-none"
+                  />
                 </div>
                 <div className="flex items-center gap-3 font-mono text-xs flex-wrap">
                   <span>ฉบับที่: <strong>Rev.{dist.revision}</strong></span>
