@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useDcs } from '../context/DcsContext';
 import {
   FileText,
@@ -19,6 +19,7 @@ import {
   ExternalLink,
   Calendar,
   Lock,
+  Trash2,
 } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
@@ -34,7 +35,10 @@ export const Dashboard: React.FC = () => {
     setSelectedDistributionForDownload,
     setSelectedDistributionForSheet,
     setSelectedDistributionForReRequest,
+    deleteDistribution,
   } = useDcs();
+
+  const [cleaningDistributionId, setCleaningDistributionId] = useState<string | null>(null);
 
   const isDcc = currentUser.currentDept === 'DCC';
 
@@ -324,14 +328,33 @@ export const Dashboard: React.FC = () => {
                       </div>
 
                       {/* Download or Sheet Button */}
-                      <div>
+                      <div className="flex items-center gap-2">
                         {isDcc ? (
-                          <button
-                            onClick={() => setSelectedDistributionForSheet(dist)}
-                            className="px-3.5 py-1.5 text-xs font-bold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl shadow-xs cursor-pointer"
-                          >
-                            ดูใบแจกจ่าย A4
-                          </button>
+                          <>
+                            <button
+                              onClick={() => setSelectedDistributionForSheet(dist)}
+                              className="px-3.5 py-1.5 text-xs font-bold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl shadow-xs cursor-pointer"
+                            >
+                              ดูใบแจกจ่าย A4
+                            </button>
+                            {dist.reissueOf && Object.keys(dist.receipts || {}).length === 0 && (
+                              <button
+                                type="button"
+                                disabled={cleaningDistributionId !== null}
+                                onClick={async () => {
+                                  if (!window.confirm(`ยืนยันล้าง ${dist.distributionNo} และรายการแจกจ่ายซ้ำชุดเดียวกันทั้งหมด? ระบบจะคงใบแจกจ่ายต้นฉบับไว้`)) return;
+                                  setCleaningDistributionId(dist.id);
+                                  try { await deleteDistribution(dist.id); }
+                                  catch (error) { alert(error instanceof Error ? error.message : 'ล้างรายการซ้ำไม่สำเร็จ'); }
+                                  finally { setCleaningDistributionId(null); }
+                                }}
+                                className="px-3 py-1.5 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl disabled:opacity-50 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 inline mr-1" />
+                                {cleaningDistributionId === dist.id ? 'กำลังล้าง…' : 'ล้างรายการซ้ำ'}
+                              </button>
+                            )}
+                          </>
                         ) : myTarget?.isDownloaded ? (
                           <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-200">
                             <CheckCircle2 className="w-4 h-4" /> รับสำเนาแล้ว (Copy 1/1)
