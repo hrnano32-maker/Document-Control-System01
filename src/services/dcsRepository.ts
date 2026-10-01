@@ -379,6 +379,23 @@ export const decideCopyRequest = async (user: CurrentUserSession, request: CopyR
   if (approve) {
     if (!files?.length || files.some(file => !file.dataUrl)) throw new Error('กรุณาอัปโหลดไฟล์ Controlled Copy ฉบับใหม่อย่างน้อย 1 ไฟล์ก่อนอนุมัติ');
     if (files.length > 20) throw new Error('อัปโหลดได้สูงสุด 20 ไฟล์ต่อชุด');
+    const requestRef = doc(db, 'dcs_copy_requests', request.id);
+    await runTransaction(db, async transaction => {
+      const current = await transaction.get(requestRef);
+      if (!current.exists()) throw new Error('ไม่พบคำขอออกไฟล์ใหม่');
+      const status = current.data().status;
+      if (status === 'PROCESSING') throw new Error('คำขอนี้กำลังดำเนินการอยู่ กรุณารอ ห้ามกดอนุมัติซ้ำ');
+      if (status !== 'PENDING') throw new Error('คำขอนี้ถูกดำเนินการไปแล้ว กรุณารีเฟรชหน้าจอ');
+      transaction.update(requestRef, clean({
+        status: 'PROCESSING',
+        processingByUid: user.uid,
+        processingByName: user.userName,
+        processingStartedAt: new Date().toISOString(),
+        processingError: null,
+        updatedAt: new Date().toISOString(),
+      }));
+    });
+
     const oldSnap = await getDoc(doc(db, 'dcs_distributions', request.distributionId));
     if (!oldSnap.exists()) throw new Error('ไม่พบรายการแจกจ่ายต้นทาง');
     const old = oldSnap.data() as DistributionRecord;
@@ -400,9 +417,20 @@ export const decideCopyRequest = async (user: CurrentUserSession, request: CopyR
     const copies = old.allocationByDepartment?.[request.dept] || 1;
     const now = new Date();
     const reissued = clean({ ...old, id, distributionNo: id, distributedBy: user.userName, distributedDate: now.toISOString(), expirationDate: new Date(now.getTime() + 3 * DAY_MS).toISOString(), expirationEpoch: now.getTime() + 3 * DAY_MS, status: 'IN_PROGRESS', targetDepartments: [request.dept], allocationByDepartment: { [request.dept]: copies }, targets: [{ dept: request.dept, allocatedCopies: copies, copyNo: `${copies} สำเนา`, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' }], receipts: {}, departmentFiles: {}, departmentFileLists: {}, departmentFileKeys: {}, departmentFileKeyLists: {}, fileName: files[0].name, fileSize: files[0].size, fileType: 'application/pdf', fileNames: files.map(file => file.name), fileSizes: files.map(file => file.size), fileTypes: files.map(() => 'application/pdf'), fileStoragePath: null, fileStoragePaths: [], sourceStoragePath: sourceStoragePaths[0], sourceStoragePaths, stampStatus: 'PROCESSING', storageStatus: 'PROCESSING', processingStage: 'UPLOADED', processingDetail: `อัปโหลดต้นฉบับครบ ${files.length} ไฟล์`, processingPercent: 38, allDownloadedAt: null, fileDeletedAt: null, reissueOf: old.id, createdAt: now.toISOString(), updatedAt: now.toISOString() });
-    await setDoc(doc(db, 'dcs_distributions', id), { ...reissued, expirationAt: Timestamp.fromMillis(now.getTime() + 3 * DAY_MS) });
-    await httpsCallable(firebaseFunctions, 'stampControlledCopies')({ distributionId: id });
-    reissuedDistributionId = id;
+    try {
+      await setDoc(doc(db, 'dcs_distributions', id), { ...reissued, expirationAt: Timestamp.fromMillis(now.getTime() + 3 * DAY_MS) });
+      reissuedDistributionId = id;
+      await updateDoc(requestRef, { reissuedDistributionId: id, updatedAt: new Date().toISOString() });
+      await httpsCallable(firebaseFunctions, 'stampControlledCopies')({ distributionId: id });
+    } catch (error) {
+      await updateDoc(requestRef, clean({
+        status: reissuedDistributionId ? 'PROCESSING' : 'PENDING',
+        reissuedDistributionId: reissuedDistributionId || null,
+        processingError: error instanceof Error ? error.message : String(error),
+        updatedAt: new Date().toISOString(),
+      })).catch(() => undefined);
+      throw error;
+    }
   }
   await updateDoc(doc(db, 'dcs_copy_requests', request.id), clean({ status: approve ? 'APPROVED' : 'REJECTED', dccDecisionBy: user.userName, dccDecisionDate: new Date().toISOString(), dccDecisionNote: note, reissuedDistributionId, updatedAt: new Date().toISOString() }));
   await writeAudit(user, 'RE_REQUEST_APPROVED', request.docNo, request.revision, `${approve ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอ ${request.id}`, { note });
