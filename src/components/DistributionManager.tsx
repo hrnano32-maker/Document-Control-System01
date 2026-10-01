@@ -295,6 +295,11 @@ export const DistributionManager: React.FC = () => {
                     <span className={`text-xs font-bold px-3 py-1 rounded-full border ${timeInfo.color}`}>
                       {timeInfo.text}
                     </span>
+                    {!!dist.copyReissueHistory?.length && (
+                      <span className="text-xs font-bold px-3 py-1 rounded-full border border-sky-200 bg-sky-50 text-sky-800">
+                        สำเนาใหม่ในชุดเดิม {dist.copyReissueHistory.length} ครั้ง
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
