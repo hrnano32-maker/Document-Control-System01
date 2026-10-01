@@ -192,6 +192,7 @@ export const DistributionSheetModal: React.FC = () => {
     return [
       {
         id: 'row-default-1',
+        dept: fallbackDept,
         position: `ผู้จัดการฝ่าย ${fallbackDept}`,
         copies: '1',
         receiveDate: distDate,
@@ -200,6 +201,7 @@ export const DistributionSheetModal: React.FC = () => {
       },
       {
         id: 'row-default-2',
+        dept: 'QA/QC',
         position: 'ผู้จัดการฝ่ายประกันคุณภาพ (QA Manager)',
         copies: '1',
         receiveDate: distDate,
@@ -833,7 +835,7 @@ export const DistributionSheetModal: React.FC = () => {
                       ลำดับที่
                     </th>
                     <th rowSpan={2} className="border-r border-black p-2 align-middle text-center w-64">
-                      ผู้ถือครอง<br />ตามตำแหน่งงาน
+                      หน่วยงาน<br />ผู้รับเอกสาร
                     </th>
                     <th rowSpan={2} className="border-r border-black p-2 w-20 align-middle text-center">
                       จำนวน<br />สำเนา
@@ -911,12 +913,16 @@ export const DistributionSheetModal: React.FC = () => {
                           </div>
                         </td>
 
-                        {/* ผู้ถือครองตามตำแหน่งงาน */}
+                        {/* หน่วยงานผู้รับเอกสาร — แบบพิมพ์แสดงเฉพาะชื่อแผนก */}
                         <td className="border-r border-black p-1 text-left align-middle relative">
                           {isBlankMode ? (
                             <div className="min-h-[22px]"></div>
                           ) : (
-                            <div className="flex items-center gap-1">
+                            <>
+                              <span className="hidden print:inline px-1 text-[12px] font-medium text-black">
+                                {row.dept || selectedDistributionForSheet?.targets?.[idx]?.dept || row.position}
+                              </span>
+                              <div className="flex items-center gap-1 print:hidden">
                               <input
                                 type="text"
                                 value={row.position}
@@ -924,7 +930,8 @@ export const DistributionSheetModal: React.FC = () => {
                                 placeholder="ระบุตำแหน่งงาน เช่น ผู้จัดการฝ่ายผลิต..."
                                 className="w-full bg-transparent px-1 py-0.5 text-[12px] font-medium text-black focus:outline-none focus:bg-indigo-50/60 rounded"
                               />
-                            </div>
+                              </div>
+                            </>
                           )}
                         </td>
 
