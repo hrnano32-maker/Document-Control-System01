@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { printElementById, openPrintInNewTab, downloadPrintableHtml } from '../utils/printHelper';
-import { getStorageFileUrl, saveDistributionSheetRecord } from '../services/dcsRepository';
+import { getStorageFileUrl, normalizeQaQcDepartments, saveDistributionSheetRecord } from '../services/dcsRepository';
 import { normalizeSignatureDataUrl } from '../utils/signatureImage';
 import { COMPANY } from '../config/company';
 import { NanoLogo } from './NanoLogo';
@@ -71,6 +71,7 @@ export const DistributionSheetModal: React.FC = () => {
   const [showDocMetadataHeader, setShowDocMetadataHeader] = useState<boolean>(true);
   const [isSaved, setIsSaved] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isNormalizingQaQc, setIsNormalizingQaQc] = useState<boolean>(false);
   const [activeDarId, setActiveDarId] = useState<string>('');
 
   // Revisions for Receiving (รับ) and Returning (คืน)
@@ -317,10 +318,27 @@ export const DistributionSheetModal: React.FC = () => {
   if (!selectedDistributionForSheet) return null;
 
   const dist = selectedDistributionForSheet;
+  const hasLegacyQaQc = dist.targetDepartments.some(dept => ['QA', 'QC'].includes(String(dept)));
   const canPrint = dist.status === 'COMPLETED' && dist.targetDepartments.length > 0 && dist.targetDepartments.every(dept => Boolean(dist.receipts?.[dept]?.downloadedAt));
 
   const handleClose = () => {
     setSelectedDistributionForSheet(null);
+  };
+
+  const handleNormalizeQaQc = async () => {
+    if (!window.confirm('ยืนยันรวม QA, QC และ QA/QC เป็นหน่วยงาน QA/QC เดียว? ระบบจะเก็บลายเซ็นที่รับเอกสารแล้วไว้และลบแถวซ้ำ')) return;
+    setIsNormalizingQaQc(true);
+    try {
+      const result = await normalizeQaQcDepartments(currentUser, dist.id);
+      alert(result.keptReceipt
+        ? 'รวม QA/QC สำเร็จและเก็บลายเซ็นเดิมไว้แล้ว กรุณาเปิดใบแจกจ่ายอีกครั้ง'
+        : 'รวม QA/QC สำเร็จ กรุณาเปิดใบแจกจ่ายอีกครั้ง');
+      setSelectedDistributionForSheet(null);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'รวมข้อมูล QA/QC ไม่สำเร็จ');
+    } finally {
+      setIsNormalizingQaQc(false);
+    }
   };
 
   // Helper date format
@@ -714,6 +732,19 @@ export const DistributionSheetModal: React.FC = () => {
               <Trash2 className="w-3 h-3 text-slate-400" />
               ล้างตาราง
             </button>
+
+            {hasLegacyQaQc && (
+              <button
+                type="button"
+                onClick={handleNormalizeQaQc}
+                disabled={isNormalizingQaQc}
+                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold flex items-center gap-1 cursor-pointer shadow-xs disabled:opacity-50"
+                title="รวมชื่อแผนกเก่า QA และ QC เข้ากับ QA/QC พร้อมเก็บหลักฐานการรับเดิม"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {isNormalizingQaQc ? 'กำลังรวม…' : 'รวม QA/QC เป็นหน่วยงานเดียว'}
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-3 text-slate-600 text-xs flex-wrap">
