@@ -415,6 +415,83 @@ exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, me
   return { departmentFiles, departmentFileLists };
 });
 
+// Re-issuing a copy belongs to the original distribution. It must never create
+// another DC-DIS number. Only the requesting department's controlled files and
+// receipt window are refreshed; every other department remains in the same set.
+exports.reissueControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async request => {
+  await requireDcc(request);
+  const distributionId = cleanText(request.data?.distributionId, 80);
+  const requestId = cleanText(request.data?.requestId, 80);
+  if (!distributionId || !requestId) throw new HttpsError('invalid-argument', 'ข้อมูลคำขอสำเนาใหม่ไม่ครบ');
+
+  const db = getFirestore();
+  const distRef = db.collection('dcs_distributions').doc(distributionId);
+  const requestRef = db.collection('dcs_copy_requests').doc(requestId);
+  const [distSnapshot, requestSnapshot] = await Promise.all([distRef.get(), requestRef.get()]);
+  if (!distSnapshot.exists || !requestSnapshot.exists) throw new HttpsError('not-found', 'ไม่พบใบแจกจ่ายหรือคำขอสำเนาใหม่');
+  const data = distSnapshot.data();
+  const copyRequest = requestSnapshot.data();
+  if (copyRequest.distributionId !== distributionId || copyRequest.status !== 'PROCESSING') {
+    throw new HttpsError('failed-precondition', 'สถานะคำขอไม่ถูกต้องหรือคำขอไม่ได้อยู่ในใบแจกจ่ายนี้');
+  }
+  const department = copyRequest.dept;
+  if (!data.targetDepartments?.includes(department)) throw new HttpsError('failed-precondition', 'แผนกผู้ขอไม่อยู่ในใบแจกจ่ายต้นฉบับ');
+  const sourcePaths = Array.isArray(copyRequest.sourceStoragePaths) ? copyRequest.sourceStoragePaths : [];
+  const fileNames = Array.isArray(copyRequest.fileNames) ? copyRequest.fileNames : [];
+  if (!sourcePaths.length) throw new HttpsError('failed-precondition', 'ไม่พบไฟล์ PDF สำหรับออกสำเนาใหม่');
+
+  const paths = [];
+  const keys = [];
+  for (let index = 0; index < sourcePaths.length; index += 1) {
+    await requestRef.update({ processingDetail: `กำลังประทับตราไฟล์ ${index + 1}/${sourcePaths.length}`, processingPercent: 40 + Math.round(((index + 1) / sourcePaths.length) * 50), updatedAt: new Date().toISOString() });
+    const pdf = await loadPdf(sourcePaths[index]);
+    await controlledStamp(pdf, department);
+    const outputName = `${String(index + 1).padStart(2, '0')}-${safeSegment(fileNames[index] || `document-${index + 1}.pdf`)}`.replace(/\.pdf$/i, '') + '.pdf';
+    const path = `dcs/distributions/${distributionId}/controlled/${safeSegment(department)}/${outputName}`;
+    await savePdf(pdf, path);
+    paths.push(path);
+    keys.push(outputName);
+  }
+
+  const now = new Date();
+  const receipts = { ...(data.receipts || {}) };
+  delete receipts[department];
+  const targets = (data.targets || []).map(target => target.dept === department
+    ? { ...target, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' }
+    : target);
+  const history = Array.isArray(data.copyReissueHistory) ? data.copyReissueHistory : [];
+  const batch = db.batch();
+  batch.update(distRef, {
+    receipts,
+    targets,
+    status: 'IN_PROGRESS',
+    expirationDate: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+    expirationEpoch: now.getTime() + 3 * 24 * 60 * 60 * 1000,
+    expirationAt: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000),
+    departmentFiles: { ...(data.departmentFiles || {}), [department]: paths[0] },
+    departmentFileLists: { ...(data.departmentFileLists || {}), [department]: paths },
+    departmentFileKeys: { ...(data.departmentFileKeys || {}), [department]: safeSegment(department) },
+    departmentFileKeyLists: { ...(data.departmentFileKeyLists || {}), [department]: keys },
+    storageStatus: 'AVAILABLE',
+    stampStatus: 'COMPLETED',
+    copyReissueHistory: [...history, { requestId, department, approvedAt: now.toISOString(), approvedBy: request.auth.uid, fileCount: paths.length }],
+    updatedAt: now.toISOString(),
+  });
+  batch.update(requestRef, {
+    status: 'APPROVED',
+    dccDecisionBy: copyRequest.processingByName || request.auth.uid,
+    dccDecisionDate: now.toISOString(),
+    dccDecisionNote: copyRequest.pendingDecisionNote || 'อนุมัติออกสำเนาใหม่ในใบแจกจ่ายเดิม',
+    reissuedDistributionId: distributionId,
+    processingDetail: 'ออกสำเนาใหม่ในใบแจกจ่ายเดิมสำเร็จ',
+    processingPercent: 100,
+    updatedAt: now.toISOString(),
+  });
+  await batch.commit();
+  await Promise.all(sourcePaths.map(sourcePath => getStorage().bucket().file(sourcePath).delete({ ignoreNotFound: true })));
+  return { distributionId, requestId, department, fileCount: paths.length };
+});
+
 exports.cancelPreviousRevision = onCall({ region: REGION, timeoutSeconds: 120, memory: '512MiB' }, async request => {
   await requireDcc(request);
   const { docId, previousRevision, previousPath, newRevision } = request.data || {};
