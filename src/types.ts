@@ -310,6 +310,13 @@ export interface DistributionRecord {
   processingDetail?: string;
   processingPercent?: number;
   reissueOf?: string;
+  copyReissueHistory?: Array<{
+    requestId: string;
+    department: Department;
+    approvedAt: string;
+    approvedBy: string;
+    fileCount: number;
+  }>;
   sourceStoragePath?: string | null;
   sourceStoragePaths?: string[];
   fileStoragePath?: string;
