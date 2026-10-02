@@ -2,15 +2,15 @@
   "name": "DCS e-Control - ระบบควบคุมเอกสาร",
   "short_name": "DCS e-Control",
   "description": "ระบบควบคุมเอกสารอิเล็กทรอนิกส์ของ NANO MIRROR INDUSTRY CO., LTD.",
-  "start_url": "/?source=pwa",
-  "scope": "/",
+  "start_url": "./?source=pwa",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#0f172a",
   "lang": "th",
   "icons": [
     {
-      "src": "/dcs-app-icon.svg",
+      "src": "./dcs-app-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
