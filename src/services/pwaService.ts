@@ -14,7 +14,9 @@ let serviceWorkerPromise: Promise<ServiceWorkerRegistration> | null = null;
 
 export const initializePwa = () => {
   if (!('serviceWorker' in navigator)) return;
-  serviceWorkerPromise = navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+  const serviceWorkerUrl = new URL('firebase-messaging-sw.js', document.baseURI);
+  const serviceWorkerScope = new URL('./', serviceWorkerUrl).pathname;
+  serviceWorkerPromise = navigator.serviceWorker.register(serviceWorkerUrl.pathname, { scope: serviceWorkerScope });
   window.addEventListener('beforeinstallprompt', event => {
     event.preventDefault();
     installPrompt = event as InstallPromptEvent;
@@ -48,7 +50,7 @@ export const enableDepartmentNotifications = async (user: CurrentUserSession) =>
   if (permission !== 'granted') throw new Error('ยังไม่ได้อนุญาตการแจ้งเตือน กรุณาเปิดสิทธิ์แจ้งเตือนในเบราว์เซอร์');
   const registration = serviceWorkerPromise
     ? await serviceWorkerPromise
-    : await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+    : await navigator.serviceWorker.register(new URL('firebase-messaging-sw.js', document.baseURI).pathname);
   const messaging = getMessaging(firebaseApp);
   const token = await getToken(messaging, { serviceWorkerRegistration: registration });
   if (!token) throw new Error('อุปกรณ์นี้ยังไม่สามารถสร้างรหัสรับการแจ้งเตือนได้');
