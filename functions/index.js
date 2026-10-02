@@ -7,7 +7,6 @@ const { randomBytes, createHash } = require('node:crypto');
 const sharp = require('sharp');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
-const { onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
 const archiver = require('archiver');
 
@@ -316,19 +315,9 @@ exports.registerNotificationDevice = onCall({ region: REGION, timeoutSeconds: 30
 
 const chunksOf = (items, size) => Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
 
-exports.notifyDistributedDocument = onDocumentUpdated({
-  document: 'dcs_distributions/{distributionId}',
-  region: REGION,
-  retry: true,
-  timeoutSeconds: 120,
-  memory: '256MiB',
-}, async event => {
-  const before = event.data?.before.data();
-  const after = event.data?.after.data();
-  if (!before || !after || before.stampStatus === 'COMPLETED' || after.stampStatus !== 'COMPLETED') return;
-  if (after.notificationSentAt || after.status === 'CANCELLED') return;
-
-  const departments = [...new Set((after.targetDepartments || []).filter(Boolean))];
+async function notifyDistributionReady(distributionId, distribution, distributionRef) {
+  if (distribution.notificationSentAt || distribution.status === 'CANCELLED') return;
+  const departments = [...new Set((distribution.targetDepartments || []).filter(Boolean))];
   if (!departments.length) return;
   const db = getFirestore();
   const deviceDocs = [];
@@ -340,18 +329,18 @@ exports.notifyDistributedDocument = onDocumentUpdated({
   const invalidDeviceRefs = [];
   let successCount = 0;
   let failureCount = 0;
-  const url = `https://hrnano32-maker.github.io/Document-Control-System01/?view=distribution&distributionId=${encodeURIComponent(event.params.distributionId)}`;
+  const url = `https://hrnano32-maker.github.io/Document-Control-System01/?view=distribution&distributionId=${encodeURIComponent(distributionId)}`;
   for (const deviceChunk of chunksOf(uniqueDevices, 500)) {
     const tokens = deviceChunk.map(row => row.data().token);
     const result = await getMessaging().sendEachForMulticast({
       tokens,
       notification: {
         title: 'มีเอกสารแจกจ่ายใหม่',
-        body: `${after.docNo || ''} ${after.docNameTh || ''} Rev.${after.revision || ''}`.trim(),
+        body: `${distribution.docNo || ''} ${distribution.docNameTh || ''} Rev.${distribution.revision || ''}`.trim(),
       },
       data: {
-        distributionId: event.params.distributionId,
-        distributionNo: String(after.distributionNo || ''),
+        distributionId,
+        distributionNo: String(distribution.distributionNo || ''),
         url,
       },
       webpush: {
@@ -373,7 +362,7 @@ exports.notifyDistributedDocument = onDocumentUpdated({
     });
   }
   await Promise.all(invalidDeviceRefs.map(ref => ref.update({ active: false, updatedAt: new Date().toISOString() })));
-  await event.data.after.ref.update({
+  await distributionRef.update({
     notificationSentAt: new Date().toISOString(),
     notificationTargetDepartments: departments,
     notificationDeviceCount: uniqueDevices.length,
@@ -381,7 +370,7 @@ exports.notifyDistributedDocument = onDocumentUpdated({
     notificationFailureCount: failureCount,
     updatedAt: new Date().toISOString(),
   });
-});
+}
 
 async function loadPdf(path) {
   const [bytes] = await getStorage().bucket().file(path).download();
@@ -507,6 +496,12 @@ exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, me
     masterRef.update({ currentFileStoragePath: archivePaths[0], currentFileStoragePaths: archivePaths, updatedAt: new Date().toISOString() }),
     ...sourcePaths.map(sourcePath => getStorage().bucket().file(sourcePath).delete({ ignoreNotFound: true })),
   ]);
+  try {
+    await notifyDistributionReady(distributionId, data, distRef);
+  } catch (error) {
+    console.error('DISTRIBUTION_NOTIFICATION_FAILED', distributionId, error);
+    await distRef.update({ notificationError: String(error), updatedAt: new Date().toISOString() }).catch(() => undefined);
+  }
   return { departmentFiles, departmentFileLists };
 });
 
