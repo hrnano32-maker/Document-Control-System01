@@ -20,6 +20,7 @@ export const DownloadModal: React.FC = () => {
   const {
     selectedDistributionForDownload,
     setSelectedDistributionForDownload,
+    setSelectedDistributionForReRequest,
     downloadControlledCopy,
     updateSignature,
     currentUser,
@@ -45,6 +46,16 @@ export const DownloadModal: React.FC = () => {
   const [readyDownloads, setReadyDownloads] = useState<Array<{ url: string; name: string }>>([]);
   const [downloadingIndex, setDownloadingIndex] = useState<number | null>(null);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [isControlledFileMissing, setIsControlledFileMissing] = useState(false);
+
+  const isMissingStorageFileError = (message: string) =>
+    /storage\/object-not-found|object .* does not exist|ไม่พบไฟล์|ไฟล์.*ไม่มีอยู่/i.test(message);
+
+  const showMissingFileError = (message: string) => {
+    setIsControlledFileMissing(true);
+    setErrorMsg(`ไม่พบไฟล์ Controlled Copy ของแผนก ${dept} ในระบบ กรุณาส่งคำร้องให้ DCC สร้างไฟล์ใหม่`);
+    console.error('CONTROLLED_COPY_FILE_MISSING', { distributionId: distribution.id, dept, message });
+  };
 
   // Calculate remaining time
   const expiryTime = new Date(distribution.expirationDate).getTime();
@@ -105,7 +116,12 @@ export const DownloadModal: React.FC = () => {
           return { url, name: `CONTROLLED_${dept}_${baseName}` };
         }));
       })
-      .catch(() => { if (active) setErrorMsg('ไม่สามารถเปิดไฟล์ที่รับไว้แล้ว กรุณาติดต่อ DCC'); });
+      .catch(error => {
+        if (!active) return;
+        const message = error instanceof Error ? error.message : String(error);
+        if (isMissingStorageFileError(message)) showMissingFileError(message);
+        else setErrorMsg('ไม่สามารถเปิดไฟล์ที่รับไว้แล้ว กรุณาติดต่อ DCC');
+      });
     return () => { active = false; };
   }, [currentUser.uid, dept, distribution, isExpired, target?.isDownloaded]);
 
@@ -166,7 +182,8 @@ export const DownloadModal: React.FC = () => {
       setIsSubmitting(false);
     } else {
       setIsSubmitting(false);
-      setErrorMsg(result.message);
+      if (isMissingStorageFileError(result.message)) showMissingFileError(result.message);
+      else setErrorMsg(result.message);
     }
   };
 
@@ -243,6 +260,16 @@ export const DownloadModal: React.FC = () => {
       setDownloadingIndex(null);
       setIsDownloadingAll(false);
     }
+  };
+
+  const requestControlledFileRebuild = () => {
+    setSelectedDistributionForDownload(null);
+    setSelectedDistributionForReRequest({
+      distribution,
+      dept,
+      reasonType: 'FILE_LOST_OR_DAMAGED',
+      reasonDetails: `ระบบไม่พบไฟล์ Controlled Copy ของแผนก ${dept} ใน Firebase Storage กรุณาสร้างไฟล์ใหม่ในใบแจกจ่าย ${distribution.distributionNo} เดิม`,
+    });
   };
 
   return (
@@ -519,9 +546,21 @@ export const DownloadModal: React.FC = () => {
 
           {/* Error Message */}
           {errorMsg && (
-            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl flex items-center gap-2 text-xs">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>{errorMsg}</span>
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs space-y-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+              {isControlledFileMissing && (
+                <button
+                  type="button"
+                  id="btn-request-missing-controlled-file"
+                  onClick={requestControlledFileRebuild}
+                  className="w-full rounded-xl bg-amber-600 px-4 py-2.5 font-bold text-white hover:bg-amber-700"
+                >
+                  ร้องขอ DCC สร้างไฟล์ใหม่
+                </button>
+              )}
             </div>
           )}
 
@@ -544,7 +583,7 @@ export const DownloadModal: React.FC = () => {
               {target?.isDownloaded || isExpired ? 'ปิดหน้าต่าง' : 'ยกเลิก / ปิด'}
             </button>
 
-            {!target?.isDownloaded && readyDownloads.length === 0 && (
+            {!target?.isDownloaded && readyDownloads.length === 0 && !isControlledFileMissing && (
               <button
                 type="button"
                 id="btn-confirm-download-controlled"
