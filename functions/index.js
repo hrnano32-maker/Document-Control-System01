@@ -340,7 +340,7 @@ exports.notifyDistributedDocument = onDocumentUpdated({
   const invalidDeviceRefs = [];
   let successCount = 0;
   let failureCount = 0;
-  const url = `/?view=distribution&distributionId=${encodeURIComponent(event.params.distributionId)}`;
+  const url = `https://hrnano32-maker.github.io/Document-Control-System01/?view=distribution&distributionId=${encodeURIComponent(event.params.distributionId)}`;
   for (const deviceChunk of chunksOf(uniqueDevices, 500)) {
     const tokens = deviceChunk.map(row => row.data().token);
     const result = await getMessaging().sendEachForMulticast({
@@ -356,7 +356,11 @@ exports.notifyDistributedDocument = onDocumentUpdated({
       },
       webpush: {
         fcmOptions: { link: url },
-        notification: { icon: '/dcs-app-icon.svg', badge: '/dcs-app-icon.svg', requireInteraction: true },
+        notification: {
+          icon: 'https://hrnano32-maker.github.io/Document-Control-System01/dcs-app-icon.svg',
+          badge: 'https://hrnano32-maker.github.io/Document-Control-System01/dcs-app-icon.svg',
+          requireInteraction: true,
+        },
       },
     });
     successCount += result.successCount;
