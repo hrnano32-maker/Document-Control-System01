@@ -29,7 +29,7 @@ interface DcsContextType {
   selectedDocForModal: MasterDocument | null; setSelectedDocForModal: (doc: MasterDocument | null) => void;
   selectedDistributionForSheet: DistributionRecord | null; setSelectedDistributionForSheet: (dist: DistributionRecord | null) => void;
   selectedDistributionForDownload: { distribution: DistributionRecord; dept: Department } | null; setSelectedDistributionForDownload: (data: { distribution: DistributionRecord; dept: Department } | null) => void;
-  selectedDistributionForReRequest: { distribution: DistributionRecord; dept: Department } | null; setSelectedDistributionForReRequest: (data: { distribution: DistributionRecord; dept: Department } | null) => void;
+  selectedDistributionForReRequest: { distribution: DistributionRecord; dept: Department; reasonType?: CopyReRequest['reasonType']; reasonDetails?: string } | null; setSelectedDistributionForReRequest: (data: { distribution: DistributionRecord; dept: Department; reasonType?: CopyReRequest['reasonType']; reasonDetails?: string } | null) => void;
   isStamperOpen: boolean; setIsStamperOpen: (open: boolean) => void; stampDocData: { docNo: string; docName: string; revision: string; dept: string } | null;
   openStamperForDoc: (docNo: string, docName: string, revision: string, dept: string) => void;
   selectedDocumentForView: DocumentViewPayload | null; setSelectedDocumentForView: (payload: DocumentViewPayload | null) => void; openDocumentViewer: (payload: DocumentViewPayload) => void;
@@ -47,7 +47,7 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeView, setActiveView] = useState('dashboard'); const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [selectedDocForModal, setSelectedDocForModal] = useState<MasterDocument | null>(null); const [selectedDistributionForSheet, setSelectedDistributionForSheet] = useState<DistributionRecord | null>(null);
   const [selectedDistributionForDownload, setSelectedDistributionForDownload] = useState<{ distribution: DistributionRecord; dept: Department } | null>(null);
-  const [selectedDistributionForReRequest, setSelectedDistributionForReRequest] = useState<{ distribution: DistributionRecord; dept: Department } | null>(null);
+  const [selectedDistributionForReRequest, setSelectedDistributionForReRequest] = useState<{ distribution: DistributionRecord; dept: Department; reasonType?: CopyReRequest['reasonType']; reasonDetails?: string } | null>(null);
   const [isStamperOpen, setIsStamperOpen] = useState(false); const [stampDocData, setStampDocData] = useState<{ docNo: string; docName: string; revision: string; dept: string } | null>(null);
   const [selectedDocumentForView, setSelectedDocumentForView] = useState<DocumentViewPayload | null>(null);
 
