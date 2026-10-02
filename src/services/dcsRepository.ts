@@ -14,7 +14,7 @@ import {
 import { httpsCallable } from 'firebase/functions';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { auth, db, firebaseFunctions, storage } from '../lib/firebase';
-import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
+import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, DcsAnnouncement, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -122,6 +122,89 @@ export const subscribeAuditForUser = (user: CurrentUserSession, callback: (rows:
   const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('timestamp', 'desc')] : [where('actorDept', '==', user.currentDept), orderBy('timestamp', 'desc')];
   return onSnapshot(query(collection(db, 'dcs_audit_logs'), ...constraints), snap => callback(snap.docs.map(item => item.data() as AuditLogEntry)));
 };
+
+export const subscribeAnnouncements = (user: CurrentUserSession, callback: (rows: DcsAnnouncement[]) => void) => {
+  const constraints = user.userRole === 'DCC_ADMIN'
+    ? [orderBy('createdAt', 'desc')]
+    : [where('targetDepartments', 'array-contains', user.currentDept), orderBy('createdAt', 'desc')];
+  return onSnapshot(query(collection(db, 'dcs_announcements'), ...constraints), snap =>
+    callback(snap.docs.map(item => item.data() as DcsAnnouncement))
+  );
+};
+
+export const createAnnouncementRecord = async (
+  user: CurrentUserSession,
+  input: Pick<DcsAnnouncement, 'title' | 'details' | 'category' | 'priority' | 'effectiveDate' | 'endDate' | 'targetDepartments' | 'requireAcknowledgement'>,
+  files: File[],
+) => {
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC/Admin เท่านั้นที่สร้างประกาศได้');
+  if (!input.title.trim() || !input.details.trim()) throw new Error('กรุณาระบุหัวข้อและรายละเอียดประกาศ');
+  if (!input.targetDepartments.length) throw new Error('กรุณาเลือกหน่วยงานผู้รับอย่างน้อย 1 หน่วยงาน');
+  if (input.endDate < input.effectiveDate) throw new Error('วันสิ้นสุดต้องไม่ก่อนวันที่มีผล');
+  for (const file of files) {
+    if (file.type !== 'application/pdf' || !file.name.toLowerCase().endsWith('.pdf')) throw new Error('ไฟล์แนบประกาศต้องเป็น PDF เท่านั้น');
+    if (file.size > 25 * 1024 * 1024) throw new Error(`ไฟล์ ${file.name} มีขนาดเกิน 25 MB`);
+    const header = new Uint8Array(await file.slice(0, 5).arrayBuffer());
+    if (header.length !== 5 || header[0] !== 0x25 || header[1] !== 0x50 || header[2] !== 0x44 || header[3] !== 0x46 || header[4] !== 0x2d) throw new Error(`ไฟล์ ${file.name} ไม่ใช่ PDF ที่ถูกต้อง`);
+  }
+  const rowRef = doc(collection(db, 'dcs_announcements'));
+  const attachments: DcsAnnouncement['attachments'] = [];
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index];
+    const storagePath = `dcs/announcements/${rowRef.id}/${String(index + 1).padStart(2, '0')}-${safeName(file.name)}`;
+    await uploadBytes(ref(storage, storagePath), file, { contentType: 'application/pdf' });
+    attachments.push({ name: file.name, size: file.size, type: 'application/pdf', storagePath });
+  }
+  const now = new Date().toISOString();
+  const record: DcsAnnouncement = clean({
+    ...input,
+    title: input.title.trim(),
+    details: input.details.trim(),
+    targetDepartments: [...new Set(input.targetDepartments)],
+    id: rowRef.id,
+    attachments,
+    status: 'PUBLISHED',
+    createdAt: now,
+    createdBy: user.userName || 'DCC',
+    createdByUid: user.uid,
+    updatedAt: now,
+    reads: {},
+    acknowledgements: {},
+  });
+  await setDoc(rowRef, record);
+  const notify = httpsCallable(firebaseFunctions, 'notifyAnnouncement');
+  try { await notify({ announcementId: rowRef.id }); } catch (error) {
+    console.warn('Announcement notification could not be sent', error);
+    await updateDoc(rowRef, { notificationError: error instanceof Error ? error.message : 'ส่งแจ้งเตือนไม่สำเร็จ', updatedAt: new Date().toISOString() });
+  }
+  return rowRef.id;
+};
+
+export const updateAnnouncementRecord = async (
+  user: CurrentUserSession,
+  announcementId: string,
+  updates: Pick<DcsAnnouncement, 'title' | 'details' | 'category' | 'priority' | 'effectiveDate' | 'endDate' | 'targetDepartments' | 'requireAcknowledgement'>,
+) => {
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC/Admin เท่านั้นที่แก้ไขประกาศได้');
+  if (!updates.title.trim() || !updates.details.trim() || !updates.targetDepartments.length) throw new Error('ข้อมูลประกาศไม่ครบถ้วน');
+  if (updates.endDate < updates.effectiveDate) throw new Error('วันสิ้นสุดต้องไม่ก่อนวันที่มีผล');
+  await updateDoc(doc(db, 'dcs_announcements', announcementId), clean({ ...updates, title: updates.title.trim(), details: updates.details.trim(), targetDepartments: [...new Set(updates.targetDepartments)], updatedAt: new Date().toISOString() }));
+};
+
+export const cancelAnnouncementRecord = async (user: CurrentUserSession, announcementId: string, reason: string) => {
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC/Admin เท่านั้นที่ยกเลิกประกาศได้');
+  if (!reason.trim()) throw new Error('กรุณาระบุเหตุผลการยกเลิก');
+  const now = new Date().toISOString();
+  await updateDoc(doc(db, 'dcs_announcements', announcementId), clean({ status: 'CANCELLED', cancellationReason: reason.trim(), cancelledAt: now, cancelledBy: user.userName || 'DCC', updatedAt: now }));
+};
+
+export const recordAnnouncementActivity = async (user: CurrentUserSession, announcementId: string, kind: 'READ' | 'ACKNOWLEDGE') => {
+  const activity = clean({ department: user.currentDept, uid: user.uid, userName: user.userName || user.currentDept, timestamp: new Date().toISOString() });
+  const field = kind === 'READ' ? 'reads' : 'acknowledgements';
+  await updateDoc(doc(db, 'dcs_announcements', announcementId), { [`${field}.${user.currentDept}`]: activity, updatedAt: new Date().toISOString() });
+};
+
+export const getAnnouncementAttachmentUrl = async (storagePath: string) => getDownloadURL(ref(storage, storagePath));
 
 const actorFields = (user: CurrentUserSession) => ({
   actor: `${user.userName} (${user.currentDept})`,

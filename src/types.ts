@@ -402,7 +402,52 @@ export interface CurrentUserSession {
   signaturePath: string;
   isAuthenticated: boolean;
   mustChangePassword: boolean;
-  allowedViews: ('dashboard' | 'dar' | 'audit' | 'masterlist' | 'distribution' | 'registrations')[];
+  allowedViews: ('dashboard' | 'dar' | 'audit' | 'masterlist' | 'distribution' | 'registrations' | 'announcements')[];
+}
+
+export type AnnouncementPriority = 'NORMAL' | 'IMPORTANT' | 'URGENT';
+export type AnnouncementStatus = 'PUBLISHED' | 'CANCELLED';
+
+export interface AnnouncementAttachment {
+  name: string;
+  size: number;
+  type: 'application/pdf';
+  storagePath: string;
+}
+
+export interface AnnouncementActivity {
+  department: Department;
+  uid: string;
+  userName: string;
+  timestamp: string;
+}
+
+export interface DcsAnnouncement {
+  id: string;
+  title: string;
+  details: string;
+  category: 'ISO' | 'IATF' | 'CUSTOMER_REQUIREMENT' | 'QUALITY_NEWS' | 'OTHER';
+  priority: AnnouncementPriority;
+  effectiveDate: string;
+  endDate: string;
+  targetDepartments: Department[];
+  attachments: AnnouncementAttachment[];
+  requireAcknowledgement: boolean;
+  status: AnnouncementStatus;
+  createdAt: string;
+  createdBy: string;
+  createdByUid: string;
+  updatedAt: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
+  cancellationReason?: string;
+  reads: Partial<Record<Department, AnnouncementActivity>>;
+  acknowledgements: Partial<Record<Department, AnnouncementActivity>>;
+  notificationSentAt?: string;
+  notificationSuccessCount?: number;
+  notificationFailureCount?: number;
+  notificationDeviceCount?: number;
+  notificationError?: string;
 }
 
 export interface DocumentViewPayload {

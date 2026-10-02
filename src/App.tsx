@@ -15,6 +15,7 @@ import { LoginPage } from './components/LoginPage';
 import { COMPANY } from './config/company';
 import { UserRegistrationAdmin } from './components/UserRegistrationAdmin';
 import { PwaNotificationPrompt } from './components/PwaNotificationPrompt';
+import { Announcements } from './components/Announcements';
 
 const MainLayout: React.FC = () => {
   const { activeView, currentUser, setActiveView } = useDcs();
@@ -23,6 +24,7 @@ const MainLayout: React.FC = () => {
     if (!currentUser.isAuthenticated) return;
     const params = new URLSearchParams(window.location.search);
     if (params.get('view') === 'distribution') setActiveView('distribution');
+    if (params.get('view') === 'announcements') setActiveView('announcements');
   }, [currentUser.isAuthenticated]);
 
   if (!currentUser.isAuthenticated) {
@@ -45,6 +47,7 @@ const MainLayout: React.FC = () => {
         {activeView === 'distribution' && <DistributionManager />}
         {activeView === 'audit' && <AuditTrailView />}
         {activeView === 'registrations' && isDcc && <UserRegistrationAdmin />}
+        {activeView === 'announcements' && <Announcements />}
       </main>
 
       {/* Modals & Dialogs */}

@@ -82,6 +82,22 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /dcs_announcements/{id} {
+      allow read: if isDcc() || (activeUser() && resource.data.targetDepartments.hasAny([profile().department]));
+      allow create: if isDcc()
+        && request.resource.data.createdByUid == request.auth.uid
+        && request.resource.data.status == 'PUBLISHED';
+      allow update: if isDcc() || (
+        activeUser()
+        && resource.data.status == 'PUBLISHED'
+        && resource.data.targetDepartments.hasAny([profile().department])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reads', 'acknowledgements', 'updatedAt'])
+        && request.resource.data.reads.diff(resource.data.reads).affectedKeys().hasOnly([profile().department])
+        && request.resource.data.acknowledgements.diff(resource.data.acknowledgements).affectedKeys().hasOnly([profile().department])
+      );
+      allow delete: if false;
+    }
+
     match /dcs_audit_logs/{id} {
       allow read: if isDcc() || sameDepartment(resource.data.actorDept);
       allow create: if activeUser() && request.resource.data.actorUid == request.auth.uid;

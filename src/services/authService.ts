@@ -38,11 +38,12 @@ export const loadDcsProfile = async (user: User): Promise<CurrentUserSession> =>
 
   const defaultViews: CurrentUserSession['allowedViews'] =
     profile.role === 'DCC_ADMIN'
-      ? ['dashboard', 'masterlist', 'dar', 'distribution', 'audit']
-      : ['dashboard', 'masterlist', 'dar', 'distribution', 'audit'];
+      ? ['dashboard', 'masterlist', 'dar', 'distribution', 'audit', 'announcements']
+      : ['dashboard', 'masterlist', 'dar', 'distribution', 'audit', 'announcements'];
 
   const allowedViews = [...(profile.allowedViews || defaultViews)];
   if (profile.role === 'DCC_ADMIN' && !allowedViews.includes('registrations')) allowedViews.push('registrations');
+  if (!allowedViews.includes('announcements')) allowedViews.push('announcements');
 
   return {
     uid: user.uid,

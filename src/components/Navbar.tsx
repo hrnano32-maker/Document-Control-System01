@@ -16,6 +16,7 @@ import {
   Type,
   ZoomIn,
   UsersRound,
+  Megaphone,
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
@@ -26,6 +27,7 @@ export const Navbar: React.FC = () => {
     distributions,
     dars,
     reRequests,
+    announcements,
     logout,
     isChangePasswordOpen,
     setIsChangePasswordOpen,
@@ -83,6 +85,8 @@ export const Navbar: React.FC = () => {
   const totalNotifications = isDcc
     ? pendingDarsCount + pendingReRequestsCount
     : pendingDownloadsForMe;
+  const currentDate = new Date().toISOString().slice(0, 10);
+  const unreadAnnouncements = isDcc ? 0 : announcements.filter(item => item.status === 'PUBLISHED' && item.endDate >= currentDate && !item.reads?.[currentUser.currentDept]).length;
 
   return (
     <>
@@ -189,6 +193,16 @@ export const Navbar: React.FC = () => {
                     {pendingDownloadsForMe}
                   </span>
                 )}
+              </button>
+
+              <button
+                id="nav-tab-announcements"
+                onClick={() => setActiveView('announcements')}
+                className={`px-4 py-2.5 rounded-xl text-base font-bold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${activeView === 'announcements' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/40' : 'text-slate-300 hover:text-white hover:bg-slate-800/80'}`}
+              >
+                <Megaphone className="w-5 h-5 text-amber-300" />
+                <span>ประกาศ</span>
+                {unreadAnnouncements > 0 && <span className="bg-rose-500 text-white text-xs font-extrabold px-2 py-0.5 rounded-full">{unreadAnnouncements}</span>}
               </button>
 
               {/* Audit Trail */}
@@ -403,6 +417,14 @@ export const Navbar: React.FC = () => {
             >
               <Send className="w-4 h-4 text-cyan-400" />
               <span>แจกจ่าย</span>
+            </button>
+
+            <button
+              onClick={() => setActiveView('announcements')}
+              className={`flex-1 py-2 px-2.5 rounded-xl text-center text-xs sm:text-sm font-bold whitespace-nowrap cursor-pointer flex items-center justify-center gap-1.5 ${activeView === 'announcements' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-300 hover:text-white'}`}
+            >
+              <Megaphone className="w-4 h-4 text-amber-300" />
+              <span>ประกาศ{unreadAnnouncements > 0 ? ` (${unreadAnnouncements})` : ''}</span>
             </button>
 
             <button

@@ -315,6 +315,46 @@ exports.registerNotificationDevice = onCall({ region: REGION, timeoutSeconds: 30
 
 const chunksOf = (items, size) => Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
 
+exports.notifyAnnouncement = onCall({ region: REGION, timeoutSeconds: 120, memory: '256MiB' }, async request => {
+  await requireDcc(request);
+  const announcementId = cleanText(request.data?.announcementId, 100);
+  if (!announcementId) throw new HttpsError('invalid-argument', 'ไม่พบรหัสประกาศ');
+  const db = getFirestore();
+  const announcementRef = db.collection('dcs_announcements').doc(announcementId);
+  const snapshot = await announcementRef.get();
+  if (!snapshot.exists) throw new HttpsError('not-found', 'ไม่พบประกาศ');
+  const announcement = snapshot.data();
+  if (announcement.status !== 'PUBLISHED') throw new HttpsError('failed-precondition', 'ส่งแจ้งเตือนได้เฉพาะประกาศที่เผยแพร่แล้ว');
+  if (announcement.notificationSentAt) return { alreadySent: true };
+  const departments = [...new Set((announcement.targetDepartments || []).filter(Boolean))];
+  const deviceDocs = [];
+  for (const departmentChunk of chunksOf(departments, 10)) {
+    const deviceSnapshot = await db.collection('dcs_notification_devices').where('department', 'in', departmentChunk).get();
+    deviceDocs.push(...deviceSnapshot.docs.filter(row => row.data().active !== false && row.data().token));
+  }
+  const devices = [...new Map(deviceDocs.map(row => [row.data().token, row])).values()];
+  const invalidRefs = [];
+  let successCount = 0;
+  let failureCount = 0;
+  const url = `https://hrnano32-maker.github.io/Document-Control-System01/?view=announcements&announcementId=${encodeURIComponent(announcementId)}`;
+  for (const deviceChunk of chunksOf(devices, 500)) {
+    const result = await getMessaging().sendEachForMulticast({
+      tokens: deviceChunk.map(row => row.data().token),
+      notification: { title: announcement.priority === 'URGENT' ? 'ประกาศเร่งด่วนจาก DCC' : 'ประกาศส่วนกลางจาก DCC', body: cleanText(announcement.title, 180) },
+      data: { announcementId, url },
+      webpush: { fcmOptions: { link: url }, notification: { icon: 'https://hrnano32-maker.github.io/Document-Control-System01/dcs-app-icon.svg', badge: 'https://hrnano32-maker.github.io/Document-Control-System01/dcs-app-icon.svg', requireInteraction: announcement.priority !== 'NORMAL' } },
+    });
+    successCount += result.successCount;
+    failureCount += result.failureCount;
+    result.responses.forEach((response, index) => {
+      if (!response.success && ['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(response.error?.code)) invalidRefs.push(deviceChunk[index].ref);
+    });
+  }
+  await Promise.all(invalidRefs.map(ref => ref.update({ active: false, updatedAt: new Date().toISOString() })));
+  await announcementRef.update({ notificationSentAt: new Date().toISOString(), notificationSuccessCount: successCount, notificationFailureCount: failureCount, notificationDeviceCount: devices.length, updatedAt: new Date().toISOString() });
+  return { successCount, failureCount, deviceCount: devices.length };
+});
+
 async function notifyDistributionReady(distributionId, distribution, distributionRef) {
   if (distribution.notificationSentAt || distribution.status === 'CANCELLED') return;
   const departments = [...new Set((distribution.targetDepartments || []).filter(Boolean))];

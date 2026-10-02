@@ -36,6 +36,7 @@ export const Dashboard: React.FC = () => {
     setSelectedDistributionForSheet,
     setSelectedDistributionForReRequest,
     deleteDistribution,
+    announcements,
   } = useDcs();
 
   const [cleaningDistributionId, setCleaningDistributionId] = useState<string | null>(null);
@@ -48,6 +49,8 @@ export const Dashboard: React.FC = () => {
   const pendingDars = dars.filter(d => d.status === 'PENDING_REVIEW' || d.status === 'UNDER_REVIEW').length;
   const activeDistributions = distributions.filter(d => d.status === 'IN_PROGRESS').length;
   const pendingReRequests = reRequests.filter(r => r.status === 'PENDING').length;
+  const currentDate = new Date().toISOString().slice(0, 10);
+  const unreadAnnouncements = isDcc ? [] : announcements.filter(item => item.status === 'PUBLISHED' && item.endDate >= currentDate && !item.reads?.[currentUser.currentDept]);
 
   // Department specific stats
   const deptDistributions = distributions.filter(dist =>
@@ -139,6 +142,13 @@ export const Dashboard: React.FC = () => {
       </div>
 
       {/* Urgent Alert Banner for Non-DCC if Pending Downloads */}
+      {unreadAnnouncements.length > 0 && (
+        <div className="rounded-2xl border-2 border-indigo-300 bg-indigo-50 p-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3"><div className="rounded-xl bg-indigo-600 p-3 text-white"><Bell className="h-6 w-6"/></div><div><h3 className="font-black text-slate-900">มีประกาศส่วนกลางใหม่ {unreadAnnouncements.length} รายการ</h3><p className="mt-1 text-sm text-slate-600">ข้อมูล ISO / IATF / ข้อกำหนดลูกค้าและข่าวสารระบบคุณภาพจาก DCC</p></div></div>
+          <button onClick={() => setActiveView('announcements')} className="rounded-xl bg-indigo-600 px-4 py-2.5 font-bold text-white">เปิดดูประกาศ</button>
+        </div>
+      )}
+
       {!isDcc && deptPendingDownloads.length > 0 && (
         <div className="bg-amber-500/10 border-2 border-amber-400/80 rounded-2xl p-5 sm:p-6 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in duration-200">
           <div className="flex items-start gap-3.5">

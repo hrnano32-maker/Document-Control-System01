@@ -81,6 +81,14 @@ service firebase.storage {
       allow read, write: if isDcc();
     }
 
+    match /dcs/announcements/{announcementId}/{fileName} {
+      allow read: if activeUser() && (isDcc() || firestore.get(/databases/(default)/documents/dcs_announcements/$(announcementId)).data.targetDepartments.hasAny([profile().department]));
+      allow create, update: if isDcc() && request.resource.size < 25 * 1024 * 1024
+        && request.resource.contentType == 'application/pdf'
+        && fileName.matches('.*[.][pP][dD][fF]');
+      allow delete: if isDcc();
+    }
+
     match /dcs/distribution-sheet-signatures/{uid}/{distributionId}/{fileName} {
       allow read: if isDcc();
       allow create, update: if isDcc() && request.resource.size < 2 * 1024 * 1024
