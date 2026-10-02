@@ -27,6 +27,16 @@ export const CopyRequestModal: React.FC = () => {
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  useEffect(() => {
+    if (!selectedDistributionForReRequest) return;
+    setRequestedBy(currentUser.userName || '');
+    setEmpId(currentUser.userEmpId || '');
+    setReasonType(selectedDistributionForReRequest.reasonType || 'EXPIRED_DOWNLOAD_WINDOW');
+    setReasonDetails(selectedDistributionForReRequest.reasonDetails || '');
+    setIsSuccess(false);
+    setErrorMsg('');
+  }, [selectedDistributionForReRequest, currentUser.userName, currentUser.userEmpId]);
+
   // Close on Escape key press
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
