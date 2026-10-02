@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { DcsProvider, useDcs } from './context/DcsContext';
 import { Navbar } from './components/Navbar';
 import { Dashboard } from './components/Dashboard';
@@ -14,9 +14,16 @@ import { DocumentViewerModal } from './components/DocumentViewerModal';
 import { LoginPage } from './components/LoginPage';
 import { COMPANY } from './config/company';
 import { UserRegistrationAdmin } from './components/UserRegistrationAdmin';
+import { PwaNotificationPrompt } from './components/PwaNotificationPrompt';
 
 const MainLayout: React.FC = () => {
-  const { activeView, currentUser } = useDcs();
+  const { activeView, currentUser, setActiveView } = useDcs();
+
+  useEffect(() => {
+    if (!currentUser.isAuthenticated) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') === 'distribution') setActiveView('distribution');
+  }, [currentUser.isAuthenticated]);
 
   if (!currentUser.isAuthenticated) {
     return <LoginPage />;
@@ -46,6 +53,7 @@ const MainLayout: React.FC = () => {
       <CopyRequestModal />
       <StamperToolModal />
       <DocumentViewerModal />
+      <PwaNotificationPrompt />
 
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500 print:hidden">
