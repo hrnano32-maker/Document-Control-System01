@@ -2,10 +2,12 @@ const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 const { getAuth } = require('firebase-admin/auth');
-const { randomBytes } = require('node:crypto');
+const { getMessaging } = require('firebase-admin/messaging');
+const { randomBytes, createHash } = require('node:crypto');
 const sharp = require('sharp');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
+const { onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
 const archiver = require('archiver');
 
@@ -287,6 +289,95 @@ async function requireDcc(request) {
     throw new HttpsError('permission-denied', 'เฉพาะ DCC เท่านั้นที่ดำเนินการได้');
   }
 }
+
+exports.registerNotificationDevice = onCall({ region: REGION, timeoutSeconds: 30, memory: '256MiB' }, async request => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'กรุณาเข้าสู่ระบบ');
+  const token = cleanText(request.data?.token, 4096);
+  const requestedDepartment = cleanText(request.data?.department, 80);
+  const platform = cleanText(request.data?.platform, 500);
+  if (!token) throw new HttpsError('invalid-argument', 'ไม่พบรหัสอุปกรณ์สำหรับรับการแจ้งเตือน');
+  const db = getFirestore();
+  const profile = await db.collection('users').doc(request.auth.uid).get();
+  if (!profile.exists || profile.data().active !== true) throw new HttpsError('permission-denied', 'บัญชีนี้ยังไม่พร้อมใช้งาน');
+  const department = profile.data().department;
+  if (requestedDepartment && requestedDepartment !== department) throw new HttpsError('permission-denied', 'ไม่สามารถลงทะเบียนแจ้งเตือนแทนหน่วยงานอื่นได้');
+  const deviceId = createHash('sha256').update(token).digest('hex');
+  await db.collection('dcs_notification_devices').doc(deviceId).set({
+    uid: request.auth.uid,
+    department,
+    token,
+    platform,
+    active: true,
+    updatedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+  }, { merge: true });
+  return { registered: true, department };
+});
+
+const chunksOf = (items, size) => Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
+
+exports.notifyDistributedDocument = onDocumentUpdated({
+  document: 'dcs_distributions/{distributionId}',
+  region: REGION,
+  retry: true,
+  timeoutSeconds: 120,
+  memory: '256MiB',
+}, async event => {
+  const before = event.data?.before.data();
+  const after = event.data?.after.data();
+  if (!before || !after || before.stampStatus === 'COMPLETED' || after.stampStatus !== 'COMPLETED') return;
+  if (after.notificationSentAt || after.status === 'CANCELLED') return;
+
+  const departments = [...new Set((after.targetDepartments || []).filter(Boolean))];
+  if (!departments.length) return;
+  const db = getFirestore();
+  const deviceDocs = [];
+  for (const departmentChunk of chunksOf(departments, 10)) {
+    const snapshot = await db.collection('dcs_notification_devices').where('department', 'in', departmentChunk).get();
+    deviceDocs.push(...snapshot.docs.filter(row => row.data().active !== false && row.data().token));
+  }
+  const uniqueDevices = [...new Map(deviceDocs.map(row => [row.data().token, row])).values()];
+  const invalidDeviceRefs = [];
+  let successCount = 0;
+  let failureCount = 0;
+  const url = `/?view=distribution&distributionId=${encodeURIComponent(event.params.distributionId)}`;
+  for (const deviceChunk of chunksOf(uniqueDevices, 500)) {
+    const tokens = deviceChunk.map(row => row.data().token);
+    const result = await getMessaging().sendEachForMulticast({
+      tokens,
+      notification: {
+        title: 'มีเอกสารแจกจ่ายใหม่',
+        body: `${after.docNo || ''} ${after.docNameTh || ''} Rev.${after.revision || ''}`.trim(),
+      },
+      data: {
+        distributionId: event.params.distributionId,
+        distributionNo: String(after.distributionNo || ''),
+        url,
+      },
+      webpush: {
+        fcmOptions: { link: url },
+        notification: { icon: '/dcs-app-icon.svg', badge: '/dcs-app-icon.svg', requireInteraction: true },
+      },
+    });
+    successCount += result.successCount;
+    failureCount += result.failureCount;
+    result.responses.forEach((response, index) => {
+      if (response.success) return;
+      if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(response.error?.code)) {
+        invalidDeviceRefs.push(deviceChunk[index].ref);
+      }
+    });
+  }
+  await Promise.all(invalidDeviceRefs.map(ref => ref.update({ active: false, updatedAt: new Date().toISOString() })));
+  await event.data.after.ref.update({
+    notificationSentAt: new Date().toISOString(),
+    notificationTargetDepartments: departments,
+    notificationDeviceCount: uniqueDevices.length,
+    notificationSuccessCount: successCount,
+    notificationFailureCount: failureCount,
+    updatedAt: new Date().toISOString(),
+  });
+});
 
 async function loadPdf(path) {
   const [bytes] = await getStorage().bucket().file(path).download();
