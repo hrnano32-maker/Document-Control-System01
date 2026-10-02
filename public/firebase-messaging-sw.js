@@ -17,13 +17,14 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
 
 messaging.onBackgroundMessage(payload => {
+  const appBaseUrl = self.registration.scope;
   const title = payload.notification?.title || 'มีเอกสารแจกจ่ายใหม่';
   const options = {
     body: payload.notification?.body || 'กรุณาเข้าสู่ระบบ DCS เพื่อรับเอกสาร',
-    icon: '/dcs-app-icon.svg',
-    badge: '/dcs-app-icon.svg',
+    icon: new URL('dcs-app-icon.svg', appBaseUrl).href,
+    badge: new URL('dcs-app-icon.svg', appBaseUrl).href,
     tag: payload.data?.distributionId || 'dcs-distribution',
-    data: { url: payload.data?.url || '/?view=distribution' },
+    data: { url: payload.data?.url || new URL('?view=distribution', appBaseUrl).href },
     requireInteraction: true
   };
   return self.registration.showNotification(title, options);
@@ -31,7 +32,7 @@ messaging.onBackgroundMessage(payload => {
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  const targetUrl = new URL(event.notification.data?.url || '/?view=distribution', self.location.origin).href;
+  const targetUrl = new URL(event.notification.data?.url || '?view=distribution', self.registration.scope).href;
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const existing = windows.find(client => new URL(client.url).origin === self.location.origin);
