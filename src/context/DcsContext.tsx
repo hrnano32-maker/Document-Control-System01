@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, DcsAnnouncement, Department, DistributionRecord, DocumentViewPayload, MasterDocument } from '../types';
 import { changeDcsPassword, observeDcsAuth, signInDcsUser, signOutDcsUser, updateOwnSignature } from '../services/authService';
-import { acknowledgeDownload, cancelAnnouncementRecord, cancelDarRecord, createAnnouncementRecord, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, manageDistributionRecord, deleteDarDraftRecord, patchDarRecord, recordAnnouncementActivity, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAnnouncements, subscribeAuditForUser, subscribeMasterDocuments, subscribeCopyRequests, subscribeDars, subscribeDistributions, updateAnnouncementRecord, writeAudit } from '../services/dcsRepository';
+import { acknowledgeDownload, cancelAnnouncementRecord, cancelDarRecord, createAnnouncementRecord, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, manageDistributionRecord, deleteDarDraftRecord, patchDarRecord, recordAnnouncementActivity, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAnnouncements, subscribeAuditForUser, subscribeMasterDocuments, subscribeMasterListRegistry, subscribeCopyRequests, subscribeDars, subscribeDistributions, updateAnnouncementRecord, writeAudit } from '../services/dcsRepository';
 
 type Result = { success: boolean; message: string; downloadUrl?: string; downloadUrls?: string[] };
 interface DcsContextType {
@@ -9,7 +9,7 @@ interface DcsContextType {
   login: (username: string, password: string, rememberMe?: boolean) => Promise<Result>; logout: () => void;
   changePassword: (oldPassword: string, newPassword: string) => Promise<Result>; isChangePasswordOpen: boolean; setIsChangePasswordOpen: (open: boolean) => void;
   updateSignature: (signatureDataUrl: string) => Promise<Result>;
-  documents: MasterDocument[]; addDocument: (doc: Omit<MasterDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'>) => Promise<void>;
+  documents: MasterDocument[]; masterListDocuments: MasterDocument[]; addDocument: (doc: Omit<MasterDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'>) => Promise<void>;
   updateDocumentRevision: (docId: string, newRev: string, effectiveDate: string, darNo: string, reason: string, driveLink: string) => Promise<void>;
   dars: DarRecord[]; createDar: (dar: Omit<DarRecord, 'id' | 'requestDate' | 'status'>) => Promise<string>;
   reviewDar: (darId: string, status: 'APPROVED' | 'REJECTED' | 'UNDER_REVIEW', remarks: string) => Promise<void>;
@@ -47,7 +47,7 @@ const hydrateDistribution = (row: any): DistributionRecord => ({ ...row, targets
 
 export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<CurrentUserSession>(emptySession());
-  const [documents, setDocuments] = useState<MasterDocument[]>([]); const [dars, setDars] = useState<DarRecord[]>([]);
+  const [documents, setDocuments] = useState<MasterDocument[]>([]); const [masterListDocuments, setMasterListDocuments] = useState<MasterDocument[]>([]); const [dars, setDars] = useState<DarRecord[]>([]);
   const [distributions, setDistributions] = useState<DistributionRecord[]>([]); const [reRequests, setReRequests] = useState<CopyReRequest[]>([]); const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [announcements, setAnnouncements] = useState<DcsAnnouncement[]>([]);
   const [activeView, setActiveView] = useState('dashboard'); const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
@@ -63,8 +63,8 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (session?.mustChangePassword) setIsChangePasswordOpen(true);
   }), []);
   useEffect(() => {
-    if (!currentUser.isAuthenticated) { setDocuments([]); setDars([]); setDistributions([]); setReRequests([]); setAuditLogs([]); setAnnouncements([]); return; }
-    const stops = [subscribeMasterDocuments(currentUser, setDocuments), subscribeDars(currentUser, setDars), subscribeDistributions(currentUser, rows => setDistributions(rows.map(hydrateDistribution))), subscribeCopyRequests(currentUser, setReRequests), subscribeAuditForUser(currentUser, setAuditLogs), subscribeAnnouncements(currentUser, setAnnouncements)];
+    if (!currentUser.isAuthenticated) { setDocuments([]); setMasterListDocuments([]); setDars([]); setDistributions([]); setReRequests([]); setAuditLogs([]); setAnnouncements([]); return; }
+    const stops = [subscribeMasterDocuments(currentUser, setDocuments), subscribeMasterListRegistry(setMasterListDocuments), subscribeDars(currentUser, setDars), subscribeDistributions(currentUser, rows => setDistributions(rows.map(hydrateDistribution))), subscribeCopyRequests(currentUser, setReRequests), subscribeAuditForUser(currentUser, setAuditLogs), subscribeAnnouncements(currentUser, setAnnouncements)];
     return () => stops.forEach(stop => stop());
   }, [currentUser.isAuthenticated, currentUser.uid]);
 
@@ -78,7 +78,7 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const value: DcsContextType = {
     currentUser, setUserName: name => setCurrentUser(prev => ({ ...prev, userName: name })), login, logout: () => { void signOutDcsUser(); setCurrentUser(emptySession()); }, changePassword, updateSignature, isChangePasswordOpen, setIsChangePasswordOpen: open => { if (!open && currentUser.mustChangePassword) return; setIsChangePasswordOpen(open); },
-    documents, addDocument: input => saveMasterDocument(currentUser, input), updateDocumentRevision: (id, rev, date, darNo, reason, link) => reviseMasterDocument(currentUser, needDoc(id), rev, date, darNo, reason, link),
+    documents, masterListDocuments, addDocument: input => saveMasterDocument(currentUser, input), updateDocumentRevision: (id, rev, date, darNo, reason, link) => reviseMasterDocument(currentUser, needDoc(id), rev, date, darNo, reason, link),
     dars, createDar: input => createDarRecord(currentUser, input), reviewDar: (id, status, remarks) => reviewDarRecord(currentUser, needDar(id), status, remarks), cancelDar: (id, reason) => cancelDarRecord(currentUser, needDar(id), reason), deleteDar: id => deleteDarDraftRecord(currentUser, needDar(id)), updateDarSignatures: patchDarRecord, registerDarToMasterList: id => registerDarRecord(currentUser, needDar(id)),
     distributions, createDistribution: (id, depts, instructions, files, onProgress) => createDistributionRecord(currentUser, needDoc(id), depts, instructions, files, onProgress), cancelDistribution: (id, reason) => manageDistributionRecord(currentUser, needDist(id), 'CANCEL', reason), deleteDistribution: id => manageDistributionRecord(currentUser, needDist(id), 'DELETE'), downloadControlledCopy,
     reRequests, createReRequest: (id, dept, name, empId, reason, details) => createCopyRequestRecord(currentUser, needDist(id), dept, name, empId, reason, details), reviewReRequest: async (id, approve, note, _days, files) => { const row = reRequests.find(x => x.id === id); if (!row) throw new Error('ไม่พบคำขอ'); await decideCopyRequest(currentUser, row, approve, note, files); },
