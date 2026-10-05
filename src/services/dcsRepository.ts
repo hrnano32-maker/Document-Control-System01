@@ -214,6 +214,36 @@ export const recordAnnouncementActivity = async (user: CurrentUserSession, annou
 
 export const getAnnouncementAttachmentUrl = async (storagePath: string) => getDownloadURL(ref(storage, storagePath));
 
+export const downloadAnnouncementAttachment = async (
+  storagePath: string,
+  onProgress?: (percent: number) => void,
+): Promise<Blob> => {
+  const url = await getDownloadURL(ref(storage, storagePath));
+  onProgress?.(2);
+  return new Promise<Blob>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('GET', url, true);
+    request.responseType = 'blob';
+    request.timeout = 180000;
+    request.onprogress = event => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress?.(Math.max(3, Math.min(98, Math.round((event.loaded / event.total) * 100))));
+      }
+    };
+    request.onload = () => {
+      if (request.status >= 200 && request.status < 300 && request.response instanceof Blob) {
+        onProgress?.(100);
+        resolve(request.response);
+        return;
+      }
+      reject(new Error(`Storage ตอบกลับด้วยรหัส ${request.status || 'unknown'}`));
+    };
+    request.onerror = () => reject(new Error('ไม่สามารถเชื่อมต่อ Firebase Storage ได้'));
+    request.ontimeout = () => reject(new Error('หมดเวลารอรับไฟล์ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่'));
+    request.send();
+  });
+};
+
 const actorFields = (user: CurrentUserSession) => ({
   actor: `${user.userName} (${user.currentDept})`,
   actorDept: user.currentDept,
