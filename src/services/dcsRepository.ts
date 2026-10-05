@@ -42,6 +42,14 @@ export const subscribeMasterDocuments = (user: CurrentUserSession, callback: (ro
   );
 };
 
+// Full registry used only to build each department's automatic Master List.
+// Visibility is narrowed in MasterListView to owned documents plus documents
+// explicitly assigned to the signed-in department by a distribution record.
+export const subscribeMasterListRegistry = (callback: (rows: MasterDocument[]) => void) =>
+  onSnapshot(query(collection(db, 'dcs_documents'), orderBy('createdAt', 'desc')), snap =>
+    callback(snap.docs.map(item => item.data() as MasterDocument))
+  );
+
 export const subscribeAudit = (callback: (rows: AuditLogEntry[]) => void) =>
   onSnapshot(query(collection(db, 'dcs_audit_logs'), orderBy('timestamp', 'desc')), snap => {
     callback(snap.docs.map(item => item.data() as AuditLogEntry));
