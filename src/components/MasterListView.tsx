@@ -237,15 +237,18 @@ export const MasterListView: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3.5">
           
           {/* Search Bar */}
-          <div className="relative md:col-span-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="ค้นหาชื่อเอกสาร, รหัส หรือ DAR..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50"
-            />
+          <div className="md:col-span-1">
+            <label className="block text-xs font-bold text-slate-600 mb-1">ค้นหาเอกสาร:</label>
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="ค้นหาชื่อเอกสาร, รหัส หรือ DAR..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50"
+              />
+            </div>
           </div>
 
           {/* Type Filter */}
