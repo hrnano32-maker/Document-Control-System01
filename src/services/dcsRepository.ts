@@ -218,30 +218,29 @@ export const downloadAnnouncementAttachment = async (
   storagePath: string,
   onProgress?: (percent: number) => void,
 ): Promise<Blob> => {
-  const url = await getDownloadURL(ref(storage, storagePath));
-  onProgress?.(2);
-  return new Promise<Blob>((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open('GET', url, true);
-    request.responseType = 'blob';
-    request.timeout = 180000;
-    request.onprogress = event => {
-      if (event.lengthComputable && event.total > 0) {
-        onProgress?.(Math.max(3, Math.min(98, Math.round((event.loaded / event.total) * 100))));
-      }
-    };
-    request.onload = () => {
-      if (request.status >= 200 && request.status < 300 && request.response instanceof Blob) {
-        onProgress?.(100);
-        resolve(request.response);
-        return;
-      }
-      reject(new Error(`Storage ตอบกลับด้วยรหัส ${request.status || 'unknown'}`));
-    };
-    request.onerror = () => reject(new Error('ไม่สามารถเชื่อมต่อ Firebase Storage ได้'));
-    request.ontimeout = () => reject(new Error('หมดเวลารอรับไฟล์ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่'));
-    request.send();
-  });
+  onProgress?.(3);
+  let estimatedProgress = 3;
+  const progressTimer = window.setInterval(() => {
+    estimatedProgress = Math.min(92, estimatedProgress + (estimatedProgress < 45 ? 7 : 3));
+    onProgress?.(estimatedProgress);
+  }, 450);
+  try {
+    // Firebase SDK attaches the active user's auth token and applies its own
+    // retry logic. This avoids the cross-origin failure from fetching the
+    // public download URL directly in Chrome/PWA.
+    const { getBlob } = await import('firebase/storage');
+    const blob = await getBlob(ref(storage, storagePath), 25 * 1024 * 1024);
+    onProgress?.(100);
+    return blob;
+  } catch (error) {
+    const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+    if (code.includes('unauthorized')) throw new Error('บัญชีนี้ไม่มีสิทธิ์ดาวน์โหลดไฟล์ประกาศ กรุณาให้ DCC ตรวจสอบรายชื่อหน่วยงานผู้รับและ Storage Rules');
+    if (code.includes('object-not-found')) throw new Error('ไม่พบไฟล์ใน Firebase Storage กรุณาให้ DCC แนบไฟล์ใหม่');
+    if (code.includes('retry-limit-exceeded')) throw new Error('การเชื่อมต่อใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่');
+    throw error;
+  } finally {
+    window.clearInterval(progressTimer);
+  }
 };
 
 const actorFields = (user: CurrentUserSession) => ({
