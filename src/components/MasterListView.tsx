@@ -28,7 +28,8 @@ import {
 
 export const MasterListView: React.FC = () => {
   const {
-    documents,
+    masterListDocuments,
+    distributions,
     currentUser,
     setActiveView,
     openStamperForDoc,
@@ -67,8 +68,20 @@ export const MasterListView: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedDocForHistory, quickDistributeDoc, isPrintModalOpen]);
 
+  // Automatic departmental Master List: documents owned by this department
+  // plus every document actively distributed to this department.
+  const accessibleDocuments = masterListDocuments.filter(doc => {
+    if (currentUser.userRole === 'DCC_ADMIN') return true;
+    if (doc.ownerDept === currentUser.currentDept) return true;
+    return distributions.some(distribution =>
+      distribution.status !== 'CANCELLED'
+      && distribution.docId === doc.id
+      && distribution.targetDepartments.includes(currentUser.currentDept)
+    );
+  });
+
   // Filter documents
-  const filteredDocs = documents.filter(doc => {
+  const filteredDocs = accessibleDocuments.filter(doc => {
     const matchSearch =
       doc.docNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
       doc.docNameTh.toLowerCase().includes(searchQuery.toLowerCase()) ||
