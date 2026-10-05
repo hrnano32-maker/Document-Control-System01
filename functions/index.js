@@ -998,3 +998,61 @@ exports.downloadControlledCopyFile = onRequest({
     else response.destroy(error);
   }
 });
+
+exports.downloadAnnouncementFile = onRequest({
+  region: REGION,
+  timeoutSeconds: 120,
+  memory: '512MiB',
+}, async (request, response) => {
+  setDownloadCors(response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'GET') return response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
+
+  try {
+    const authorization = String(request.get('authorization') || '');
+    if (!authorization.startsWith('Bearer ')) return response.status(401).json({ error: 'UNAUTHENTICATED' });
+    const decoded = await getAuth().verifyIdToken(authorization.slice(7));
+    const announcementId = cleanText(request.query.announcementId, 100);
+    const index = Number(request.query.index);
+    if (!announcementId || !Number.isInteger(index) || index < 0) return response.status(400).json({ error: 'INVALID_REQUEST' });
+
+    const db = getFirestore();
+    const [profileSnapshot, announcementSnapshot] = await Promise.all([
+      db.collection('users').doc(decoded.uid).get(),
+      db.collection('dcs_announcements').doc(announcementId).get(),
+    ]);
+    if (!profileSnapshot.exists || profileSnapshot.data().active !== true) return response.status(403).json({ error: 'INACTIVE_USER' });
+    if (!announcementSnapshot.exists) return response.status(404).json({ error: 'ANNOUNCEMENT_NOT_FOUND' });
+
+    const profile = profileSnapshot.data();
+    const announcement = announcementSnapshot.data();
+    if (profile.role !== 'DCC_ADMIN' && !announcement.targetDepartments?.includes(profile.department)) {
+      return response.status(403).json({ error: 'NOT_A_RECIPIENT' });
+    }
+    const attachment = announcement.attachments?.[index];
+    if (!attachment?.storagePath || !attachment.storagePath.startsWith(`dcs/announcements/${announcementId}/`)) {
+      return response.status(404).json({ error: 'FILE_NOT_FOUND' });
+    }
+
+    const file = getStorage().bucket().file(attachment.storagePath);
+    const [exists] = await file.exists();
+    if (!exists) return response.status(404).json({ error: 'FILE_NOT_FOUND' });
+    const [metadata] = await file.getMetadata();
+    const outputName = safeSegment(attachment.name || `announcement-${index + 1}.pdf`);
+    response.status(200);
+    response.set('Content-Type', 'application/pdf');
+    response.set('Content-Disposition', `attachment; filename="${outputName}"`);
+    if (metadata.size) response.set('Content-Length', String(metadata.size));
+    await new Promise((resolve, reject) => {
+      const stream = file.createReadStream();
+      stream.once('error', reject);
+      response.once('finish', resolve);
+      response.once('error', reject);
+      stream.pipe(response);
+    });
+  } catch (error) {
+    console.error('ANNOUNCEMENT_DOWNLOAD_FAILED', error);
+    if (!response.headersSent) response.status(500).json({ error: 'DOWNLOAD_FAILED' });
+    else response.destroy(error);
+  }
+});
