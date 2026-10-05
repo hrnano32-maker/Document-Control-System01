@@ -51,7 +51,17 @@ service cloud.firestore {
       allow create: if activeUser()
         && sameDepartment(request.resource.data.requestDept)
         && request.resource.data.status == 'PENDING_REVIEW'
-        && request.resource.data.requesterName is string;
+        && request.resource.data.requesterName is string
+        && request.resource.data.requesterName.size() > 0
+        && request.resource.data.requesterSignature is string
+        && request.resource.data.requesterSignature.size() > 0
+        && request.resource.data.deptApproverName is string
+        && request.resource.data.deptApproverName.size() > 0
+        && request.resource.data.deptApproverTitle is string
+        && request.resource.data.deptApproverTitle.size() > 0
+        && request.resource.data.deptApproverDate is string
+        && request.resource.data.deptApproverSignature is string
+        && request.resource.data.deptApproverSignature.size() > 0;
       allow update: if isDcc() || (
         sameDepartment(resource.data.requestDept) &&
         resource.data.status in ['PENDING_REVIEW', 'UNDER_REVIEW'] &&

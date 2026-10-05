@@ -48,6 +48,7 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
   const [requesterDate, setRequesterDate] = useState<string>(dar.requestDate || new Date().toISOString().split('T')[0]);
 
   const [deptManagerName, setDeptManagerName] = useState<string>(dar.deptApproverName || `ผู้จัดการฝ่าย ${dar.requestDept}`);
+  const [deptManagerTitle] = useState<string>(dar.deptApproverTitle || '');
   const [deptManagerDate, setDeptManagerDate] = useState<string>(dar.deptApproverDate || dar.requestDate);
   const [deptManagerSig, setDeptManagerSig] = useState<string | undefined>(dar.deptApproverSignature);
 
@@ -140,6 +141,7 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
       requestDate: requesterDate,
       requesterSignature: requesterSig,
       deptApproverName: deptManagerName,
+      deptApproverTitle: deptManagerTitle,
       deptApproverDate: deptManagerDate,
       deptApproverSignature: deptManagerSig,
       qmrName: qmrName,
@@ -909,6 +911,7 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
                       <div className="font-medium">
                         ({deptManagerName || '…………………………'})
                       </div>
+                      {deptManagerTitle && <div className="text-[9px] text-slate-600 mt-0.5">{deptManagerTitle}</div>}
                       <div className="text-[9px] text-slate-600 mt-0.5">
                         ({formatThaiDate(deptManagerDate)})
                       </div>

@@ -113,6 +113,10 @@ export const DarManagement: React.FC = () => {
     dataUrl?: string;
   } | null>(null);
   const [requesterSignature, setRequesterSignature] = useState<string | undefined>(undefined);
+  const [deptApproverName, setDeptApproverName] = useState('');
+  const [deptApproverTitle, setDeptApproverTitle] = useState('');
+  const [deptApproverDate, setDeptApproverDate] = useState(new Date().toISOString().split('T')[0]);
+  const [deptApproverSignature, setDeptApproverSignature] = useState<string | undefined>(undefined);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
   const handleDarAttachment = async (file: File) => {
@@ -251,6 +255,16 @@ export const DarManagement: React.FC = () => {
       return;
     }
 
+    if (!requesterSignature) {
+      setFormError('กรุณาลงลายเซ็นผู้ยื่นคำขอก่อนส่งใบ DAR');
+      return;
+    }
+
+    if (!deptApproverName.trim() || !deptApproverTitle.trim() || !deptApproverDate || !deptApproverSignature) {
+      setFormError('กรุณากรอกชื่อ ตำแหน่ง วันที่ และลายเซ็นผู้อนุมัติในหน่วยงานให้ครบก่อนส่งใบ DAR');
+      return;
+    }
+
     // Revision skip validation enforcement
     if (revAnalysis.isSkipped && !skippedRevisionReason.trim()) {
       setFormError(
@@ -292,6 +306,10 @@ export const DarManagement: React.FC = () => {
       attachmentFileType: attachedFile?.type,
       attachmentFileDataUrl: attachedFile?.dataUrl,
       requesterSignature: requesterSignature,
+      deptApproverName: deptApproverName.trim(),
+      deptApproverTitle: deptApproverTitle.trim(),
+      deptApproverDate,
+      deptApproverSignature,
       distributionHolders: darDistributionHolders,
       });
     } catch (error) {
@@ -1361,6 +1379,57 @@ export const DarManagement: React.FC = () => {
                     >
                       ✍️ เซ็นชื่อด่วน (Digital Stamp)
                     </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Requesting Department Approver */}
+              <div className="p-3 bg-amber-50/70 border border-amber-300 rounded-xl space-y-3">
+                <div>
+                  <h3 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-amber-700" />
+                    การอนุมัติจากหน่วยงานผู้ร้องขอ (Department Approver)
+                    <span className="text-rose-500">*</span>
+                  </h3>
+                  <p className="text-[10px] text-slate-600 mt-1">ต้องกรอกและลงนามให้ครบก่อนส่งใบ DAR ถึง DCC — ไม่รวมลายเซ็น QMR</p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <label className="text-[11px] font-bold text-slate-700">
+                    ชื่อผู้อนุมัติ <span className="text-rose-500">*</span>
+                    <input type="text" value={deptApproverName} onChange={e => setDeptApproverName(e.target.value)} placeholder="ระบุชื่อ-นามสกุลจริงผู้อนุมัติ" className="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none" required />
+                  </label>
+                  <label className="text-[11px] font-bold text-slate-700">
+                    ตำแหน่งผู้อนุมัติ <span className="text-rose-500">*</span>
+                    <input type="text" value={deptApproverTitle} onChange={e => setDeptApproverTitle(e.target.value)} placeholder="เช่น Manager / Asst. Manager" className="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none" required />
+                  </label>
+                  <label className="text-[11px] font-bold text-slate-700">
+                    วันที่อนุมัติ <span className="text-rose-500">*</span>
+                    <input type="date" value={deptApproverDate} onChange={e => setDeptApproverDate(e.target.value)} className="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none" required />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                  <div
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => {
+                      e.preventDefault();
+                      const file = e.dataTransfer.files?.[0];
+                      if (!file?.type.startsWith('image/')) return;
+                      const reader = new FileReader();
+                      reader.onload = event => setDeptApproverSignature(event.target?.result as string);
+                      reader.readAsDataURL(file);
+                    }}
+                    className="h-20 border border-dashed border-amber-400 rounded-lg bg-white flex items-center justify-center relative overflow-hidden group"
+                  >
+                    {deptApproverSignature ? <div className="relative w-full h-full flex items-center justify-center p-1"><img src={deptApproverSignature} alt="Department Approver Signature" className="max-h-full max-w-full object-contain"/><button type="button" onClick={() => setDeptApproverSignature(undefined)} className="absolute top-1 right-1 p-1 bg-rose-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity" title="ลบลายเซ็น"><Trash2 className="w-3 h-3"/></button></div> : <span className="text-[10px] text-slate-400">ลากรูปภาพลายเซ็นผู้อนุมัติมาวางที่นี่</span>}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold text-center cursor-pointer">
+                      เลือกไฟล์ลายเซ็นผู้อนุมัติ
+                      <input type="file" accept="image/*" className="hidden" onChange={e => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = event => setDeptApproverSignature(event.target?.result as string); reader.readAsDataURL(file); }} />
+                    </label>
+                    <button type="button" onClick={() => { if (!deptApproverName.trim()) { setFormError('กรุณาระบุชื่อผู้อนุมัติก่อนกดเซ็นด่วน'); return; } const canvas = document.createElement('canvas'); canvas.width = 240; canvas.height = 80; const ctx = canvas.getContext('2d'); if (ctx) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.font = 'italic bold 22px cursive, sans-serif'; ctx.fillStyle = '#0f172a'; ctx.fillText(deptApproverName.split(' ')[0], 25, 45); ctx.strokeStyle = '#b45309'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(20, 52); ctx.bezierCurveTo(80, 58, 140, 42, 210, 55); ctx.stroke(); setDeptApproverSignature(canvas.toDataURL('image/png')); setFormError(''); } }} className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold">✍️ เซ็นชื่อด่วนผู้อนุมัติ</button>
                   </div>
                 </div>
               </div>
