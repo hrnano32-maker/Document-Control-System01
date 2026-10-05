@@ -923,16 +923,16 @@ export const DarManagement: React.FC = () => {
             <form
               onSubmit={handleCreateSubmit}
               className="p-4 xl:grid gap-4 max-h-[82vh] overflow-hidden text-xs text-slate-800"
-              style={{ gridTemplateColumns: 'minmax(720px, 1fr) 500px' }}
+              style={{ gridTemplateColumns: 'minmax(0, 1fr) 430px' }}
             >
-              <div className="space-y-4 overflow-y-auto pr-1 xl:pr-3 pb-6">
+              <div className="min-w-0 space-y-4 overflow-y-auto overflow-x-hidden pr-1 xl:pr-3 pb-6">
               
               {/* Type selector */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1.5">
                   ประเภทการขอดำเนินการ (Action Type) <span className="text-rose-500">*</span>
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 [&>*]:min-w-0">
                   <button
                     type="button"
                     onClick={() => {
@@ -940,7 +940,7 @@ export const DarManagement: React.FC = () => {
                       setCurrentRevision('N/A');
                       setProposedRevision('00');
                     }}
-                    className={`py-2 px-3 rounded-xl font-bold text-xs border text-center cursor-pointer transition-all ${
+                    className={`min-w-0 whitespace-normal py-2 px-2 rounded-xl font-bold text-xs border text-center cursor-pointer transition-all ${
                       reqType === 'NEW'
                         ? 'bg-emerald-50 border-emerald-500 text-emerald-800 ring-2 ring-emerald-300'
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -956,7 +956,7 @@ export const DarManagement: React.FC = () => {
                       setCurrentRevision('01');
                       setProposedRevision('02');
                     }}
-                    className={`py-2 px-3 rounded-xl font-bold text-xs border text-center cursor-pointer transition-all ${
+                    className={`min-w-0 whitespace-normal py-2 px-2 rounded-xl font-bold text-xs border text-center cursor-pointer transition-all ${
                       reqType === 'REVISION'
                         ? 'bg-blue-50 border-blue-500 text-blue-800 ring-2 ring-blue-300'
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -971,7 +971,7 @@ export const DarManagement: React.FC = () => {
                       setReqType('OBSOLETE');
                       setProposedRevision('OBSOLETE');
                     }}
-                    className={`py-2 px-3 rounded-xl font-bold text-xs border text-center cursor-pointer transition-all ${
+                    className={`min-w-0 whitespace-normal py-2 px-2 rounded-xl font-bold text-xs border text-center cursor-pointer transition-all ${
                       reqType === 'OBSOLETE'
                         ? 'bg-rose-50 border-rose-500 text-rose-800 ring-2 ring-rose-300'
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -983,7 +983,7 @@ export const DarManagement: React.FC = () => {
               </div>
 
               {/* Requester Details */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 p-4 bg-slate-50 border border-slate-200 rounded-xl [&>*]:min-w-0">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     หน่วยงานผู้ขอ <span className="text-rose-500">*</span>
@@ -1028,7 +1028,7 @@ export const DarManagement: React.FC = () => {
               </div>
 
               {/* Document Identity */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)_minmax(180px,0.85fr)] gap-3.5 [&>*]:min-w-0">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     รหัสเอกสาร (Doc No.) <span className="text-rose-500">*</span>
@@ -1050,7 +1050,7 @@ export const DarManagement: React.FC = () => {
                   <select
                     value={docType}
                     onChange={e => setDocType(e.target.value as any)}
-                    className="w-full px-3.5 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    className="min-w-0 w-full px-3.5 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   >
                     {DOCUMENT_TYPES.map(t => (
                       <option key={t.code} value={t.code}>[Level {t.level}] {t.code} - {t.labelTh} ({t.codePattern})</option>
@@ -1087,7 +1087,7 @@ export const DarManagement: React.FC = () => {
               </div>
 
               {/* Names */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 [&>*]:min-w-0">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     ชื่อเอกสารภาษาไทย <span className="text-rose-500">*</span>
