@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { DarPrintModal } from './DarPrintModal';
+import { DarLivePreview } from './DarLivePreview';
 import { analyzeRevisionSequence, getNextRevision, formatRevision } from '../utils/revisionHelper';
 
 export const DarManagement: React.FC = () => {
@@ -64,6 +65,7 @@ export const DarManagement: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedDarForReview, setSelectedDarForReview] = useState<DarRecord | null>(null);
   const [selectedDarForPrint, setSelectedDarForPrint] = useState<DarRecord | null>(null);
+  const [showMobileLivePreview, setShowMobileLivePreview] = useState(false);
   const [registeringDarId, setRegisteringDarId] = useState<string | null>(null);
   const [downloadingDarId, setDownloadingDarId] = useState<string | null>(null);
 
@@ -572,7 +574,7 @@ export const DarManagement: React.FC = () => {
           }}
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto"
         >
-          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-8">
+          <div className="bg-white rounded-2xl max-w-[1500px] w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-8">
             
             <div className="bg-slate-900 text-white p-5 flex items-start justify-between">
               <div className="flex items-center gap-2.5">
@@ -898,19 +900,25 @@ export const DarManagement: React.FC = () => {
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                id="btn-close-dar-create-header"
-                onClick={() => setIsCreateModalOpen(false)}
-                aria-label="ปิดหน้าต่าง"
-                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1 text-xs"
-                title="ปิดหน้าต่าง (Esc)"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setShowMobileLivePreview(true)} className="xl:hidden px-3 py-1.5 rounded-lg bg-indigo-500/30 hover:bg-indigo-500/50 text-indigo-100 text-xs font-bold flex items-center gap-1.5">
+                  <Eye className="w-4 h-4" /> ดูตัวอย่างใบ DAR
+                </button>
+                <button
+                  type="button"
+                  id="btn-close-dar-create-header"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  aria-label="ปิดหน้าต่าง"
+                  className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1 text-xs"
+                  title="ปิดหน้าต่าง (Esc)"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            <form onSubmit={handleCreateSubmit} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs text-slate-800">
+            <form onSubmit={handleCreateSubmit} className="p-4 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_520px] gap-4 max-h-[82vh] overflow-hidden text-xs text-slate-800">
+              <div className="space-y-4 overflow-y-auto pr-1 xl:pr-3 pb-6">
               
               {/* Type selector */}
               <div>
@@ -1534,7 +1542,59 @@ export const DarManagement: React.FC = () => {
                 </button>
               </div>
 
+              </div>
+
+              <aside className="hidden xl:flex min-h-0 bg-slate-200/70 border border-slate-300 rounded-xl p-3 flex-col overflow-hidden">
+                <div className="flex items-center justify-between mb-2 shrink-0">
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900 flex items-center gap-1.5"><Eye className="w-4 h-4 text-indigo-600" /> ตัวอย่างใบ DAR แบบเรียลไทม์</h4>
+                    <p className="text-[10px] text-slate-500">ข้อมูลจะเปลี่ยนทันทีขณะกรอก โดยยังไม่สร้างเลขที่ DAR</p>
+                  </div>
+                  <span className="text-[10px] font-black text-rose-600 border border-rose-300 bg-rose-50 rounded px-2 py-1">DRAFT</span>
+                </div>
+                <div className="min-h-0 overflow-y-auto pr-1">
+                  <DarLivePreview
+                    requestType={reqType}
+                    requestDept={reqDept}
+                    requesterName={requesterName}
+                    targetEffectiveDate={targetEffectiveDate}
+                    docNo={docNo}
+                    docNameTh={docNameTh}
+                    docNameEn={docNameEn}
+                    docType={docType}
+                    currentRevision={currentRevision}
+                    proposedRevision={proposedRevision}
+                    reasonForChange={reasonForChange}
+                    additionalDocuments={additionalDocuments}
+                    requesterSignature={requesterSignature}
+                    approverName={deptApproverName}
+                    approverDate={deptApproverDate}
+                    approverSignature={deptApproverSignature}
+                    distributionHolders={darDistributionHolders}
+                  />
+                </div>
+              </aside>
+
             </form>
+
+            {showMobileLivePreview && (
+              <div className="fixed inset-0 z-[70] bg-slate-950/90 p-3 sm:p-6 overflow-y-auto xl:hidden">
+                <div className="max-w-xl mx-auto">
+                  <div className="sticky top-0 z-10 bg-slate-900 text-white rounded-t-xl px-4 py-3 flex items-center justify-between">
+                    <div><b className="text-sm">ตัวอย่างใบ DAR แบบเรียลไทม์</b><div className="text-[10px] text-slate-300">ฉบับร่างก่อนส่งให้ DCC</div></div>
+                    <button type="button" onClick={() => setShowMobileLivePreview(false)} className="p-2 rounded-lg hover:bg-slate-700" aria-label="ปิดตัวอย่าง"><X className="w-5 h-5" /></button>
+                  </div>
+                  <DarLivePreview
+                    requestType={reqType} requestDept={reqDept} requesterName={requesterName} targetEffectiveDate={targetEffectiveDate}
+                    docNo={docNo} docNameTh={docNameTh} docNameEn={docNameEn} docType={docType}
+                    currentRevision={currentRevision} proposedRevision={proposedRevision} reasonForChange={reasonForChange}
+                    additionalDocuments={additionalDocuments} requesterSignature={requesterSignature}
+                    approverName={deptApproverName} approverDate={deptApproverDate} approverSignature={deptApproverSignature}
+                    distributionHolders={darDistributionHolders}
+                  />
+                </div>
+              </div>
+            )}
 
           </div>
         </div>
