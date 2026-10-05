@@ -885,9 +885,12 @@ export const DarManagement: React.FC = () => {
           onClick={(e) => {
             if (e.target === e.currentTarget) setIsCreateModalOpen(false);
           }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto"
+          className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-3 bg-slate-950/70 backdrop-blur-xs overflow-hidden"
         >
-          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-8">
+          <div
+            className="bg-white rounded-2xl w-full max-w-none shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col"
+            style={{ width: 'calc(100vw - 24px)', height: 'calc(100vh - 24px)' }}
+          >
             
             <div className="bg-gradient-to-r from-indigo-900 to-slate-900 text-white p-5 flex items-start justify-between">
               <div className="flex items-center gap-2.5">
@@ -904,7 +907,7 @@ export const DarManagement: React.FC = () => {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setShowMobileLivePreview(true)} className="xl:hidden px-3 py-1.5 rounded-lg bg-indigo-500/30 hover:bg-indigo-500/50 text-indigo-100 text-xs font-bold flex items-center gap-1.5">
+                <button type="button" onClick={() => setShowMobileLivePreview(true)} className="lg:hidden px-3 py-1.5 rounded-lg bg-indigo-500/30 hover:bg-indigo-500/50 text-indigo-100 text-xs font-bold flex items-center gap-1.5">
                   <Eye className="w-4 h-4" /> ดูตัวอย่างใบ DAR
                 </button>
                 <button
@@ -922,10 +925,10 @@ export const DarManagement: React.FC = () => {
 
             <form
               onSubmit={handleCreateSubmit}
-              className="p-4 xl:grid gap-4 max-h-[82vh] overflow-hidden text-xs text-slate-800"
-              style={{ gridTemplateColumns: 'minmax(0, 1fr) 430px' }}
+              className="p-3 sm:p-4 lg:grid gap-4 flex-1 min-h-0 overflow-hidden text-xs text-slate-800"
+              style={{ gridTemplateColumns: 'minmax(0, 1.55fr) minmax(380px, 0.85fr)' }}
             >
-              <div className="min-w-0 space-y-4 overflow-y-auto overflow-x-hidden pr-1 xl:pr-3 pb-6">
+              <div className="min-w-0 min-h-0 space-y-4 overflow-y-auto overflow-x-hidden pr-1 lg:pr-3 pb-6">
               
               {/* Type selector */}
               <div>
@@ -1551,7 +1554,7 @@ export const DarManagement: React.FC = () => {
 
               </div>
 
-              <aside className="hidden xl:flex min-h-0 bg-slate-200/70 border border-slate-300 rounded-xl p-3 flex-col overflow-hidden">
+              <aside className="hidden lg:flex min-w-0 min-h-0 bg-slate-200/70 border border-slate-300 rounded-xl p-3 flex-col overflow-hidden">
                 <div className="flex items-center justify-between mb-2 shrink-0">
                   <div>
                     <h4 className="text-xs font-black text-slate-900 flex items-center gap-1.5"><Eye className="w-4 h-4 text-indigo-600" /> ตัวอย่างใบ DAR แบบเรียลไทม์</h4>
@@ -1585,7 +1588,7 @@ export const DarManagement: React.FC = () => {
             </form>
 
             {showMobileLivePreview && (
-              <div className="fixed inset-0 z-[70] bg-slate-950/90 p-3 sm:p-6 overflow-y-auto xl:hidden">
+              <div className="fixed inset-0 z-[70] bg-slate-950/90 p-3 sm:p-6 overflow-y-auto lg:hidden">
                 <div className="max-w-xl mx-auto">
                   <div className="sticky top-0 z-10 bg-slate-900 text-white rounded-t-xl px-4 py-3 flex items-center justify-between">
                     <div><b className="text-sm">ตัวอย่างใบ DAR แบบเรียลไทม์</b><div className="text-[10px] text-slate-300">ฉบับร่างก่อนส่งให้ DCC</div></div>
