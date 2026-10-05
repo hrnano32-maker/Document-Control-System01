@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Bell, CalendarDays, CheckCircle2, Download, Eye, FileText, Megaphone, Pencil, Plus, Send, ShieldAlert, X } from 'lucide-react';
 import { DEPARTMENTS, type DcsAnnouncement, type Department } from '../types';
 import { useDcs } from '../context/DcsContext';
-import { getAnnouncementAttachmentUrl } from '../services/dcsRepository';
+import { downloadStorageFileBlob } from '../services/dcsRepository';
 
 type FormState = Pick<DcsAnnouncement, 'title' | 'details' | 'category' | 'priority' | 'effectiveDate' | 'endDate' | 'targetDepartments' | 'requireAcknowledgement'>;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -52,14 +52,14 @@ export const Announcements: React.FC = () => {
   const downloadFile = async (attachment: DcsAnnouncement['attachments'][number]) => {
     setDownloading(attachment.storagePath);
     try {
-      const url = await getAnnouncementAttachmentUrl(attachment.storagePath);
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('ไม่สามารถอ่านไฟล์จากพื้นที่จัดเก็บได้');
-      const blob = await response.blob();
+      const blob = await downloadStorageFileBlob(attachment.storagePath);
       const objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement('a'); anchor.href = objectUrl; anchor.download = attachment.name; document.body.appendChild(anchor); anchor.click(); anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-    } catch (error) { window.alert(error instanceof Error ? error.message : 'ดาวน์โหลดไฟล์ไม่สำเร็จ'); }
+    } catch (error) {
+      console.error('Announcement attachment download failed', error);
+      window.alert('ดาวน์โหลดไฟล์ไม่สำเร็จ กรุณาเข้าสู่ระบบใหม่และลองอีกครั้ง หากยังพบปัญหาให้ติดต่อ DCC');
+    }
     finally { setDownloading(null); }
   };
 
