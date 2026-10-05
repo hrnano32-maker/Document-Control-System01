@@ -33,6 +33,19 @@ service firebase.storage {
       allow create, update, delete: if false;
     }
 
+    match /dcs/announcements/{announcementId}/{fileName} {
+      allow read: if isDcc() || (
+        activeUser()
+        && firestore.get(/databases/(default)/documents/dcs_announcements/$(announcementId)).data.status == 'PUBLISHED'
+        && firestore.get(/databases/(default)/documents/dcs_announcements/$(announcementId)).data.targetDepartments.hasAny([profile().department])
+      );
+      allow create, update: if isDcc()
+        && request.resource.size < 25 * 1024 * 1024
+        && request.resource.contentType == 'application/pdf'
+        && fileName.matches('.*[.][pP][dD][fF]');
+      allow delete: if isDcc();
+    }
+
     match /dcs/signatures/{uid}/{distributionId}/{fileName} {
       allow read: if isDcc() || request.auth.uid == uid;
       allow create: if activeUser() && request.auth.uid == uid && request.resource.size < 2 * 1024 * 1024
