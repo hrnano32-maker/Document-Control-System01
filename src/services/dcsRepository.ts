@@ -215,32 +215,39 @@ export const recordAnnouncementActivity = async (user: CurrentUserSession, annou
 export const getAnnouncementAttachmentUrl = async (storagePath: string) => getDownloadURL(ref(storage, storagePath));
 
 export const downloadAnnouncementAttachment = async (
-  storagePath: string,
+  announcementId: string,
+  fileIndex: number,
   onProgress?: (percent: number) => void,
 ): Promise<Blob> => {
-  onProgress?.(3);
-  let estimatedProgress = 3;
-  const progressTimer = window.setInterval(() => {
-    estimatedProgress = Math.min(92, estimatedProgress + (estimatedProgress < 45 ? 7 : 3));
-    onProgress?.(estimatedProgress);
-  }, 450);
-  try {
-    // Firebase SDK attaches the active user's auth token and applies its own
-    // retry logic. This avoids the cross-origin failure from fetching the
-    // public download URL directly in Chrome/PWA.
-    const { getBlob } = await import('firebase/storage');
-    const blob = await getBlob(ref(storage, storagePath), 25 * 1024 * 1024);
-    onProgress?.(100);
-    return blob;
-  } catch (error) {
-    const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
-    if (code.includes('unauthorized')) throw new Error('บัญชีนี้ไม่มีสิทธิ์ดาวน์โหลดไฟล์ประกาศ กรุณาให้ DCC ตรวจสอบรายชื่อหน่วยงานผู้รับและ Storage Rules');
-    if (code.includes('object-not-found')) throw new Error('ไม่พบไฟล์ใน Firebase Storage กรุณาให้ DCC แนบไฟล์ใหม่');
-    if (code.includes('retry-limit-exceeded')) throw new Error('การเชื่อมต่อใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่');
-    throw error;
-  } finally {
-    window.clearInterval(progressTimer);
-  }
+  if (!auth.currentUser) throw new Error('กรุณาเข้าสู่ระบบใหม่');
+  const token = await auth.currentUser.getIdToken(true);
+  const endpoint = 'https://asia-southeast1-dar-online-form.cloudfunctions.net/downloadAnnouncementFile';
+  const query = new URLSearchParams({ announcementId, index: String(fileIndex) });
+  onProgress?.(1);
+  return new Promise<Blob>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('GET', `${endpoint}?${query.toString()}`, true);
+    request.responseType = 'blob';
+    request.timeout = 120000;
+    request.setRequestHeader('Authorization', `Bearer ${token}`);
+    request.onprogress = event => {
+      if (event.lengthComputable && event.total > 0) onProgress?.(Math.max(2, Math.min(99, Math.round((event.loaded / event.total) * 100))));
+    };
+    request.onload = () => {
+      if (request.status >= 200 && request.status < 300 && request.response instanceof Blob) {
+        onProgress?.(100);
+        resolve(request.response);
+        return;
+      }
+      if (request.status === 401) reject(new Error('เซสชันหมดอายุ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่'));
+      else if (request.status === 403) reject(new Error('บัญชีนี้ไม่มีสิทธิ์ดาวน์โหลดไฟล์ประกาศ'));
+      else if (request.status === 404) reject(new Error('ไม่พบไฟล์ประกาศในระบบ กรุณาให้ DCC แนบไฟล์ใหม่'));
+      else reject(new Error(`ดาวน์โหลดไม่สำเร็จ (HTTP ${request.status || 'unknown'})`));
+    };
+    request.onerror = () => reject(new Error('ไม่สามารถเชื่อมต่อบริการดาวน์โหลดได้'));
+    request.ontimeout = () => reject(new Error('ดาวน์โหลดเกิน 2 นาที ระบบยกเลิกแล้ว กรุณาลองใหม่'));
+    request.send();
+  });
 };
 
 const actorFields = (user: CurrentUserSession) => ({
