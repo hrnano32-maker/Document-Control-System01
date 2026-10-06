@@ -339,7 +339,7 @@ export const DarManagement: React.FC = () => {
         origin: { y: 0.5 },
       });
       setSelectedDarForReview(null);
-      alert('ขึ้นทะเบียนสำเร็จ เอกสารถูกเพิ่มเข้า Master List แล้ว');
+      alert('อนุมัติและขึ้นทะเบียนสำเร็จ ระบบสร้างรายการแจกจ่ายและประทับตรา Controlled Copy อัตโนมัติแล้ว');
       setActiveView('masterlist');
     } catch (error) {
       alert(error instanceof Error ? error.message : 'ขึ้นทะเบียนไม่สำเร็จ');
@@ -522,7 +522,7 @@ export const DarManagement: React.FC = () => {
                   {dar.status === 'APPROVED' && currentUser.userRole === 'DCC_ADMIN' && (
                     <div className="mb-2 rounded-xl border-2 border-emerald-300 bg-emerald-50 p-2.5">
                       <p className="mb-2 text-[11px] font-bold text-emerald-900">
-                        ขั้นตอนถัดไป: ขึ้นทะเบียนเอกสารเข้า Master List
+                        ขั้นตอนถัดไป: ขึ้นทะเบียนและแจกจ่ายอัตโนมัติ
                       </p>
                       <button
                         type="button"
@@ -532,7 +532,7 @@ export const DarManagement: React.FC = () => {
                       >
                         {registeringDarId === dar.id
                           ? <><RefreshCw className="h-4 w-4 animate-spin" /> กำลังขึ้นทะเบียน...</>
-                          : <><Sparkles className="h-4 w-4" /> ขึ้นทะเบียน Master List</>}
+                          : <><Sparkles className="h-4 w-4" /> ขึ้นทะเบียนและแจกจ่าย</>}
                       </button>
                     </div>
                   )}
@@ -804,7 +804,7 @@ export const DarManagement: React.FC = () => {
                       className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md cursor-pointer transition-all"
                     >
                       <Sparkles className="w-4 h-4 text-amber-300" />
-                      ขึ้นทะเบียน Master List
+                      ขึ้นทะเบียนและแจกจ่ายอัตโนมัติ
                     </button>}
 
                     <button
@@ -819,13 +819,13 @@ export const DarManagement: React.FC = () => {
                           await reviewDar(selectedDarForReview.id, 'APPROVED', reviewRemarks);
                           await handleRegisterToMasterList(selectedDarForReview.id);
                         } catch (error) {
-                          alert(error instanceof Error ? error.message : 'อนุมัติสำเร็จ แต่ขึ้นทะเบียน Master List ไม่สำเร็จ กรุณากดขึ้นทะเบียนอีกครั้งจากรายการ DAR');
+                          alert(error instanceof Error ? error.message : 'อนุมัติสำเร็จ แต่ขึ้นทะเบียนหรือแจกจ่ายอัตโนมัติไม่สำเร็จ กรุณากดดำเนินการซ้ำจากรายการ DAR');
                         }
                       }}
                       className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-1 cursor-pointer"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      อนุมัติ (Approved)
+                      อนุมัติและแจกจ่ายอัตโนมัติ
                     </button>
 
                     <button
