@@ -463,14 +463,26 @@ export const MasterListView: React.FC = () => {
 
                           {/* DCC Distribute Button */}
                           {currentUser.currentDept === 'DCC' && (
-                            <button
-                              onClick={() => handleOpenQuickDistribute(doc)}
-                              className="px-3 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
-                              title="แจกจ่ายเอกสารนี้"
-                            >
-                              <Send className="w-4 h-4" />
-                              <span>แจกจ่าย</span>
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => doc.currentFileStoragePath && openDocumentViewer({ title: `${doc.docNameTh} — ไฟล์ต้นฉบับ`, docNo: doc.docNo, docNameTh: doc.docNameTh, docNameEn: doc.docNameEn, docType: doc.docType, revision: doc.currentRevision, dept: doc.ownerDept, fileName: doc.fileName || `${doc.docNo}_Rev${doc.currentRevision}_ORIGINAL.pdf`, fileSize: doc.fileSize, fileType: 'application/pdf', fileStoragePath: doc.currentFileStoragePath, docId: doc.id, effectiveDate: doc.effectiveDate, isControlledCopy: false })}
+                                disabled={!doc.currentFileStoragePath}
+                                className="px-3 py-2 bg-white hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 text-slate-800 border border-slate-300 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
+                                title={doc.currentFileStoragePath ? 'เปิดและดาวน์โหลดไฟล์ PDF ต้นฉบับที่ไม่ประทับตรา' : 'ไฟล์ต้นฉบับยังอยู่ระหว่างจัดเตรียม'}
+                              >
+                                <Download className="w-4 h-4" />
+                                <span>ไฟล์ต้นฉบับ</span>
+                              </button>
+                              <button
+                                onClick={() => handleOpenQuickDistribute(doc)}
+                                className="px-3 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
+                                title="เพิ่มแผนกหรือแจกจ่ายด้วยตนเอง"
+                              >
+                                <Send className="w-4 h-4" />
+                                <span>แจกจ่าย</span>
+                              </button>
+                            </>
                           )}
 
                         </div>
