@@ -545,6 +545,80 @@ exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, me
   return { departmentFiles, departmentFileLists };
 });
 
+exports.createAutomaticDistributionFromDar = onCall({ region: REGION, timeoutSeconds: 120, memory: '512MiB' }, async request => {
+  await requireDcc(request);
+  const decoded = request.auth;
+  const darId = cleanText(request.data?.darId, 100);
+  if (!darId) throw new HttpsError('invalid-argument', 'ไม่พบเลขที่ DAR');
+  const db = getFirestore();
+  const darRef = db.collection('dcs_dars').doc(darId);
+  const darSnapshot = await darRef.get();
+  if (!darSnapshot.exists) throw new HttpsError('not-found', 'ไม่พบ DAR');
+  const dar = darSnapshot.data();
+  if (dar.status !== 'REGISTERED') throw new HttpsError('failed-precondition', 'ต้องขึ้นทะเบียน Master List ก่อนแจกจ่ายอัตโนมัติ');
+  if (dar.requestType === 'OBSOLETE') return { skipped: true, reason: 'OBSOLETE' };
+
+  const existing = await db.collection('dcs_distributions').where('darReferenceId', '==', darId).limit(1).get();
+  if (!existing.empty) return { distributionId: existing.docs[0].id, existing: true };
+  if (!dar.attachmentStoragePath) throw new HttpsError('failed-precondition', 'DAR ไม่มีไฟล์ PDF ต้นฉบับ');
+  const masterId = encodeURIComponent(String(dar.docNo || '').trim().toUpperCase()).replace(/%/g, '_');
+  const masterSnapshot = await db.collection('dcs_documents').doc(masterId).get();
+  if (!masterSnapshot.exists || masterSnapshot.data().darReferenceId !== darId || masterSnapshot.data().status !== 'ACTIVE') {
+    throw new HttpsError('failed-precondition', 'ไม่พบเอกสาร Revision ล่าสุดใน Master List');
+  }
+  const master = masterSnapshot.data();
+  const allocation = (dar.distributionHolders || []).filter(item => item.checked).map(item => ({
+    dept: item.dept,
+    copies: Math.max(1, Number(item.copies) || 1),
+    position: item.position || `ผู้รับผิดชอบเอกสารประจำ ${item.dept}`,
+  }));
+  if (!allocation.length) throw new HttpsError('failed-precondition', 'DAR ไม่ได้ระบุหน่วยงานผู้รับเอกสาร');
+
+  const year = new Date().getFullYear();
+  const counterRef = db.collection('dcs_counters').doc(`distribution-${year}`);
+  const sequence = await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(counterRef);
+    const next = Number(snapshot.data()?.value || 0) + 1;
+    transaction.set(counterRef, { value: next, kind: 'distribution', year, updatedAt: new Date().toISOString() });
+    return next;
+  });
+  const id = `DC-DIS-${year}-${String(sequence).padStart(4, '0')}`;
+  const sourceName = `01-${safeSegment(dar.attachmentFileName || `${dar.docNo}.pdf`)}`.replace(/\.pdf$/i, '') + '.pdf';
+  const sourcePath = `dcs/distributions/${id}/source/${sourceName}`;
+  const bucket = getStorage().bucket();
+  const sourceFile = bucket.file(dar.attachmentStoragePath);
+  const [sourceExists] = await sourceFile.exists();
+  if (!sourceExists) throw new HttpsError('not-found', 'ไม่พบไฟล์ PDF ต้นฉบับของ DAR');
+  await sourceFile.copy(bucket.file(sourcePath));
+
+  const now = new Date();
+  const expirationEpoch = now.getTime() + 3 * 24 * 60 * 60 * 1000;
+  const targets = allocation.map(item => ({ dept: item.dept, allocatedCopies: item.copies, copyNo: `${item.copies} สำเนา`, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' }));
+  const record = {
+    id, distributionNo: id, docId: masterId, docNo: master.docNo, docNameTh: master.docNameTh,
+    docNameEn: master.docNameEn || '', docType: master.docType, revision: master.currentRevision,
+    effectiveDate: master.effectiveDate, distributedBy: decoded.name || decoded.email || 'DCC',
+    distributedDate: now.toISOString(), expirationDate: new Date(expirationEpoch).toISOString(), expirationEpoch,
+    expirationAt: new Date(expirationEpoch), departmentExpirationEpoch: Object.fromEntries(targets.map(target => [target.dept, expirationEpoch])),
+    status: 'IN_PROGRESS', darReferenceId: darId, targetDepartments: targets.map(target => target.dept),
+    allocationByDepartment: Object.fromEntries(allocation.map(item => [item.dept, item.copies])), targets, receipts: {},
+    instructions: `แจกจ่ายอัตโนมัติหลัง DCC อนุมัติ ${darId}: ${master.docNo} Rev.${master.currentRevision}`,
+    fileName: dar.attachmentFileName || `${master.docNo}.pdf`, fileSize: dar.attachmentFileSize || '', fileType: 'application/pdf',
+    fileNames: [dar.attachmentFileName || `${master.docNo}.pdf`], fileSizes: [dar.attachmentFileSize || ''], fileTypes: ['application/pdf'],
+    sourceStoragePath: sourcePath, sourceStoragePaths: [sourcePath], storageStatus: 'PROCESSING', stampStatus: 'PROCESSING',
+    processingStage: 'UPLOADED', processingDetail: 'คัดลอกไฟล์ต้นฉบับจาก DAR แล้ว กำลังประทับตรา', processingPercent: 38,
+    allDownloadedAt: null, fileDeletedAt: null, createdAt: now.toISOString(), autoCreated: true, createdByUid: decoded.uid,
+  };
+  try {
+    await db.collection('dcs_distributions').doc(id).create(record);
+    await darRef.update({ automaticDistributionId: id, automaticDistributionCreatedAt: now.toISOString(), updatedAt: now.toISOString() });
+  } catch (error) {
+    await bucket.file(sourcePath).delete({ ignoreNotFound: true });
+    throw error;
+  }
+  return { distributionId: id, existing: false };
+});
+
 // Re-issuing a copy belongs to the original distribution. It must never create
 // another DC-DIS number. Only the requesting department's controlled files and
 // receipt window are refreshed; every other department remains in the same set.
