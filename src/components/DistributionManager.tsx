@@ -26,6 +26,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { httpsCallable } from 'firebase/functions';
+import { firebaseFunctions } from '../lib/firebase';
 
 export const DistributionManager: React.FC = () => {
   const {
@@ -110,6 +112,21 @@ export const DistributionManager: React.FC = () => {
     try { await cancelDistribution(dist.id, reason.trim()); alert(`ยกเลิกแจกจ่าย ${dist.distributionNo} แล้ว ระบบเก็บประวัติการรับเอกสารไว้`); }
     catch (error) { alert(error instanceof Error ? error.message : 'ยกเลิกรายการไม่สำเร็จ'); }
     finally { setManagingId(null); }
+  };
+
+  const handleCancelDepartment = async (dist: DistributionRecord, department: Department) => {
+    if (!isDcc || managingId) return;
+    const reason = window.prompt('ระบุเหตุผลยกเลิกแจกจ่ายเฉพาะแผนก ' + department);
+    if (reason === null) return;
+    if (!reason.trim()) return alert('กรุณาระบุเหตุผลการยกเลิก');
+    if (!window.confirm('ยกเลิกแจกจ่ายให้ ' + department + ' ใน ' + dist.distributionNo + ' เท่านั้น? แผนกอื่นยังรับเอกสารได้ตามเดิม')) return;
+    setManagingId(dist.id);
+    try {
+      await httpsCallable(firebaseFunctions, 'cancelDistributionDepartment', { timeout: 120000 })({ distributionId: dist.id, department, reason: reason.trim() });
+      alert('ยกเลิกแจกจ่ายเฉพาะแผนก ' + department + ' แล้ว');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'ยกเลิกไม่สำเร็จ กรุณาตรวจสถานะแล้วลองใหม่');
+    } finally { setManagingId(null); }
   };
 
   const handleDeleteDistribution = async (dist: DistributionRecord) => {
@@ -269,11 +286,12 @@ export const DistributionManager: React.FC = () => {
             const timeInfo = dist.status === 'CANCELLED'
               ? { isExpired: true, text: '⚫ ยกเลิกการแจกจ่ายแล้ว', color: 'bg-slate-100 text-slate-700 border-slate-300' }
               : getRemainingTimeText(dist.expirationDate);
-            const downloadedCount = dist.targets.filter(t => t.isDownloaded).length;
-            const totalTargets = dist.targets.length;
-            const percent = Math.round((downloadedCount / totalTargets) * 100);
+            const activeTargets = dist.targets.filter(t => !dist.departmentCancellations?.[t.dept]);
+            const downloadedCount = activeTargets.filter(t => t.isDownloaded).length;
+            const totalTargets = activeTargets.length;
+            const percent = totalTargets ? Math.round((downloadedCount / totalTargets) * 100) : 0;
 
-            const myTarget = dist.targets.find(t => t.dept === currentUser.currentDept);
+            const myTarget = activeTargets.find(t => t.dept === currentUser.currentDept);
 
             return (
               <div
@@ -442,7 +460,8 @@ export const DistributionManager: React.FC = () => {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
                     {dist.targets.map(target => {
-                      const isCancelled = dist.status === 'CANCELLED';
+                      const cancellation = dist.departmentCancellations?.[target.dept];
+                      const isCancelled = dist.status === 'CANCELLED' || Boolean(cancellation);
                       const isExpired = new Date().getTime() > new Date(dist.expirationDate).getTime();
                       return (
                         <div
@@ -461,7 +480,7 @@ export const DistributionManager: React.FC = () => {
                           </div>
 
                           {isCancelled ? (
-                            <div className="pt-1.5 border-t border-slate-200 text-xs text-slate-600 font-bold">ยกเลิกการแจกจ่ายแล้ว</div>
+                            <div className="pt-1.5 border-t border-slate-200 text-xs text-slate-600 font-bold">ยกเลิกการแจกจ่ายแล้ว{cancellation && <p className="mt-1 font-normal">เหตุผล: {cancellation.reason}</p>}</div>
                           ) : target.isDownloaded ? (
                             <div className="space-y-0.5 pt-1.5 border-t border-emerald-200/60">
                               <div className="flex items-center gap-1.5 text-xs text-emerald-900 font-bold">
@@ -497,6 +516,7 @@ export const DistributionManager: React.FC = () => {
                               )}
                             </div>
                           )}
+                          {!isCancelled && <button type="button" disabled={managingId !== null || dist.stampStatus === 'PROCESSING'} onClick={() => handleCancelDepartment(dist, target.dept)} className="mt-2 flex items-center justify-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-sm font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-50"><Ban className="h-4 w-4" />{managingId === dist.id ? 'กำลังดำเนินการ...' : 'ยกเลิกแจกแผนกนี้'}</button>}
 
                         </div>
                       );
