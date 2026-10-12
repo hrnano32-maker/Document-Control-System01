@@ -806,7 +806,7 @@ export const MasterListView: React.FC = () => {
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">ไฟล์ Controlled Copy ฉบับจริง เลือกพร้อมกันได้หลายไฟล์ <span className="text-rose-600">*</span></label>
                     <input type="file" multiple accept="application/pdf,.pdf" onChange={async event => {
-                      const files = Array.from(event.target.files || []);
+                      const files: File[] = Array.from(event.currentTarget.files || []);
                       setDistError('');
                       if (!files.length) { setDistFiles([]); return; }
                       if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) { setDistError('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น'); event.target.value = ''; setDistFiles([]); return; }
