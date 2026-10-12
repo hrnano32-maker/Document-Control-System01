@@ -350,6 +350,57 @@ export const patchDarRecord = async (id: string, updates: Partial<DarRecord>) =>
   await updateDoc(doc(db, 'dcs_dars', id), clean({ ...updates, updatedAt: new Date().toISOString() }));
 };
 
+export const correctDarRecord = async (
+  user: CurrentUserSession,
+  dar: DarRecord,
+  updates: Pick<DarRecord, 'docNo' | 'docNameTh' | 'docNameEn' | 'targetEffectiveDate' | 'previousEffectiveDate' | 'reasonForChange' | 'changeDetails'>,
+  correctionReason: string,
+) => {
+  if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่แก้ไขข้อมูล DAR ได้');
+  if (!['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(dar.status)) {
+    throw new Error('DAR ที่อนุมัติหรือขึ้นทะเบียนแล้วต้องใช้กระบวนการแก้ไขเอกสารอย่างเป็นทางการ');
+  }
+  if (!correctionReason.trim()) throw new Error('กรุณาระบุเหตุผลที่ DCC แก้ไขข้อมูล');
+  const corrected = {
+    docNo: updates.docNo.trim().toUpperCase(),
+    docNameTh: updates.docNameTh.trim(),
+    docNameEn: updates.docNameEn.trim(),
+    targetEffectiveDate: updates.targetEffectiveDate,
+    previousEffectiveDate: dar.requestType === 'NEW' ? '' : (updates.previousEffectiveDate || ''),
+    reasonForChange: updates.reasonForChange.trim(),
+    changeDetails: updates.changeDetails.trim(),
+  };
+  if (!corrected.docNo || !corrected.docNameTh || !corrected.reasonForChange) {
+    throw new Error('กรุณาระบุรหัสเอกสาร ชื่อเอกสาร และเหตุผลการดำเนินการ');
+  }
+  validateDarEffectiveDates({ ...dar, ...corrected });
+  const darRef = doc(db, 'dcs_dars', dar.id);
+  const auditRef = doc(collection(db, 'dcs_audit_logs'));
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(darRef);
+    if (!snap.exists()) throw new Error('ไม่พบใบ DAR');
+    const latest = snap.data() as DarRecord;
+    if (!['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(latest.status)) {
+      throw new Error('สถานะ DAR เปลี่ยนแล้ว กรุณารีเฟรช');
+    }
+    validateDarEffectiveDates({ ...latest, ...corrected });
+    const changes: Record<string, { before: unknown; after: unknown }> = {};
+    for (const key of Object.keys(corrected) as (keyof typeof corrected)[]) {
+      if ((latest[key] || '') !== corrected[key]) changes[key] = { before: latest[key] ?? '', after: corrected[key] };
+    }
+    if (!Object.keys(changes).length) throw new Error('ไม่มีข้อมูลที่เปลี่ยนแปลง');
+    const now = new Date().toISOString();
+    tx.update(darRef, clean({ ...corrected, updatedAt: now }));
+    tx.set(auditRef, clean({
+      id: auditRef.id, timestamp: now, createdAt: now, ...actorFields(user),
+      actionType: 'DAR_REVIEWED', docNo: corrected.docNo,
+      revision: latest.proposedRevision,
+      description: `DCC แก้ไขข้อมูลใบ DAR ${dar.id}: ${correctionReason.trim()}`,
+      details: { darId: dar.id, correctionReason: correctionReason.trim(), changes },
+    }));
+  });
+};
+
 export const reviewDarRecord = async (user: CurrentUserSession, dar: DarRecord, status: 'APPROVED' | 'REJECTED' | 'UNDER_REVIEW', remarks: string) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่ตรวจสอบ DAR ได้');
   await patchDarRecord(dar.id, { status, dccReviewer: user.userName, dccReviewDate: new Date().toISOString().slice(0, 10), dccRemarks: remarks });

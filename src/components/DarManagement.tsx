@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useDcs } from '../context/DcsContext';
-import { getStorageFileUrl, validateDarEffectiveDates } from '../services/dcsRepository';
+import { getStorageFileUrl, validateDarEffectiveDates, correctDarRecord } from '../services/dcsRepository';
 import {
   DarRecord,
   DarAdditionalDocument,
@@ -68,6 +68,28 @@ export const DarManagement: React.FC = () => {
   const [showMobileLivePreview, setShowMobileLivePreview] = useState(false);
   const [registeringDarId, setRegisteringDarId] = useState<string | null>(null);
   const [downloadingDarId, setDownloadingDarId] = useState<string | null>(null);
+
+  const [editingDar, setEditingDar] = useState<DarRecord | null>(null);
+  const [correction, setCorrection] = useState({ docNo: '', docNameTh: '', docNameEn: '', targetEffectiveDate: '', previousEffectiveDate: '', reasonForChange: '', changeDetails: '' });
+  const [correctionReason, setCorrectionReason] = useState('');
+  const [correctionError, setCorrectionError] = useState('');
+  const [savingCorrection, setSavingCorrection] = useState(false);
+  const openDarCorrection = (dar: DarRecord) => {
+    setEditingDar(dar);
+    setCorrection({ docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn || '', targetEffectiveDate: dar.targetEffectiveDate, previousEffectiveDate: dar.previousEffectiveDate || '', reasonForChange: dar.reasonForChange, changeDetails: dar.changeDetails || '' });
+    setCorrectionReason(''); setCorrectionError('');
+  };
+  const saveDarCorrection = async () => {
+    if (!editingDar || savingCorrection) return;
+    setCorrectionError(''); setSavingCorrection(true);
+    try {
+      await correctDarRecord(currentUser, editingDar, correction, correctionReason);
+      setEditingDar(null); setSelectedDarForReview(null);
+      alert('บันทึกการแก้ไข DAR สำเร็จ พร้อมบันทึกประวัติ');
+    } catch (error) {
+      setCorrectionError(error instanceof Error ? error.message : 'บันทึกไม่สำเร็จ');
+    } finally { setSavingCorrection(false); }
+  };
 
   // Close on Escape key press
   useEffect(() => {
@@ -560,6 +582,9 @@ export const DarManagement: React.FC = () => {
                     </button>
                   </div>
                   <div className="flex justify-end gap-2 mt-2">
+                    {isDcc && ['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(dar.status) && (
+                      <button type="button" onClick={() => openDarCorrection(dar)} className="text-[11px] text-indigo-700 font-bold hover:underline">✏️ DCC แก้ไขข้อมูล</button>
+                    )}
                     {['PENDING_REVIEW','UNDER_REVIEW','REJECTED'].includes(dar.status) && (currentUser.userRole === 'DCC_ADMIN' || currentUser.currentDept === dar.requestDept) && (
                       <button type="button" onClick={() => handleDeleteDar(dar)} className="text-[11px] text-rose-700 font-bold hover:underline"><Trash2 className="w-3 h-3 inline mr-1" />ลบ DAR</button>
                     )}
@@ -573,6 +598,43 @@ export const DarManagement: React.FC = () => {
           ))
         )}
       </div>
+
+      {editingDar && isDcc && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-bold mb-2">DCC แก้ไขใบ DAR {editingDar.id}</h3>
+            <p className="mb-4 text-sm text-amber-800">แก้ไขได้ก่อนอนุมัติหรือขึ้นทะเบียนเท่านั้น ระบบตรวจสอบวันที่และเก็บประวัติ</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {([
+                ['docNo', 'เลขที่เอกสาร'], ['docNameTh', 'ชื่อเอกสารภาษาไทย'],
+                ['docNameEn', 'ชื่อเอกสารภาษาอังกฤษ'], ['targetEffectiveDate', 'วันที่เอกสารใหม่มีผล'],
+                ...(editingDar.requestType === 'NEW' ? [] : [['previousEffectiveDate', 'วันที่เอกสารเดิมมีผล']]),
+              ] as [keyof typeof correction, string][]).map(([key, label]) => (
+                <label key={key} className="block text-sm font-semibold">{label}
+                  <input className="mt-1 w-full rounded-lg border p-2" type={String(key).toLowerCase().includes('date') ? 'date' : 'text'}
+                    value={correction[key]} onChange={e => setCorrection(prev => ({ ...prev, [key]: e.target.value }))} />
+                </label>
+              ))}
+            </div>
+            {([['reasonForChange', 'เหตุผลการดำเนินการ'], ['changeDetails', 'รายละเอียดการเปลี่ยนแปลง']] as const).map(([key, label]) => (
+              <label key={key} className="mt-3 block text-sm font-semibold">{label}
+                <textarea rows={2} className="mt-1 w-full rounded-lg border p-2" value={correction[key]}
+                  onChange={e => setCorrection(prev => ({ ...prev, [key]: e.target.value }))} />
+              </label>
+            ))}
+            <label className="mt-3 block text-sm font-semibold">เหตุผลที่ DCC แก้ไข (บังคับกรอก)
+              <textarea rows={2} className="mt-1 w-full rounded-lg border p-2" value={correctionReason}
+                onChange={e => setCorrectionReason(e.target.value)} />
+            </label>
+            {correctionError && <p role="alert" className="mt-2 text-sm text-red-700">{correctionError}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className="rounded-lg border px-4 py-2" disabled={savingCorrection} onClick={() => setEditingDar(null)}>ยกเลิก</button>
+              <button type="button" className="rounded-lg bg-indigo-700 px-4 py-2 font-bold text-white disabled:opacity-50"
+                disabled={savingCorrection} onClick={saveDarCorrection}>{savingCorrection ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Review / Details Modal */}
       {selectedDarForReview && (
