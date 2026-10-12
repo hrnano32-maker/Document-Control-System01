@@ -7,6 +7,7 @@ interface DarLivePreviewProps {
   requestDept: Department;
   requesterName: string;
   targetEffectiveDate: string;
+  previousEffectiveDate?: string;
   docNo: string;
   docNameTh: string;
   docNameEn: string;
@@ -40,7 +41,7 @@ export const DarLivePreview: React.FC<DarLivePreviewProps> = props => {
       docNo: props.docNo,
       docNameTh: props.docNameTh,
       docNameEn: props.docNameEn,
-      previousEffectiveDate: props.requestType === 'NEW' ? '' : new Date().toISOString().split('T')[0],
+      previousEffectiveDate: props.requestType === 'NEW' ? '' : props.previousEffectiveDate || '',
       revision: props.requestType === 'OBSOLETE' ? 'OBSOLETE' : props.proposedRevision,
       reason: props.reasonForChange,
     },
