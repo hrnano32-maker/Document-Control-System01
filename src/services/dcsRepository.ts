@@ -375,7 +375,7 @@ export const correctDarRecord = async (
   }
   validateDarEffectiveDates({ ...dar, ...corrected });
   const darRef = doc(db, 'dcs_dars', dar.id);
-  let changes: Record<string, { before: unknown; after: unknown }> = {};
+  const auditRef = doc(collection(db, 'dcs_audit_logs'));
   await runTransaction(db, async tx => {
     const snap = await tx.get(darRef);
     if (!snap.exists()) throw new Error('ไม่พบใบ DAR');
@@ -384,16 +384,21 @@ export const correctDarRecord = async (
       throw new Error('สถานะ DAR เปลี่ยนแล้ว กรุณารีเฟรช');
     }
     validateDarEffectiveDates({ ...latest, ...corrected });
-    changes = {};
+    const changes: Record<string, { before: unknown; after: unknown }> = {};
     for (const key of Object.keys(corrected) as (keyof typeof corrected)[]) {
       if ((latest[key] || '') !== corrected[key]) changes[key] = { before: latest[key] ?? '', after: corrected[key] };
     }
     if (!Object.keys(changes).length) throw new Error('ไม่มีข้อมูลที่เปลี่ยนแปลง');
-    tx.update(darRef, clean({ ...corrected, updatedAt: new Date().toISOString() }));
+    const now = new Date().toISOString();
+    tx.update(darRef, clean({ ...corrected, updatedAt: now }));
+    tx.set(auditRef, clean({
+      id: auditRef.id, timestamp: now, createdAt: now, ...actorFields(user),
+      actionType: 'DAR_REVIEWED', docNo: corrected.docNo,
+      revision: latest.proposedRevision,
+      description: `DCC แก้ไขข้อมูลใบ DAR ${dar.id}: ${correctionReason.trim()}`,
+      details: { darId: dar.id, correctionReason: correctionReason.trim(), changes },
+    }));
   });
-  await writeAudit(user, 'DAR_REVIEWED', corrected.docNo, dar.proposedRevision,
-    `DCC แก้ไขข้อมูลใบ DAR ${dar.id}: ${correctionReason.trim()}`,
-    { darId: dar.id, correctionReason: correctionReason.trim(), changes });
 };
 
 export const reviewDarRecord = async (user: CurrentUserSession, dar: DarRecord, status: 'APPROVED' | 'REJECTED' | 'UNDER_REVIEW', remarks: string) => {
