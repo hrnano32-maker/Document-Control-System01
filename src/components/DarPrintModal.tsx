@@ -529,7 +529,7 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
                       {dar.docNameEn && <div className="text-[10px] text-slate-700 italic">{dar.docNameEn}</div>}
                     </td>
                     <td className="border-r border-black p-2 align-middle font-mono text-[11px]">
-                      {dar.requestType === 'NEW' ? '-' : formatThaiDate(dar.requestDate)}
+                      {dar.requestType === 'NEW' ? '-' : dar.previousEffectiveDate ? formatThaiDate(dar.previousEffectiveDate) : 'ไม่ระบุวันที่เดิม'}
                     </td>
                     <td className="border-r border-black p-2 align-middle font-mono font-bold">
                       {dar.requestType === 'NEW' ? dar.proposedRevision : `${dar.currentRevision} ➔ ${dar.proposedRevision}`}
