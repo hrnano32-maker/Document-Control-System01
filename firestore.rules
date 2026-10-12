@@ -7,6 +7,50 @@ service cloud.firestore {
     function activeUser() { return signedIn() && profile().active == true; }
     function isDcc() { return activeUser() && profile().role == 'DCC_ADMIN'; }
     function sameDepartment(department) { return activeUser() && profile().department == department; }
+    // Firestore Rules have no loops: bound and validate every supplied holder.
+    function departmentHolderAllowed(holders, index) {
+      return index >= holders.size() || (
+        holders[index] is map
+        && holders[index].dept is string
+        && holders[index].checked is bool
+        && (!(holders[index].dept in ['QMR', 'Customer Rep']) || holders[index].checked == false)
+      );
+    }
+    function departmentHoldersAllowed(holders) {
+      return holders is list && holders.size() <= 32
+        && departmentHolderAllowed(holders, 0)
+        && departmentHolderAllowed(holders, 1)
+        && departmentHolderAllowed(holders, 2)
+        && departmentHolderAllowed(holders, 3)
+        && departmentHolderAllowed(holders, 4)
+        && departmentHolderAllowed(holders, 5)
+        && departmentHolderAllowed(holders, 6)
+        && departmentHolderAllowed(holders, 7)
+        && departmentHolderAllowed(holders, 8)
+        && departmentHolderAllowed(holders, 9)
+        && departmentHolderAllowed(holders, 10)
+        && departmentHolderAllowed(holders, 11)
+        && departmentHolderAllowed(holders, 12)
+        && departmentHolderAllowed(holders, 13)
+        && departmentHolderAllowed(holders, 14)
+        && departmentHolderAllowed(holders, 15)
+        && departmentHolderAllowed(holders, 16)
+        && departmentHolderAllowed(holders, 17)
+        && departmentHolderAllowed(holders, 18)
+        && departmentHolderAllowed(holders, 19)
+        && departmentHolderAllowed(holders, 20)
+        && departmentHolderAllowed(holders, 21)
+        && departmentHolderAllowed(holders, 22)
+        && departmentHolderAllowed(holders, 23)
+        && departmentHolderAllowed(holders, 24)
+        && departmentHolderAllowed(holders, 25)
+        && departmentHolderAllowed(holders, 26)
+        && departmentHolderAllowed(holders, 27)
+        && departmentHolderAllowed(holders, 28)
+        && departmentHolderAllowed(holders, 29)
+        && departmentHolderAllowed(holders, 30)
+        && departmentHolderAllowed(holders, 31);
+    }
     function recipientReceiptUpdate() {
       let dept = profile().department;
       return activeUser()
@@ -49,7 +93,8 @@ service cloud.firestore {
     match /dcs_dars/{id} {
       allow read: if isDcc() || sameDepartment(resource.data.requestDept);
       allow create: if activeUser()
-        && sameDepartment(request.resource.data.requestDept)
+        && (isDcc() || sameDepartment(request.resource.data.requestDept))
+        && (isDcc() || departmentHoldersAllowed(request.resource.data.distributionHolders))
         && request.resource.data.status == 'PENDING_REVIEW'
         && request.resource.data.requesterName is string
         && request.resource.data.requesterName.size() > 0
@@ -67,6 +112,8 @@ service cloud.firestore {
         resource.data.status in ['PENDING_REVIEW', 'UNDER_REVIEW'] &&
         request.resource.data.requestDept == resource.data.requestDept &&
         request.resource.data.status == resource.data.status &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['distributionHolders'])
+          || departmentHoldersAllowed(request.resource.data.distributionHolders.removeAll(resource.data.distributionHolders))) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'requesterSignature', 'deptApproverName', 'deptApproverTitle', 'deptApproverDate',
           'deptApproverSignature', 'reviewItems', 'distributionHolders', 'updatedAt'
