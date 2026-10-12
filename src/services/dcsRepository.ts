@@ -290,7 +290,23 @@ const nextNumber = async (kind: 'dar' | 'distribution' | 'request') => {
   });
 };
 
+export const validateDarEffectiveDates = (input: Pick<DarRecord, 'requestType' | 'targetEffectiveDate' | 'previousEffectiveDate' | 'additionalDocuments'>) => {
+  const validDate = (value?: string) => {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const date = new Date(value + 'T00:00:00Z');
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  };
+  if (!validDate(input.targetEffectiveDate)) throw new Error('กรุณาระบุวันที่มีผลของเอกสารฉบับใหม่ให้ถูกต้อง');
+  if (input.requestType === 'NEW') return;
+  const rows = [{ previousEffectiveDate: input.previousEffectiveDate }, ...(input.additionalDocuments || [])];
+  rows.forEach((row, index) => {
+    if (!validDate(row.previousEffectiveDate)) throw new Error('รายการที่ ' + (index + 1) + ': กรุณาระบุวันที่เอกสารเดิมบังคับใช้ให้ถูกต้อง');
+    if (row.previousEffectiveDate! >= input.targetEffectiveDate) throw new Error('รายการที่ ' + (index + 1) + ': วันที่ฉบับใหม่ต้องอยู่หลังวันที่เอกสารเดิมบังคับใช้ กรุณาตรวจสอบว่าสลับวันที่หรือไม่');
+  });
+};
+
 export const createDarRecord = async (user: CurrentUserSession, input: Omit<DarRecord, 'id' | 'requestDate' | 'status'>) => {
+  validateDarEffectiveDates(input);
   if (input.requestDept !== user.currentDept && user.userRole !== 'DCC_ADMIN') throw new Error('ไม่มีสิทธิ์สร้าง DAR แทนหน่วยงานอื่น');
   if (!input.requesterName?.trim() || !input.requesterSignature) throw new Error('ต้องระบุผู้ยื่นคำขอและลงลายเซ็นให้ครบก่อนส่ง DAR');
   if (!input.deptApproverName?.trim() || !input.deptApproverTitle?.trim() || !input.deptApproverDate || !input.deptApproverSignature) throw new Error('ต้องระบุชื่อ ตำแหน่ง วันที่ และลายเซ็นผู้อนุมัติในหน่วยงานให้ครบก่อนส่ง DAR');
