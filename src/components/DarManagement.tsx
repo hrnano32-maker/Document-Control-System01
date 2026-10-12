@@ -169,7 +169,8 @@ export const DarManagement: React.FC = () => {
   // DCC Review remarks state
   const [reviewRemarks, setReviewRemarks] = useState('');
 
-  const isDcc = currentUser.currentDept === 'DCC';
+  const isDcc = currentUser.userRole === 'DCC_ADMIN';
+  const isDccOnlyRecipient = (dept: Department) => dept === 'QMR' || dept === 'Customer Rep';
 
   // Helper to download draft file attached by DAR requester
   const handleDownloadDarDraft = async (dar: DarRecord) => {
@@ -1481,7 +1482,10 @@ export const DarManagement: React.FC = () => {
                         <input
                           type="checkbox"
                           checked={holder.checked}
+                          disabled={!isDcc && isDccOnlyRecipient(holder.dept)}
+                          title={!isDcc && isDccOnlyRecipient(holder.dept) ? 'เฉพาะ DCC เท่านั้นที่เลือกหน่วยงานนี้ได้' : undefined}
                           onChange={(e) => {
+                            if (!isDcc && isDccOnlyRecipient(holder.dept)) return;
                             const isChecked = e.target.checked;
                             setDarDistributionHolders(prev =>
                               prev.map((h, i) => (i === idx ? { ...h, checked: isChecked } : h))
@@ -1489,7 +1493,7 @@ export const DarManagement: React.FC = () => {
                           }}
                           className="rounded text-indigo-600 focus:ring-indigo-500 shrink-0"
                         />
-                        <span className="truncate text-[11px]">{holder.position}</span>
+                        <span className="truncate text-[11px]">{holder.position}{!isDcc && isDccOnlyRecipient(holder.dept) ? ' (DCC เลือกเท่านั้น)' : ''}</span>
                       </div>
 
                       {holder.checked && (
