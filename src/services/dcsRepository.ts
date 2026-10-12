@@ -294,6 +294,7 @@ export const createDarRecord = async (user: CurrentUserSession, input: Omit<DarR
   if (input.requestDept !== user.currentDept && user.userRole !== 'DCC_ADMIN') throw new Error('ไม่มีสิทธิ์สร้าง DAR แทนหน่วยงานอื่น');
   if (!input.requesterName?.trim() || !input.requesterSignature) throw new Error('ต้องระบุผู้ยื่นคำขอและลงลายเซ็นให้ครบก่อนส่ง DAR');
   if (!input.deptApproverName?.trim() || !input.deptApproverTitle?.trim() || !input.deptApproverDate || !input.deptApproverSignature) throw new Error('ต้องระบุชื่อ ตำแหน่ง วันที่ และลายเซ็นผู้อนุมัติในหน่วยงานให้ครบก่อนส่ง DAR');
+  if (user.userRole !== 'DCC_ADMIN' && input.distributionHolders?.some(item => item.checked && ['QMR', 'Customer Rep'].includes(item.dept))) throw new Error('เฉพาะ DCC เท่านั้นที่เลือกแจกจ่ายให้ QMR และ Customer Rep ได้');
   if (!input.distributionHolders?.some(item => item.checked)) throw new Error('ต้องระบุหน่วยงานผู้รับเอกสารอย่างน้อย 1 หน่วยงาน');
   if (!input.attachmentFileDataUrl || !input.attachmentFileName) throw new Error('ต้องแนบไฟล์ร่างเอกสารจริงก่อนส่ง DAR');
   if (!input.attachmentFileName.toLowerCase().endsWith('.pdf') || input.attachmentFileType !== 'application/pdf' || !input.attachmentFileDataUrl.startsWith('data:application/pdf;base64,')) {
