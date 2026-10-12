@@ -138,6 +138,7 @@ export interface DarRecord {
   requesterTitle: string;
   requestDate: string; // YYYY-MM-DD
   targetEffectiveDate: string; // YYYY-MM-DD
+  previousEffectiveDate?: string; // Actual previous revision effective date, never the DAR request date
   docNo: string; // e.g. QP-PD-001
   docNameTh: string;
   docNameEn: string;
