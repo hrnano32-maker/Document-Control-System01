@@ -1130,3 +1130,46 @@ exports.downloadAnnouncementFile = onRequest({
     else response.destroy(error);
   }
 });
+
+exports.cancelDistributionDepartment = onCall({ region: REGION, timeoutSeconds: 120, memory: '256MiB' }, async request => {
+  await requireDcc(request);
+  const distributionId = cleanText(request.data?.distributionId, 80);
+  const department = cleanText(request.data?.department, 80);
+  const reason = cleanText(request.data?.reason, 500);
+  if (!distributionId || !department || !reason) throw new HttpsError('invalid-argument', 'กรุณาระบุรายการ แผนก และเหตุผลการยกเลิก');
+  const db = getFirestore();
+  const distRef = db.collection('dcs_distributions').doc(distributionId);
+  const auditRef = db.collection('dcs_audit_logs').doc();
+  const paths = await db.runTransaction(async tx => {
+    const snap = await tx.get(distRef);
+    if (!snap.exists) throw new HttpsError('not-found', 'ไม่พบรายการแจกจ่าย');
+    const data = snap.data();
+    const prior = data.departmentCancellations?.[department];
+    if (prior) return prior.filePaths || [];
+    if (data.status === 'CANCELLED') throw new HttpsError('failed-precondition', 'รายการนี้ยกเลิกทั้งชุดแล้ว');
+    if (data.stampStatus === 'PROCESSING') throw new HttpsError('failed-precondition', 'กรุณารอประทับตราเสร็จก่อนยกเลิก');
+    if (!data.targetDepartments?.includes(department)) throw new HttpsError('not-found', 'ไม่พบแผนกในรายการแจกจ่าย');
+    const filePaths = data.departmentFileLists?.[department] || [data.departmentFiles?.[department]].filter(Boolean);
+    const remaining = data.targetDepartments.filter(dept => dept !== department);
+    const now = new Date().toISOString();
+    const allReceived = remaining.length > 0 && remaining.every(dept => Boolean(data.receipts?.[dept]?.downloadedAt));
+    const updates = {
+      targetDepartments: remaining,
+      departmentCancellations: { ...(data.departmentCancellations || {}), [department]: { reason, cancelledAt: now, cancelledBy: request.auth.uid, filePaths } },
+      departmentExpirationEpoch: { ...(data.departmentExpirationEpoch || {}), [department]: 0 },
+      status: remaining.length === 0 ? 'CANCELLED' : allReceived ? 'COMPLETED' : 'IN_PROGRESS',
+      allDownloadedAt: allReceived ? (data.allDownloadedAt || now) : null,
+      updatedAt: now,
+    };
+    if (!remaining.length) Object.assign(updates, { cancelledAt: now, cancelledBy: request.auth.uid, cancellationReason: 'ยกเลิกครบทุกแผนก' });
+    tx.update(distRef, updates);
+    tx.set(auditRef, { timestamp: now, createdAt: now, actor: 'DCC', actorDept: 'DCC', actorUid: request.auth.uid, actionType: 'DISTRIBUTION_DEPARTMENT_CANCELLED', docNo: data.docNo, revision: data.revision, description: 'ยกเลิกแจกจ่ายเฉพาะแผนก ' + department, details: { distributionId, department, reason } });
+    return filePaths;
+  });
+  // Revoke access first; retain receipts and recipient rows as historical evidence.
+  await Promise.all(paths.map(path => {
+    if (!path.startsWith('dcs/distributions/' + distributionId + '/controlled/')) throw new HttpsError('failed-precondition', 'เส้นทางไฟล์ไม่ถูกต้อง');
+    return getStorage().bucket().file(path).delete({ ignoreNotFound: true });
+  }));
+  return { cancelled: true, department, distributionId };
+});
