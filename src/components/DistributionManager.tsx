@@ -47,7 +47,7 @@ export const DistributionManager: React.FC = () => {
   const [reRequestNote, setReRequestNote] = useState('');
   const [managingId, setManagingId] = useState<string | null>(null);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
-  const isDcc = currentUser.currentDept === 'DCC';
+  const isDcc = currentUser.userRole === 'DCC_ADMIN';
 
   const filteredDistributions = distributions.filter(dist => {
     const matchSearch =
@@ -101,12 +101,13 @@ export const DistributionManager: React.FC = () => {
   };
 
   const handleCancelDistribution = async (dist: DistributionRecord) => {
+    if (!isDcc || managingId || dist.status === 'CANCELLED') return;
     const reason = window.prompt('ระบุเหตุผลที่ยกเลิกรายการแจกจ่าย (ระบบจะเก็บประวัติการรับเอกสารไว้)');
     if (reason === null) return;
     if (!reason.trim()) { alert('กรุณาระบุเหตุผลการยกเลิก'); return; }
     if (!window.confirm(`ยืนยันยกเลิกรายการ ${dist.distributionNo}? ผู้รับที่ยังไม่ได้ดาวน์โหลดจะไม่สามารถรับไฟล์ได้อีก`)) return;
     setManagingId(dist.id);
-    try { await cancelDistribution(dist.id, reason.trim()); }
+    try { await cancelDistribution(dist.id, reason.trim()); alert(`ยกเลิกแจกจ่าย ${dist.distributionNo} แล้ว ระบบเก็บประวัติการรับเอกสารไว้`); }
     catch (error) { alert(error instanceof Error ? error.message : 'ยกเลิกรายการไม่สำเร็จ'); }
     finally { setManagingId(null); }
   };
@@ -331,7 +332,7 @@ export const DistributionManager: React.FC = () => {
                       <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
                       ใบแจกจ่าย-เรียกคืน (FM-QS-003-00) / พิมพ์
                     </button>}
-                    {currentUser.currentDept === 'DCC' && dist.status !== 'CANCELLED' && (
+                    {isDcc && dist.status !== 'CANCELLED' && (
                       <>
                         <button
                           type="button"
@@ -339,7 +340,7 @@ export const DistributionManager: React.FC = () => {
                           onClick={() => handleCancelDistribution(dist)}
                           className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                         >
-                          <Ban className="w-4 h-4" /> ยกเลิกการแจกจ่าย
+                          <Ban className="w-4 h-4" /> {managingId === dist.id ? 'กำลังดำเนินการ...' : 'ยกเลิกแจกจ่ายทั้งชุด'}
                         </button>
                         <button
                           type="button"
@@ -501,6 +502,21 @@ export const DistributionManager: React.FC = () => {
                       );
                     })}
                   </div>
+                  {dist.status !== 'CANCELLED' && (
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
+                      <p className="text-sm text-slate-500">ยกเลิกทั้งชุดแจกจ่ายนี้ โดยเก็บประวัติการรับเอกสารไว้</p>
+                      <button
+                        type="button"
+                        disabled={managingId !== null || dist.stampStatus === 'PROCESSING'}
+                        title={dist.stampStatus === 'PROCESSING' ? 'รอประทับตราเสร็จก่อนยกเลิก' : 'DCC ยกเลิกการแจกจ่ายทั้งชุด'}
+                        onClick={() => handleCancelDistribution(dist)}
+                        className="flex items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-sm font-bold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Ban className="h-4 w-4" />
+                        {managingId === dist.id ? 'กำลังดำเนินการ...' : 'ยกเลิกแจกจ่ายทั้งชุด'}
+                      </button>
+                    </div>
+                  )}
                 </div>}
 
               </div>
