@@ -611,7 +611,7 @@ export const DarManagement: React.FC = () => {
                 ...(editingDar.requestType === 'NEW' ? [] : [['previousEffectiveDate', 'วันที่เอกสารเดิมมีผล']]),
               ] as [keyof typeof correction, string][]).map(([key, label]) => (
                 <label key={key} className="block text-sm font-semibold">{label}
-                  <input className="mt-1 w-full rounded-lg border p-2" type={key.toLowerCase().includes('date') ? 'date' : 'text'}
+                  <input className="mt-1 w-full rounded-lg border p-2" type={String(key).toLowerCase().includes('date') ? 'date' : 'text'}
                     value={correction[key]} onChange={e => setCorrection(prev => ({ ...prev, [key]: e.target.value }))} />
                 </label>
               ))}
