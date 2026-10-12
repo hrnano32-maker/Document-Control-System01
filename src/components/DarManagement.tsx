@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useDcs } from '../context/DcsContext';
-import { getStorageFileUrl } from '../services/dcsRepository';
+import { getStorageFileUrl, validateDarEffectiveDates } from '../services/dcsRepository';
 import {
   DarRecord,
   DarAdditionalDocument,
@@ -92,6 +92,7 @@ export const DarManagement: React.FC = () => {
   const [targetEffectiveDate, setTargetEffectiveDate] = useState(
     new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   );
+  const [previousEffectiveDate, setPreviousEffectiveDate] = useState('');
   const [docNo, setDocNo] = useState('');
   const [docNameTh, setDocNameTh] = useState('');
   const [docNameEn, setDocNameEn] = useState('');
@@ -225,6 +226,11 @@ export const DarManagement: React.FC = () => {
     setShowDocSelector(false);
   };
 
+  useEffect(() => {
+    const existing = documents.find(item => item.docNo.trim().toUpperCase() === docNo.trim().toUpperCase());
+    setPreviousEffectiveDate(reqType === 'NEW' ? '' : existing?.effectiveDate || '');
+  }, [docNo, reqType, documents]);
+
   // Filter dars
   const filteredDars = dars.filter(dar => {
     // Department users can only see their own department's DARs
@@ -285,12 +291,14 @@ export const DarManagement: React.FC = () => {
     }
 
     try {
+      validateDarEffectiveDates({ requestType: reqType, targetEffectiveDate, previousEffectiveDate, additionalDocuments: filledAdditionalDocuments });
       await createDar({
       requestType: reqType,
       requestDept: reqDept,
       requesterName: requesterName.trim(),
       requesterTitle: requesterTitle.trim(),
       targetEffectiveDate,
+      previousEffectiveDate: reqType === 'NEW' ? undefined : previousEffectiveDate,
       docNo: docNo.trim().toUpperCase(),
       docNameTh: docNameTh.trim(),
       docNameEn: docNameEn.trim(),
@@ -1031,6 +1039,12 @@ export const DarManagement: React.FC = () => {
                 </div>
               </div>
 
+              {reqType !== 'NEW' && <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-700">วันที่เอกสารเดิมบังคับใช้ <span className="text-rose-500">*</span></label>
+                <input type="date" required value={previousEffectiveDate} onChange={e => setPreviousEffectiveDate(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                <p className="mt-1 text-xs text-slate-500">ดึงจาก Master List เมื่อพบเอกสาร กรุณาตรวจสอบกับฉบับเดิม วันที่ฉบับใหม่ต้องอยู่หลังวันนี้</p>
+                {previousEffectiveDate && targetEffectiveDate && previousEffectiveDate >= targetEffectiveDate && <p role="alert" className="mt-2 text-sm font-bold text-rose-600">วันที่ฉบับใหม่ต้องอยู่หลังวันที่เอกสารเดิม ระบบจะไม่อนุญาตให้ส่ง DAR</p>}
+              </div>}
               {/* Document Identity */}
               <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)_minmax(180px,0.85fr)] gap-3.5 [&>*]:min-w-0">
                 <div>
@@ -1571,7 +1585,7 @@ export const DarManagement: React.FC = () => {
                     requestType={reqType}
                     requestDept={reqDept}
                     requesterName={requesterName}
-                    targetEffectiveDate={targetEffectiveDate}
+                    targetEffectiveDate={targetEffectiveDate} previousEffectiveDate={previousEffectiveDate}
                     docNo={docNo}
                     docNameTh={docNameTh}
                     docNameEn={docNameEn}
@@ -1599,7 +1613,7 @@ export const DarManagement: React.FC = () => {
                     <button type="button" onClick={() => setShowMobileLivePreview(false)} className="p-2 rounded-lg hover:bg-slate-700" aria-label="ปิดตัวอย่าง"><X className="w-5 h-5" /></button>
                   </div>
                   <DarLivePreview
-                    requestType={reqType} requestDept={reqDept} requesterName={requesterName} targetEffectiveDate={targetEffectiveDate}
+                    requestType={reqType} requestDept={reqDept} requesterName={requesterName} targetEffectiveDate={targetEffectiveDate} previousEffectiveDate={previousEffectiveDate}
                     docNo={docNo} docNameTh={docNameTh} docNameEn={docNameEn} docType={docType}
                     currentRevision={currentRevision} proposedRevision={proposedRevision} reasonForChange={reasonForChange}
                     additionalDocuments={additionalDocuments} requesterSignature={requesterSignature}
