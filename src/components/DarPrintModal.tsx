@@ -20,6 +20,7 @@ import { NanoLogo } from './NanoLogo';
 interface DarPrintModalProps {
   dar: DarRecord;
   onClose: () => void;
+  onEdit?: () => void;
 }
 
 const DEFAULT_POSITIONS = [
@@ -39,7 +40,7 @@ const DEFAULT_POSITIONS = [
   'ผู้บริหารตัวแทนระบบ (QMR)',
 ];
 
-export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) => {
+export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose, onEdit }) => {
   const { updateDarSignatures, currentUser } = useDcs();
 
   // Local signature states
@@ -292,6 +293,9 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose }) =>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
+            {onEdit && currentUser.userRole === 'DCC_ADMIN' && (
+              <button type="button" onClick={onEdit} className="px-3 py-2 rounded-lg bg-amber-500 text-slate-950 text-sm font-bold">DCC แก้ไขใบ DAR</button>
+            )}
             <button
               type="button"
               id="btn-save-dar-signatures"
