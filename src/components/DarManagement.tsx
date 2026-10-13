@@ -586,7 +586,7 @@ export const DarManagement: React.FC = () => {
                     </button>
                   </div>
                   <div className="flex justify-end gap-2 mt-2">
-                    {isDcc && ['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(dar.status) && (
+                    {isDcc && (
                       <button type="button" onClick={() => openDarCorrection(dar)} className="text-[11px] text-indigo-700 font-bold hover:underline">✏️ DCC แก้ไขข้อมูล</button>
                     )}
                     {['PENDING_REVIEW','UNDER_REVIEW','REJECTED'].includes(dar.status) && (currentUser.userRole === 'DCC_ADMIN' || currentUser.currentDept === dar.requestDept) && (
@@ -607,7 +607,7 @@ export const DarManagement: React.FC = () => {
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4">
           <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-bold mb-2">DCC แก้ไขใบ DAR {editingDar.id}</h3>
-            <p className="mb-4 text-sm text-amber-800">แก้ไขได้ก่อนอนุมัติหรือขึ้นทะเบียนเท่านั้น ระบบตรวจสอบวันที่และเก็บประวัติ</p>
+            <p className="mb-4 text-sm text-amber-800">DCC สามารถแก้ไขวันที่และเหตุผลได้แม้อนุมัติแล้ว โดยระบบตรวจสอบวันที่และเก็บประวัติ</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {([
                 ['currentRevision', 'Rev. เดิม'], ['proposedRevision', 'Rev. ที่เสนอ'], ['docNo', 'รหัสเอกสาร'], ['docNameTh', 'ชื่อเอกสารภาษาไทย'],
@@ -701,6 +701,7 @@ export const DarManagement: React.FC = () => {
             </div>
 
             <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs text-slate-800">
+              {isDcc && <div className="flex justify-end"><button type="button" onClick={() => openDarCorrection(selectedDarForReview)} className="rounded-lg bg-indigo-600 px-4 py-2 text-white font-bold hover:bg-indigo-700">✏️ แก้ไข DAR (DCC)</button></div>}
               
               {/* Summary Info */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
@@ -1718,7 +1719,7 @@ export const DarManagement: React.FC = () => {
       {selectedDarForPrint && (
         <DarPrintModal
           dar={selectedDarForPrint}
-          onEdit={isDcc && ['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(selectedDarForPrint.status) ? () => openDarCorrection(selectedDarForPrint) : undefined}
+          onEdit={isDcc ? () => openDarCorrection(selectedDarForPrint) : undefined}
           onClose={() => setSelectedDarForPrint(null)}
         />
       )}
