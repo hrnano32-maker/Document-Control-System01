@@ -357,9 +357,7 @@ export const correctDarRecord = async (
   correctionReason: string,
 ) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่แก้ไขข้อมูล DAR ได้');
-  if (!['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(dar.status)) {
-    throw new Error('DAR ที่อนุมัติหรือขึ้นทะเบียนแล้วต้องใช้กระบวนการแก้ไขเอกสารอย่างเป็นทางการ');
-  }
+  if (dar.status === 'CANCELLED') throw new Error('ไม่สามารถแก้ไข DAR ที่ยกเลิกแล้ว');
   if (!correctionReason.trim()) throw new Error('กรุณาระบุเหตุผลที่ DCC แก้ไขข้อมูล');
   const corrected = {
     currentRevision: dar.requestType === 'NEW' ? 'N/A' : updates.currentRevision.trim(),
@@ -378,6 +376,14 @@ export const correctDarRecord = async (
   }
   if (!corrected.currentRevision || !corrected.proposedRevision) throw new Error('กรุณาระบุ Revision ให้ครบ');
   if (corrected.additionalDocuments.length > 5 || corrected.additionalDocuments.some(row => !row.docNo || !row.docNameTh || !row.revision || !row.reason)) throw new Error('กรุณากรอกข้อมูลรายการเพิ่มเติมให้ครบ และไม่เกิน 5 รายการ');
+  if (dar.status === 'APPROVED' || dar.status === 'REGISTERED') {
+    for (const key of Object.keys(corrected) as (keyof typeof corrected)[]) {
+      if (!['targetEffectiveDate', 'previousEffectiveDate', 'reasonForChange', 'changeDetails'].includes(key)
+        && JSON.stringify(corrected[key]) !== JSON.stringify(dar[key] ?? (key === 'additionalDocuments' ? [] : ''))) {
+        throw new Error('DAR ที่อนุมัติแล้วแก้ไขได้เฉพาะวันที่และเหตุผล');
+      }
+    }
+  }
   validateDarEffectiveDates({ ...dar, ...corrected });
   const darRef = doc(db, 'dcs_dars', dar.id);
   const auditRef = doc(collection(db, 'dcs_audit_logs'));
@@ -385,7 +391,7 @@ export const correctDarRecord = async (
     const snap = await tx.get(darRef);
     if (!snap.exists()) throw new Error('ไม่พบใบ DAR');
     const latest = snap.data() as DarRecord;
-    if (!['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(latest.status)) {
+    if (latest.status !== dar.status || latest.status === 'CANCELLED') {
       throw new Error('สถานะ DAR เปลี่ยนแล้ว กรุณารีเฟรช');
     }
     for (const key of [...Object.keys(corrected), 'requestType'] as (keyof DarRecord)[]) {
