@@ -71,12 +71,13 @@ export const DarManagement: React.FC = () => {
 
   const [editingDar, setEditingDar] = useState<DarRecord | null>(null);
   const [correction, setCorrection] = useState({ docNo: '', docNameTh: '', docNameEn: '', targetEffectiveDate: '', previousEffectiveDate: '', reasonForChange: '', changeDetails: '', currentRevision: '', proposedRevision: '' });
+  const correctionDetailsOnly = editingDar?.status === 'APPROVED' || editingDar?.status === 'REGISTERED';
   const [correctionRows, setCorrectionRows] = useState<DarAdditionalDocument[]>([]);
   const [correctionReason, setCorrectionReason] = useState('');
   const [correctionError, setCorrectionError] = useState('');
   const [savingCorrection, setSavingCorrection] = useState(false);
   const openDarCorrection = (dar: DarRecord) => {
-    if (!isDcc) return;
+    if (!isDcc || dar.status === 'CANCELLED') return;
     setSelectedDarForPrint(null);
     setCorrectionRows((dar.additionalDocuments || []).map(row => ({ ...row })));
     setEditingDar(dar);
@@ -616,6 +617,7 @@ export const DarManagement: React.FC = () => {
               ] as [keyof typeof correction, string][]).map(([key, label]) => (
                 <label key={key} className="block text-sm font-semibold">{label}
                   <input className="mt-1 w-full rounded-lg border p-2" type={String(key).toLowerCase().includes('date') ? 'date' : 'text'}
+                    disabled={savingCorrection || (correctionDetailsOnly && !['targetEffectiveDate', 'previousEffectiveDate'].includes(key))}
                     value={correction[key]} onChange={e => setCorrection(prev => ({ ...prev, [key]: e.target.value }))} />
                 </label>
               ))}
@@ -629,7 +631,7 @@ export const DarManagement: React.FC = () => {
             <section className="mt-4 space-y-3">
               <h4 className="font-bold">รายการเอกสารเพิ่มเติม</h4>
               {correctionRows.map((row, index) => (
-                <fieldset key={index} className="rounded-lg border p-3">
+                <fieldset key={index} disabled={savingCorrection || correctionDetailsOnly} className="rounded-lg border p-3 disabled:opacity-60">
                   <legend className="font-semibold">รายการที่ {index + 2}</legend>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {([['docNo', 'รหัสเอกสาร'], ['docNameTh', 'ชื่อเอกสารภาษาไทย'], ['docNameEn', 'ชื่อเอกสารภาษาอังกฤษ'], ['previousEffectiveDate', 'วันที่เอกสารเดิมมีผล'], ['revision', 'ฉบับที่'], ['reason', 'เหตุผล']] as const).map(([key, label]) => (
@@ -642,7 +644,7 @@ export const DarManagement: React.FC = () => {
                   <button type="button" disabled={savingCorrection} onClick={() => setCorrectionRows(items => items.filter((_, i) => i !== index))} className="mt-2 text-sm text-rose-700">ลบรายการนี้</button>
                 </fieldset>
               ))}
-              <button type="button" disabled={savingCorrection || correctionRows.length >= 5}
+              <button type="button" disabled={savingCorrection || correctionDetailsOnly || correctionRows.length >= 5}
                 onClick={() => setCorrectionRows(items => [...items, { docNo: '', docNameTh: '', docNameEn: '', previousEffectiveDate: '', revision: '', reason: '' }])}
                 className="rounded-lg border px-3 py-2 text-sm font-bold disabled:opacity-50">เพิ่มรายการ</button>
             </section>
@@ -701,7 +703,7 @@ export const DarManagement: React.FC = () => {
             </div>
 
             <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs text-slate-800">
-              {isDcc && <div className="flex justify-end"><button type="button" onClick={() => openDarCorrection(selectedDarForReview)} className="rounded-lg bg-indigo-600 px-4 py-2 text-white font-bold hover:bg-indigo-700">✏️ แก้ไข DAR (DCC)</button></div>}
+              {isDcc && selectedDarForReview.status !== 'CANCELLED' && <div className="flex justify-end"><button type="button" onClick={() => openDarCorrection(selectedDarForReview)} className="rounded-lg bg-indigo-600 px-4 py-2 text-white font-bold hover:bg-indigo-700">✏️ แก้ไข DAR (DCC)</button></div>}
               
               {/* Summary Info */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
@@ -1719,7 +1721,7 @@ export const DarManagement: React.FC = () => {
       {selectedDarForPrint && (
         <DarPrintModal
           dar={selectedDarForPrint}
-          onEdit={isDcc ? () => openDarCorrection(selectedDarForPrint) : undefined}
+          onEdit={isDcc && selectedDarForPrint.status !== 'CANCELLED' ? () => openDarCorrection(selectedDarForPrint) : undefined}
           onClose={() => setSelectedDarForPrint(null)}
         />
       )}
