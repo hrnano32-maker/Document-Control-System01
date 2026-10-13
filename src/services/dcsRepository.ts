@@ -353,7 +353,7 @@ export const patchDarRecord = async (id: string, updates: Partial<DarRecord>) =>
 export const correctDarRecord = async (
   user: CurrentUserSession,
   dar: DarRecord,
-  updates: Pick<DarRecord, 'docNo' | 'docNameTh' | 'docNameEn' | 'targetEffectiveDate' | 'previousEffectiveDate' | 'reasonForChange' | 'changeDetails'>,
+  updates: Pick<DarRecord, 'docNo' | 'docNameTh' | 'docNameEn' | 'targetEffectiveDate' | 'previousEffectiveDate' | 'reasonForChange' | 'changeDetails' | 'currentRevision' | 'proposedRevision' | 'additionalDocuments'>,
   correctionReason: string,
 ) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่แก้ไขข้อมูล DAR ได้');
@@ -362,6 +362,9 @@ export const correctDarRecord = async (
   }
   if (!correctionReason.trim()) throw new Error('กรุณาระบุเหตุผลที่ DCC แก้ไขข้อมูล');
   const corrected = {
+    currentRevision: dar.requestType === 'NEW' ? 'N/A' : updates.currentRevision.trim(),
+    proposedRevision: updates.proposedRevision.trim(),
+    additionalDocuments: (updates.additionalDocuments || []).map(row => ({ ...row, docNo: row.docNo.trim().toUpperCase(), docNameTh: row.docNameTh.trim(), docNameEn: (row.docNameEn || '').trim(), revision: row.revision.trim(), reason: row.reason.trim() })),
     docNo: updates.docNo.trim().toUpperCase(),
     docNameTh: updates.docNameTh.trim(),
     docNameEn: updates.docNameEn.trim(),
@@ -373,6 +376,8 @@ export const correctDarRecord = async (
   if (!corrected.docNo || !corrected.docNameTh || !corrected.reasonForChange) {
     throw new Error('กรุณาระบุรหัสเอกสาร ชื่อเอกสาร และเหตุผลการดำเนินการ');
   }
+  if (!corrected.currentRevision || !corrected.proposedRevision) throw new Error('กรุณาระบุ Revision ให้ครบ');
+  if (corrected.additionalDocuments.length > 5 || corrected.additionalDocuments.some(row => !row.docNo || !row.docNameTh || !row.revision || !row.reason)) throw new Error('กรุณากรอกข้อมูลรายการเพิ่มเติมให้ครบ และไม่เกิน 5 รายการ');
   validateDarEffectiveDates({ ...dar, ...corrected });
   const darRef = doc(db, 'dcs_dars', dar.id);
   const auditRef = doc(collection(db, 'dcs_audit_logs'));
@@ -383,10 +388,13 @@ export const correctDarRecord = async (
     if (!['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(latest.status)) {
       throw new Error('สถานะ DAR เปลี่ยนแล้ว กรุณารีเฟรช');
     }
+    for (const key of [...Object.keys(corrected), 'requestType'] as (keyof DarRecord)[]) {
+      if (JSON.stringify(latest[key] ?? '') !== JSON.stringify(dar[key] ?? '')) throw new Error('ใบ DAR ถูกแก้ไขจากหน้าจออื่นแล้ว กรุณาปิดและเปิดใหม่ก่อนบันทึก');
+    }
     validateDarEffectiveDates({ ...latest, ...corrected });
     const changes: Record<string, { before: unknown; after: unknown }> = {};
     for (const key of Object.keys(corrected) as (keyof typeof corrected)[]) {
-      if ((latest[key] || '') !== corrected[key]) changes[key] = { before: latest[key] ?? '', after: corrected[key] };
+      if (JSON.stringify(latest[key] ?? '') !== JSON.stringify(corrected[key])) changes[key] = { before: latest[key] ?? '', after: corrected[key] };
     }
     if (!Object.keys(changes).length) throw new Error('ไม่มีข้อมูลที่เปลี่ยนแปลง');
     const now = new Date().toISOString();
