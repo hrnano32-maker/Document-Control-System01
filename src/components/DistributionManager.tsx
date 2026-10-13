@@ -51,6 +51,19 @@ export const DistributionManager: React.FC = () => {
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   const isDcc = currentUser.userRole === 'DCC_ADMIN';
 
+  const [repairingQaQc, setRepairingQaQc] = useState(false);
+  const [qaQcRepairMessage, setQaQcRepairMessage] = useState('');
+  const repairQaQc = async () => {
+    if (!isDcc || repairingQaQc) return;
+    setRepairingQaQc(true); setQaQcRepairMessage('');
+    try {
+      const result = await httpsCallable<void, { users: number; registrations: number; distributions: number }>(firebaseFunctions, 'repairQaQcAccess', { timeout: 540000 })();
+      setQaQcRepairMessage(`ปรับชื่อ QA/QC แล้ว: บัญชี ${result.data.users} รายการ ทะเบียน ${result.data.registrations} รายการ ใบแจกจ่าย ${result.data.distributions} รายการ — ให้ผู้ใช้ QA/QC ออกจากระบบและเข้าใหม่`);
+    } catch (error) {
+      setQaQcRepairMessage(error instanceof Error ? error.message : 'ปรับข้อมูลไม่สำเร็จ กรุณาลองใหม่');
+    } finally { setRepairingQaQc(false); }
+  };
+
   const filteredDistributions = distributions.filter(dist => {
     const matchSearch =
       dist.distributionNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -162,6 +175,7 @@ export const DistributionManager: React.FC = () => {
         </div>
 
         {isDcc && <div className="flex items-center gap-2 flex-wrap">
+          <button type="button" disabled={repairingQaQc} onClick={repairQaQc} className="px-4 py-2 rounded-xl border border-amber-300 bg-amber-50 text-amber-900 text-sm font-bold disabled:opacity-50">{repairingQaQc ? 'กำลังปรับสิทธิ์ QA/QC...' : 'แก้สิทธิ์ QA/QC จากชื่อเดิม'}</button>
           <button
             disabled
             title="เลือกใบแจกจ่ายที่ผู้รับดาวน์โหลดครบแล้วจากรายการด้านล่าง"
@@ -181,6 +195,7 @@ export const DistributionManager: React.FC = () => {
         </div>}
       </div>
 
+      {isDcc && qaQcRepairMessage && <p role="status" className="p-3 rounded-xl border bg-amber-50 text-sm text-amber-900">{qaQcRepairMessage}</p>}
       {/* DCC Re-Requests Alert Queue (If any pending) */}
       {currentUser.currentDept === 'DCC' && pendingReRequests.length > 0 && (
         <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-5 shadow-xs space-y-4 animate-in fade-in duration-200">
