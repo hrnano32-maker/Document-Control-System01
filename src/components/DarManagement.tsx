@@ -70,20 +70,24 @@ export const DarManagement: React.FC = () => {
   const [downloadingDarId, setDownloadingDarId] = useState<string | null>(null);
 
   const [editingDar, setEditingDar] = useState<DarRecord | null>(null);
-  const [correction, setCorrection] = useState({ docNo: '', docNameTh: '', docNameEn: '', targetEffectiveDate: '', previousEffectiveDate: '', reasonForChange: '', changeDetails: '' });
+  const [correction, setCorrection] = useState({ docNo: '', docNameTh: '', docNameEn: '', targetEffectiveDate: '', previousEffectiveDate: '', reasonForChange: '', changeDetails: '', currentRevision: '', proposedRevision: '' });
+  const [correctionRows, setCorrectionRows] = useState<DarAdditionalDocument[]>([]);
   const [correctionReason, setCorrectionReason] = useState('');
   const [correctionError, setCorrectionError] = useState('');
   const [savingCorrection, setSavingCorrection] = useState(false);
   const openDarCorrection = (dar: DarRecord) => {
+    if (!isDcc) return;
+    setSelectedDarForPrint(null);
+    setCorrectionRows((dar.additionalDocuments || []).map(row => ({ ...row })));
     setEditingDar(dar);
-    setCorrection({ docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn || '', targetEffectiveDate: dar.targetEffectiveDate, previousEffectiveDate: dar.previousEffectiveDate || '', reasonForChange: dar.reasonForChange, changeDetails: dar.changeDetails || '' });
+    setCorrection({ docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn || '', targetEffectiveDate: dar.targetEffectiveDate, previousEffectiveDate: dar.previousEffectiveDate || '', reasonForChange: dar.reasonForChange, changeDetails: dar.changeDetails || '', currentRevision: dar.currentRevision || '', proposedRevision: dar.proposedRevision || '' });
     setCorrectionReason(''); setCorrectionError('');
   };
   const saveDarCorrection = async () => {
     if (!editingDar || savingCorrection) return;
     setCorrectionError(''); setSavingCorrection(true);
     try {
-      await correctDarRecord(currentUser, editingDar, correction, correctionReason);
+      await correctDarRecord(currentUser, editingDar, { ...correction, additionalDocuments: correctionRows }, correctionReason);
       setEditingDar(null); setSelectedDarForReview(null);
       alert('บันทึกการแก้ไข DAR สำเร็จ พร้อมบันทึกประวัติ');
     } catch (error) {
@@ -606,7 +610,7 @@ export const DarManagement: React.FC = () => {
             <p className="mb-4 text-sm text-amber-800">แก้ไขได้ก่อนอนุมัติหรือขึ้นทะเบียนเท่านั้น ระบบตรวจสอบวันที่และเก็บประวัติ</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {([
-                ['docNo', 'เลขที่เอกสาร'], ['docNameTh', 'ชื่อเอกสารภาษาไทย'],
+                ['currentRevision', 'Rev. เดิม'], ['proposedRevision', 'Rev. ที่เสนอ'], ['docNo', 'รหัสเอกสาร'], ['docNameTh', 'ชื่อเอกสารภาษาไทย'],
                 ['docNameEn', 'ชื่อเอกสารภาษาอังกฤษ'], ['targetEffectiveDate', 'วันที่เอกสารใหม่มีผล'],
                 ...(editingDar.requestType === 'NEW' ? [] : [['previousEffectiveDate', 'วันที่เอกสารเดิมมีผล']]),
               ] as [keyof typeof correction, string][]).map(([key, label]) => (
@@ -622,6 +626,26 @@ export const DarManagement: React.FC = () => {
                   onChange={e => setCorrection(prev => ({ ...prev, [key]: e.target.value }))} />
               </label>
             ))}
+            <section className="mt-4 space-y-3">
+              <h4 className="font-bold">รายการเอกสารเพิ่มเติม</h4>
+              {correctionRows.map((row, index) => (
+                <fieldset key={index} className="rounded-lg border p-3">
+                  <legend className="font-semibold">รายการที่ {index + 2}</legend>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {([['docNo', 'รหัสเอกสาร'], ['docNameTh', 'ชื่อเอกสารภาษาไทย'], ['docNameEn', 'ชื่อเอกสารภาษาอังกฤษ'], ['previousEffectiveDate', 'วันที่เอกสารเดิมมีผล'], ['revision', 'ฉบับที่'], ['reason', 'เหตุผล']] as const).map(([key, label]) => (
+                      <label key={key} className="text-sm font-semibold">{label}
+                        <input type={key === 'previousEffectiveDate' ? 'date' : 'text'} className="mt-1 w-full rounded-lg border p-2"
+                          value={row[key] || ''} onChange={e => setCorrectionRows(items => items.map((item, i) => i === index ? { ...item, [key]: e.target.value } : item))} />
+                      </label>
+                    ))}
+                  </div>
+                  <button type="button" disabled={savingCorrection} onClick={() => setCorrectionRows(items => items.filter((_, i) => i !== index))} className="mt-2 text-sm text-rose-700">ลบรายการนี้</button>
+                </fieldset>
+              ))}
+              <button type="button" disabled={savingCorrection || correctionRows.length >= 5}
+                onClick={() => setCorrectionRows(items => [...items, { docNo: '', docNameTh: '', docNameEn: '', previousEffectiveDate: '', revision: '', reason: '' }])}
+                className="rounded-lg border px-3 py-2 text-sm font-bold disabled:opacity-50">เพิ่มรายการ</button>
+            </section>
             <label className="mt-3 block text-sm font-semibold">เหตุผลที่ DCC แก้ไข (บังคับกรอก)
               <textarea rows={2} className="mt-1 w-full rounded-lg border p-2" value={correctionReason}
                 onChange={e => setCorrectionReason(e.target.value)} />
@@ -1694,6 +1718,7 @@ export const DarManagement: React.FC = () => {
       {selectedDarForPrint && (
         <DarPrintModal
           dar={selectedDarForPrint}
+          onEdit={isDcc && ['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(selectedDarForPrint.status) ? () => openDarCorrection(selectedDarForPrint) : undefined}
           onClose={() => setSelectedDarForPrint(null)}
         />
       )}
