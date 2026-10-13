@@ -371,19 +371,25 @@ export const correctDarRecord = async (
     reasonForChange: updates.reasonForChange.trim(),
     changeDetails: updates.changeDetails.trim(),
   };
-  if (!corrected.docNo || !corrected.docNameTh || !corrected.reasonForChange) {
-    throw new Error('กรุณาระบุรหัสเอกสาร ชื่อเอกสาร และเหตุผลการดำเนินการ');
-  }
-  if (!corrected.currentRevision || !corrected.proposedRevision) throw new Error('กรุณาระบุ Revision ให้ครบ');
-  if (corrected.additionalDocuments.length > 5 || corrected.additionalDocuments.some(row => !row.docNo || !row.docNameTh || !row.revision || !row.reason)) throw new Error('กรุณากรอกข้อมูลรายการเพิ่มเติมให้ครบ และไม่เกิน 5 รายการ');
-  if (dar.status === 'APPROVED' || dar.status === 'REGISTERED') {
-    for (const key of Object.keys(corrected) as (keyof typeof corrected)[]) {
-      if (!['targetEffectiveDate', 'previousEffectiveDate', 'reasonForChange', 'changeDetails'].includes(key)
-        && JSON.stringify(corrected[key]) !== JSON.stringify(dar[key] ?? (key === 'additionalDocuments' ? [] : ''))) {
+  const detailsOnly = dar.status === 'APPROVED' || dar.status === 'REGISTERED';
+  if (detailsOnly) {
+    // Keep identity fields byte-for-byte; legacy names may contain spaces or lowercase.
+    for (const key of ['docNo', 'docNameTh', 'docNameEn', 'currentRevision', 'proposedRevision', 'additionalDocuments'] as const) {
+      if (JSON.stringify(updates[key] ?? (key === 'additionalDocuments' ? [] : '')) !== JSON.stringify(dar[key] ?? (key === 'additionalDocuments' ? [] : ''))) {
         throw new Error('DAR ที่อนุมัติแล้วแก้ไขได้เฉพาะวันที่และเหตุผล');
       }
     }
+    Object.assign(corrected, {
+      docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn || '',
+      currentRevision: dar.currentRevision, proposedRevision: dar.proposedRevision,
+      additionalDocuments: dar.additionalDocuments || [],
+    });
+  } else {
+    if (!corrected.docNo || !corrected.docNameTh) throw new Error('กรุณาระบุรหัสและชื่อเอกสาร');
+    if (!corrected.currentRevision || !corrected.proposedRevision) throw new Error('กรุณาระบุ Revision ให้ครบ');
+    if (corrected.additionalDocuments.length > 5 || corrected.additionalDocuments.some(row => !row.docNo || !row.docNameTh || !row.revision || !row.reason)) throw new Error('กรุณากรอกข้อมูลรายการเพิ่มเติมให้ครบ และไม่เกิน 5 รายการ');
   }
+  if (!corrected.reasonForChange) throw new Error('กรุณาระบุเหตุผลการดำเนินการ');
   validateDarEffectiveDates({ ...dar, ...corrected });
   const darRef = doc(db, 'dcs_dars', dar.id);
   const auditRef = doc(collection(db, 'dcs_audit_logs'));
@@ -404,7 +410,8 @@ export const correctDarRecord = async (
     }
     if (!Object.keys(changes).length) throw new Error('ไม่มีข้อมูลที่เปลี่ยนแปลง');
     const now = new Date().toISOString();
-    tx.update(darRef, clean({ ...corrected, updatedAt: now }));
+    const changedFields = Object.fromEntries(Object.entries(changes).map(([key, value]) => [key, value.after]));
+    tx.update(darRef, clean({ ...changedFields, updatedAt: now }));
     tx.set(auditRef, clean({
       id: auditRef.id, timestamp: now, createdAt: now, ...actorFields(user),
       actionType: 'DAR_REVIEWED', docNo: corrected.docNo,
