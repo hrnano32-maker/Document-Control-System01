@@ -8,95 +8,43 @@ service cloud.firestore {
     function isDcc() { return activeUser() && profile().role == 'DCC_ADMIN'; }
     function sameDepartment(department) { return activeUser() && profile().department == department; }
     // Firestore Rules have no loops: bound and validate every supplied holder.
-    function departmentHolderAllowed(holders, index) {
-      return index >= holders.size() || (
-        holders[index] is map
-        && holders[index].dept is string
-        && holders[index].checked is bool
-        && (!(holders[index].dept in ['QMR', 'Customer Rep']) || holders[index].checked == false)
-      );
-    }
-    function departmentHoldersAllowed(holders) {
-      return holders is list && holders.size() <= 32
-        && departmentHolderAllowed(holders, 0)
-        && departmentHolderAllowed(holders, 1)
-        && departmentHolderAllowed(holders, 2)
-        && departmentHolderAllowed(holders, 3)
-        && departmentHolderAllowed(holders, 4)
-        && departmentHolderAllowed(holders, 5)
-        && departmentHolderAllowed(holders, 6)
-        && departmentHolderAllowed(holders, 7)
-        && departmentHolderAllowed(holders, 8)
-        && departmentHolderAllowed(holders, 9)
-        && departmentHolderAllowed(holders, 10)
-        && departmentHolderAllowed(holders, 11)
-        && departmentHolderAllowed(holders, 12)
-        && departmentHolderAllowed(holders, 13)
-        && departmentHolderAllowed(holders, 14)
-        && departmentHolderAllowed(holders, 15)
-        && departmentHolderAllowed(holders, 16)
-        && departmentHolderAllowed(holders, 17)
-        && departmentHolderAllowed(holders, 18)
-        && departmentHolderAllowed(holders, 19)
-        && departmentHolderAllowed(holders, 20)
-        && departmentHolderAllowed(holders, 21)
-        && departmentHolderAllowed(holders, 22)
-        && departmentHolderAllowed(holders, 23)
-        && departmentHolderAllowed(holders, 24)
-        && departmentHolderAllowed(holders, 25)
-        && departmentHolderAllowed(holders, 26)
-        && departmentHolderAllowed(holders, 27)
-        && departmentHolderAllowed(holders, 28)
-        && departmentHolderAllowed(holders, 29)
-        && departmentHolderAllowed(holders, 30)
-        && departmentHolderAllowed(holders, 31);
+    function departmentHoldersAllowed(rows) {
+      let count = rows.size();
+      return rows is list && count <= 16
+        && (count <= 0 || (!(rows[0].dept in ['QMR', 'Customer Rep']) || rows[0].checked == false))
+        && (count <= 1 || (!(rows[1].dept in ['QMR', 'Customer Rep']) || rows[1].checked == false))
+        && (count <= 2 || (!(rows[2].dept in ['QMR', 'Customer Rep']) || rows[2].checked == false))
+        && (count <= 3 || (!(rows[3].dept in ['QMR', 'Customer Rep']) || rows[3].checked == false))
+        && (count <= 4 || (!(rows[4].dept in ['QMR', 'Customer Rep']) || rows[4].checked == false))
+        && (count <= 5 || (!(rows[5].dept in ['QMR', 'Customer Rep']) || rows[5].checked == false))
+        && (count <= 6 || (!(rows[6].dept in ['QMR', 'Customer Rep']) || rows[6].checked == false))
+        && (count <= 7 || (!(rows[7].dept in ['QMR', 'Customer Rep']) || rows[7].checked == false))
+        && (count <= 8 || (!(rows[8].dept in ['QMR', 'Customer Rep']) || rows[8].checked == false))
+        && (count <= 9 || (!(rows[9].dept in ['QMR', 'Customer Rep']) || rows[9].checked == false))
+        && (count <= 10 || (!(rows[10].dept in ['QMR', 'Customer Rep']) || rows[10].checked == false))
+        && (count <= 11 || (!(rows[11].dept in ['QMR', 'Customer Rep']) || rows[11].checked == false))
+        && (count <= 12 || (!(rows[12].dept in ['QMR', 'Customer Rep']) || rows[12].checked == false))
+        && (count <= 13 || (!(rows[13].dept in ['QMR', 'Customer Rep']) || rows[13].checked == false))
+        && (count <= 14 || (!(rows[14].dept in ['QMR', 'Customer Rep']) || rows[14].checked == false))
+        && (count <= 15 || (!(rows[15].dept in ['QMR', 'Customer Rep']) || rows[15].checked == false));
     }
     function darDate(value) {
       return value is string && value.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
     }
-    function darAdditionalDateAllowed(rows, index, nextDate) {
-      return index >= rows.size() || (rows[index] is map
-        && darDate(rows[index].previousEffectiveDate)
-        && rows[index].previousEffectiveDate < nextDate);
-    }
+
     function darEffectiveDatesAllowed(data) {
       let rows = data.get('additionalDocuments', []);
-      return darDate(data.targetEffectiveDate) && (data.requestType == 'NEW' || (
+      let count = rows.size();
+      let nextDate = data.targetEffectiveDate;
+      return darDate(nextDate) && (data.requestType == 'NEW' || (
         darDate(data.get('previousEffectiveDate', ''))
-        && data.previousEffectiveDate < data.targetEffectiveDate
-        && rows is list && rows.size() <= 32
-        && darAdditionalDateAllowed(rows, 0, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 1, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 2, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 3, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 4, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 5, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 6, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 7, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 8, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 9, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 10, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 11, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 12, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 13, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 14, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 15, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 16, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 17, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 18, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 19, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 20, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 21, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 22, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 23, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 24, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 25, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 26, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 27, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 28, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 29, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 30, data.targetEffectiveDate)
-        && darAdditionalDateAllowed(rows, 31, data.targetEffectiveDate)
+        && data.previousEffectiveDate < nextDate
+        && rows is list && count <= 5
+        && (count <= 0 || (rows[0].previousEffectiveDate.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$') && rows[0].previousEffectiveDate < nextDate))
+        && (count <= 1 || (rows[1].previousEffectiveDate.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$') && rows[1].previousEffectiveDate < nextDate))
+        && (count <= 2 || (rows[2].previousEffectiveDate.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$') && rows[2].previousEffectiveDate < nextDate))
+        && (count <= 3 || (rows[3].previousEffectiveDate.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$') && rows[3].previousEffectiveDate < nextDate))
+        && (count <= 4 || (rows[4].previousEffectiveDate.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$') && rows[4].previousEffectiveDate < nextDate))
       ));
     }
     function recipientReceiptUpdate() {
