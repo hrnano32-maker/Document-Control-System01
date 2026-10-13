@@ -7,7 +7,7 @@ const { randomBytes, createHash } = require('node:crypto');
 const sharp = require('sharp');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
-const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
+const { PDFDocument, StandardFonts, rgb, degrees, BlendMode } = require('pdf-lib');
 const archiver = require('archiver');
 
 initializeApp();
@@ -439,10 +439,11 @@ async function controlledStamp(pdf, department) {
     const stampHeight = stampWidth * (stamp.height / stamp.width);
     const x = Math.max(12, width - stampWidth - 18);
     const y = Math.max(28, height - stampHeight - 34);
-    page.drawImage(stamp, { x, y, width: stampWidth, height: stampHeight });
+    // Multiply makes the white stamp background non-occluding; opacity keeps source text legible.
+    page.drawImage(stamp, { x, y, width: stampWidth, height: stampHeight, blendMode: BlendMode.Multiply, opacity: 0.65 });
     const departmentText = `DEPARTMENT: ${department}`;
     const size = Math.max(8, Math.min(11, stampWidth / 14));
-    page.drawText(departmentText, { x, y: Math.max(12, y - size - 3), size, font, color: RED });
+    page.drawText(departmentText, { x, y: Math.max(12, y - size - 3), size, font, color: RED, blendMode: BlendMode.Multiply, opacity: 0.65 });
   }
 }
 
