@@ -394,10 +394,10 @@ export const DistributionManager: React.FC = () => {
 
                   {/* Progress & Quick My Dept Action */}
                   <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 flex flex-col justify-between space-y-3">
-                    <div>
+                    {isDcc && <div>
                       <div className="flex items-center justify-between text-xs sm:text-sm mb-1.5">
-                        <span className="font-bold text-slate-700">ความคืบหน้าการรับเอกสาร:</span>
-                        <span className="font-black text-indigo-900 font-mono text-sm">{downloadedCount}/{totalTargets} ({percent}%)</span>
+                        <span className="font-bold text-slate-700">แผนกที่บันทึกการรับเอกสารแล้ว:</span>
+                        <span className="font-black text-indigo-900 font-mono text-sm">{downloadedCount} จาก {totalTargets} แผนก</span>
                       </div>
                       <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
                         <div
@@ -407,7 +407,9 @@ export const DistributionManager: React.FC = () => {
                           style={{ width: `${percent}%` }}
                         ></div>
                       </div>
-                    </div>
+                      <p className="mt-2 text-xs text-slate-500">แสดงจำนวนแผนกที่รับเอกสาร ไม่ใช่จำนวนไฟล์ที่ดาวน์โหลด</p>
+                    </div>}
+                    {!isDcc && <h4 className="text-sm font-bold text-slate-800">สถานะการรับเอกสารของ {currentUser.currentDept}</h4>}
 
                     {/* Department-specific Action Banner */}
                     {myTarget && dist.status !== 'CANCELLED' && (
@@ -416,10 +418,10 @@ export const DistributionManager: React.FC = () => {
                           <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
                             <span className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
                               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                              {currentUser.currentDept}: รับสำเนาแล้ว (Copy 1/1)
+                              {currentUser.currentDept}: บันทึกการรับเอกสารแล้ว
                             </span>
                             <span className="text-xs text-emerald-700 font-mono font-medium">
-                              {new Date(myTarget.downloadTimestamp!).toLocaleDateString('th-TH')}
+                              {myTarget.downloadTimestamp ? new Date(myTarget.downloadTimestamp).toLocaleDateString('th-TH') : ''}
                             </span>
                           </div>
                         ) : timeInfo.isExpired ? (
@@ -446,6 +448,8 @@ export const DistributionManager: React.FC = () => {
                         )}
                       </div>
                     )}
+                    {!isDcc && !!dist.departmentFileLists?.[currentUser.currentDept]?.length && <p className="text-sm font-semibold text-slate-700">เอกสารชุดนี้สำหรับแผนกคุณมี {dist.departmentFileLists[currentUser.currentDept].length} ไฟล์</p>}
+                    {!isDcc && myTarget?.isDownloaded && <p className="text-sm text-slate-600">บันทึกการรับแล้ว กรุณาตรวจสอบว่าไฟล์ที่ต้องการอยู่ในโฟลเดอร์ดาวน์โหลดของเครื่อง สถานะนี้ไม่ได้ยืนยันการบันทึกไฟล์ลงเครื่อง</p>}
 
                   </div>
 
