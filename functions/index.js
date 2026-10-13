@@ -1174,3 +1174,49 @@ exports.cancelDistributionDepartment = onCall({ region: REGION, timeoutSeconds: 
   }));
   return { cancelled: true, department, distributionId };
 });
+
+ // Canonicalize old QA/QC access without changing files, receipts, status or expiry.
+exports.repairQaQcAccess = onCall({ region: REGION, timeoutSeconds: 540, memory: '512MiB' }, async request => {
+  await requireDcc(request);
+  const db = getFirestore();
+  const counts = { distributions: 0, users: 0, registrations: 0 };
+  const distributions = await db.collection('dcs_distributions').where('targetDepartments', 'array-contains-any', ['QA', 'QC']).get();
+  for (const candidate of distributions.docs) {
+    const changed = await db.runTransaction(async tx => {
+      const snap = await tx.get(candidate.ref);
+      if (!snap.exists) return false;
+      const data = snap.data();
+      if (!(data.targetDepartments || []).some(dept => dept === 'QA' || dept === 'QC')) return false;
+      const patch = { targetDepartments: [...new Set(data.targetDepartments.map(canonicalDepartment))], updatedAt: new Date().toISOString() };
+      const aliases = (data.targets || []).filter(row => QA_QC_ALIASES.has(row.dept));
+      const receiptEntry = ['QA/QC', 'QA', 'QC'].find(dept => data.receipts?.[dept]?.downloadedAt);
+      const chosen = aliases.find(row => row.dept === receiptEntry) || aliases.find(row => row.isDownloaded) || aliases.find(row => row.dept === 'QA/QC') || aliases[0];
+      patch.targets = (data.targets || []).filter(row => !QA_QC_ALIASES.has(row.dept));
+      if (chosen) patch.targets.push({ ...chosen, dept: 'QA/QC' });
+      // Keep legacy map keys for historic links. Add the canonical key for current access.
+      for (const field of ['receipts', 'allocationByDepartment', 'departmentFiles', 'departmentFileLists', 'departmentFileKeys', 'departmentFileKeyLists', 'departmentExpirationEpoch', 'departmentCancellations']) {
+        const source = data[field];
+        if (!source) continue;
+        const key = field === 'receipts' ? receiptEntry : (source['QA/QC'] !== undefined ? 'QA/QC' : (chosen && source[chosen.dept] !== undefined ? chosen.dept : ['QA', 'QC'].find(dept => source[dept] !== undefined)));
+        if (key) patch[field] = { ...source, 'QA/QC': field === 'receipts' ? { ...source[key], dept: 'QA/QC' } : source[key] };
+      }
+      tx.update(candidate.ref, patch);
+      const auditRef = db.collection('dcs_audit_logs').doc();
+      tx.set(auditRef, { id: auditRef.id, actionType: 'DEPARTMENT_NORMALIZED', actorUid: request.auth.uid, actorDept: 'DCC', timestamp: patch.updatedAt, createdAt: patch.updatedAt, description: 'ปรับสิทธิ์ QA/QC ในรายการแจกจ่ายเดิม', details: { distributionId: snap.id, oldDepartments: data.targetDepartments } });
+      return true;
+    });
+    if (changed) counts.distributions++;
+  }
+  for (const [collectionName, counter] of [['users', 'users'], ['dcs_user_registrations', 'registrations']]) {
+    const rows = await db.collection(collectionName).where('department', 'in', ['QA', 'QC']).get();
+    for (const row of rows.docs) {
+      await db.runTransaction(async tx => {
+        const latest = await tx.get(row.ref);
+        if (!latest.exists || !['QA', 'QC'].includes(latest.data().department)) return;
+        tx.update(row.ref, { department: 'QA/QC', updatedAt: new Date().toISOString(), departmentCorrectedBy: request.auth.uid });
+      });
+      counts[counter]++;
+    }
+  }
+  return counts;
+});
