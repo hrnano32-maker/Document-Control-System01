@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useDcs } from '../context/DcsContext';
 import { MasterDocument, DOCUMENT_TYPES, DEPARTMENTS, DocumentType } from '../types';
 import { MasterListPrintModal } from './MasterListPrintModal';
+import { MasterRevisionDatesModal } from './MasterRevisionDatesModal';
+import { restoreMasterRevisionDates } from '../services/masterDateRepository';
+import { getMasterRevisionHistory, hasMissingRevisionDates } from '../utils/masterRevisions';
 import {
   FileText,
   Search,
@@ -29,6 +32,7 @@ import {
 export const MasterListView: React.FC = () => {
   const {
     masterListDocuments,
+    dars,
     distributions,
     currentUser,
     setActiveView,
@@ -41,7 +45,7 @@ export const MasterListView: React.FC = () => {
   const [selectedType, setSelectedType] = useState<string>('ALL');
   const [selectedDept, setSelectedDept] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
-  const [selectedDocForHistory, setSelectedDocForHistory] = useState<MasterDocument | null>(null);
+  const [historyDocument, setSelectedDocForHistory] = useState<MasterDocument | null>(null);
   const [quickDistributeDoc, setQuickDistributeDoc] = useState<MasterDocument | null>(null);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [targetDepts, setTargetDepts] = useState<string[]>([]);
@@ -52,6 +56,47 @@ export const MasterListView: React.FC = () => {
   const [isDistributing, setIsDistributing] = useState(false);
   const [distProgressText, setDistProgressText] = useState('');
   const [distProgressPercent, setDistProgressPercent] = useState(0);
+
+  const [editingDates, setEditingDates] = useState<MasterDocument | null>(null);
+  const [dateMessage, setDateMessage] = useState('');
+  const [restoringDates, setRestoringDates] = useState(false);
+  const [restoreError, setRestoreError] = useState('');
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const attemptedRestores = useRef(new Set<string>());
+  const revisionDocuments = useMemo(() => masterListDocuments.map(master => ({
+    ...master,
+    revisionHistory: getMasterRevisionHistory(master, dars.find(dar => dar.id === master.darReferenceId)),
+  })), [masterListDocuments, dars]);
+  const selectedDocForHistory = historyDocument
+    ? revisionDocuments.find(master => master.id === historyDocument.id) || historyDocument : null;
+
+  useEffect(() => {
+    if (currentUser.userRole !== 'DCC_ADMIN') return;
+    const candidates = masterListDocuments.map(master => {
+      const dar = dars.find(item => item.id === master.darReferenceId);
+      return { master, dar, key: `${master.id}:${master.updatedAt}:${dar?.id || ''}:${dar?.status || ''}:${dar?.previousEffectiveDate || ''}:${dar?.targetEffectiveDate || ''}` };
+    }).filter(({ master, dar, key }) => hasMissingRevisionDates(master, dar) && !attemptedRestores.current.has(key));
+    if (!candidates.length) { setRestoringDates(false); return; }
+    let stopped = false;
+    setRestoringDates(true);
+    void (async () => {
+      for (const { master, key } of candidates) {
+        if (stopped) break;
+        try {
+          await restoreMasterRevisionDates(currentUser, master.id);
+          attemptedRestores.current.add(key);
+        }
+        catch (error) {
+          if (!stopped) {
+            attemptedRestores.current.add(key);
+            setRestoreError(`${master.docNo}: ${error instanceof Error ? error.message : 'เติมประวัติวันที่ไม่สำเร็จ'}`);
+          }
+        }
+      }
+      if (!stopped) setRestoringDates(false);
+    })();
+    return () => { stopped = true; };
+  }, [masterListDocuments, dars, currentUser.uid, currentUser.userRole, restoreAttempt]);
 
   // Close modals on Escape key press
   useEffect(() => {
@@ -70,7 +115,7 @@ export const MasterListView: React.FC = () => {
 
   // Automatic departmental Master List: documents owned by this department
   // plus every document actively distributed to this department.
-  const accessibleDocuments = masterListDocuments.filter(doc => {
+  const accessibleDocuments = revisionDocuments.filter(doc => {
     if (currentUser.userRole === 'DCC_ADMIN') return true;
     if (doc.ownerDept === currentUser.currentDept) return true;
     return distributions.some(distribution =>
@@ -316,6 +361,12 @@ export const MasterListView: React.FC = () => {
         </div>
       </div>
 
+      {restoringDates && <p role="status" className="mb-3 rounded-lg bg-indigo-50 p-3 text-sm text-indigo-800">กำลังเติมวันที่ Revision จากใบ DAR...</p>}
+      {dateMessage && <p role="status" className="mb-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{dateMessage}</p>}
+      {restoreError && currentUser.userRole === 'DCC_ADMIN' && <div role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+        เติมวันที่ใน Master List ไม่สำเร็จ: {restoreError}
+        <button type="button" className="ml-3 font-bold underline" onClick={() => { attemptedRestores.current.clear(); setRestoreError(''); setRestoreAttempt(value => value + 1); }}>ลองอีกครั้ง</button>
+      </div>}
       {/* Master List Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
@@ -425,6 +476,10 @@ export const MasterListView: React.FC = () => {
                           >
                             <History className="w-4.5 h-4.5" />
                           </button>
+
+                          {currentUser.userRole === 'DCC_ADMIN' && <button type="button" onClick={() => { setDateMessage(''); setEditingDates(doc); }} className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700" title="แก้ไขวันที่แต่ละ Revision และวันครบกำหนดทบทวน">
+                            <Calendar className="h-4 w-4" />แก้ไขวันที่
+                          </button>}
 
                           {/* Stamper */}
                           <button
@@ -539,6 +594,7 @@ export const MasterListView: React.FC = () => {
 
             <div className="p-5 sm:p-6 space-y-5 max-h-[75vh] overflow-y-auto text-xs text-slate-800">
               
+              {currentUser.userRole === 'DCC_ADMIN' && <button type="button" onClick={() => setEditingDates(selectedDocForHistory)} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white"><Calendar className="h-4 w-4" />แก้ไขวันที่ Master List</button>}
               {/* Top Summary Banner */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-gradient-to-r from-indigo-50/80 to-slate-50 border border-indigo-200/80 rounded-xl">
                 <div>
@@ -557,7 +613,7 @@ export const MasterListView: React.FC = () => {
                 <div>
                   <span className="text-slate-500 block text-[10px] uppercase font-bold">จำนวน Revision ทั้งหมด:</span>
                   <span className="font-bold text-slate-800 text-xs">
-                    {selectedDocForHistory.revisionHistory.length} ฉบับ (Rev.00 ถึง Rev.{selectedDocForHistory.currentRevision})
+                    {selectedDocForHistory.revisionHistory.length} ฉบับที่มีข้อมูลในทะเบียน
                   </span>
                 </div>
               </div>
@@ -892,6 +948,11 @@ export const MasterListView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {editingDates && currentUser.userRole === 'DCC_ADMIN' && <MasterRevisionDatesModal
+        document={editingDates} user={currentUser} onClose={() => setEditingDates(null)}
+        onSaved={updated => { setEditingDates(null); setDateMessage(`บันทึกวันที่ ${updated.docNo} สำเร็จแล้ว`); if (historyDocument?.id === updated.id) setSelectedDocForHistory(updated); }}
+      />}
 
       {/* Master List Print Preview Modal */}
       {isPrintModalOpen && (
