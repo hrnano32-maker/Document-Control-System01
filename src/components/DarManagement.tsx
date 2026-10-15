@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useDcs } from '../context/DcsContext';
 import { getStorageFileUrl, validateDarEffectiveDates, correctDarRecord } from '../services/dcsRepository';
 import {
@@ -62,6 +62,8 @@ export const DarManagement: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
+  const submitInFlight = useRef(false);
+  const [isSubmittingDar, setIsSubmittingDar] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedDarForReview, setSelectedDarForReview] = useState<DarRecord | null>(null);
   const [selectedDarForPrint, setSelectedDarForPrint] = useState<DarRecord | null>(null);
@@ -102,7 +104,7 @@ export const DarManagement: React.FC = () => {
       if (e.key === 'Escape') {
         if (selectedDarForPrint) setSelectedDarForPrint(null);
         if (selectedDarForReview) setSelectedDarForReview(null);
-        if (isCreateModalOpen) setIsCreateModalOpen(false);
+        if (isCreateModalOpen && !submitInFlight.current) setIsCreateModalOpen(false);
       }
     };
     if (selectedDarForPrint || selectedDarForReview || isCreateModalOpen) {
@@ -279,6 +281,7 @@ export const DarManagement: React.FC = () => {
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitInFlight.current) return;
     setFormError('');
 
     if (!docNo.trim() || !docNameTh.trim()) {
@@ -317,6 +320,8 @@ export const DarManagement: React.FC = () => {
       return;
     }
 
+    submitInFlight.current = true;
+    setIsSubmittingDar(true);
     try {
       validateDarEffectiveDates({ requestType: reqType, targetEffectiveDate, previousEffectiveDate, additionalDocuments: filledAdditionalDocuments });
       await createDar({
@@ -353,6 +358,9 @@ export const DarManagement: React.FC = () => {
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'ส่งใบ DAR ไม่สำเร็จ');
       return;
+    } finally {
+      submitInFlight.current = false;
+      setIsSubmittingDar(false);
     }
 
     confetti({
@@ -981,7 +989,7 @@ export const DarManagement: React.FC = () => {
         <div
           id="dar-create-modal-backdrop"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setIsCreateModalOpen(false);
+            if (e.target === e.currentTarget && !submitInFlight.current) setIsCreateModalOpen(false);
           }}
           className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-3 bg-slate-950/70 backdrop-blur-xs overflow-hidden"
         >
@@ -1011,6 +1019,7 @@ export const DarManagement: React.FC = () => {
                 <button
                   type="button"
                   id="btn-close-dar-create-header"
+                  disabled={isSubmittingDar}
                   onClick={() => setIsCreateModalOpen(false)}
                   aria-label="ปิดหน้าต่าง"
                   className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1 text-xs"
@@ -1644,6 +1653,7 @@ export const DarManagement: React.FC = () => {
                 <button
                   type="button"
                   id="btn-close-dar-create-footer"
+                  disabled={isSubmittingDar}
                   onClick={() => setIsCreateModalOpen(false)}
                   className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
                 >
@@ -1652,10 +1662,12 @@ export const DarManagement: React.FC = () => {
                 <button
                   type="submit"
                   id="btn-submit-dar"
+                  disabled={isSubmittingDar}
+                  aria-busy={isSubmittingDar}
                   className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm flex items-center gap-1.5 cursor-pointer transition-all"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  ยื่นใบขอดำเนินการ (Submit DAR)
+                  {isSubmittingDar ? 'กำลังตรวจสิทธิ์และส่งใบ DAR...' : 'ยื่นใบขอดำเนินการ (Submit DAR)'}
                 </button>
               </div>
 
