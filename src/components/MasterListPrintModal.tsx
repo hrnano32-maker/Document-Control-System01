@@ -4,6 +4,7 @@ import { COMPANY } from '../config/company';
 import { DEPARTMENTS, DOCUMENT_TYPES, MasterDocument } from '../types';
 import { downloadPrintableHtml, openPrintInNewTab, printElementById } from '../utils/printHelper';
 import { NanoLogo } from './NanoLogo';
+import { getMasterRevisionColumnGroups, getMasterRevisionHistory } from '../utils/masterRevisions';
 
 interface MasterListPrintModalProps {
   documents: MasterDocument[];
@@ -21,6 +22,7 @@ const formatDate = (value?: string) => {
 };
 
 export const MasterListPrintModal: React.FC<MasterListPrintModalProps> = ({ documents, selectedType, selectedDept, selectedStatus, searchQuery, onClose }) => {
+  const revisionGroups = getMasterRevisionColumnGroups(documents);
   const reportTitle = `FM-QS-002-00_Master_List_${new Date().toISOString().slice(0, 10)}`;
   const selectedDepartment = DEPARTMENTS.find(item => item.id === selectedDept);
   const typeCodes = ['QM', 'QP', 'WI', 'FM', 'EX'] as const;
@@ -54,18 +56,26 @@ export const MasterListPrintModal: React.FC<MasterListPrintModalProps> = ({ docu
               <div className="flex flex-wrap justify-end gap-x-4 gap-y-1"><strong>ประเภทเอกสาร:</strong>{typeCodes.map(code => <span key={code}>{selectedType === code ? '☑' : '☐'} {code === 'EX' ? 'เอกสารภายนอก' : DOCUMENT_TYPES.find(item => item.code === code)?.labelTh.split(' (')[0]}</span>)}</div>
             </div>
             {(selectedStatus !== 'ALL' || searchQuery) && <div className="mb-2 text-[9px] text-slate-600">เงื่อนไขรายงาน: สถานะ {selectedStatus}{searchQuery ? ` • คำค้น “${searchQuery}”` : ''}</div>}
-            <table className="w-full table-fixed border-collapse border-2 border-black text-[9px]">
-              <thead className="[display:table-header-group]"><tr><th rowSpan={2} className="w-8 border border-black p-1">ลำดับที่</th><th rowSpan={2} className="w-24 border border-black p-1">รหัสเอกสาร</th><th rowSpan={2} className="w-48 border border-black p-1">ชื่อเอกสาร</th>{[1,2,3,4,5].map(no => <th key={no} className="border border-black p-1">Rev. {String(no).padStart(2,'0')}</th>)}</tr><tr>{[1,2,3,4,5].map(no => <th key={no} className="border border-black p-1 text-[8px]">วันที่บังคับใช้</th>)}</tr></thead>
-              <tbody>
-                {documents.length ? documents.map((document,index) => {
-                  const history=[...(document.revisionHistory||[])].sort((a,b)=>Number(a.rev)-Number(b.rev));
-                  return <React.Fragment key={document.id}>
-                    <tr className="break-inside-avoid"><td className="border border-black p-1 text-center">{index+1}</td><td className="border border-black p-1 font-mono font-semibold">{document.docNo}</td><td className="border border-black p-1"><strong>{document.docNameTh}</strong>{document.docNameEn?<div className="text-[7px]">{document.docNameEn}</div>:null}</td>{[0,1,2,3,4].map(slot=><td key={slot} className="border border-black p-1 text-center"><strong>{history[slot]?`Rev.${history[slot].rev}`:''}</strong><div>{formatDate(history[slot]?.effectiveDate)}</div></td>)}</tr>
-                    {history.length>5&&<tr className="break-inside-avoid bg-slate-50"><td className="border border-black p-1 text-center">ต่อ</td><td className="border border-black p-1 font-mono">{document.docNo}</td><td className="border border-black p-1">ประวัติ Revision ต่อเนื่อง</td>{[5,6,7,8,9].map(slot=><td key={slot} className="border border-black p-1 text-center"><strong>{history[slot]?`Rev.${history[slot].rev}`:''}</strong><div>{formatDate(history[slot]?.effectiveDate)}</div></td>)}</tr>}
-                  </React.Fragment>;
-                }):<tr><td colSpan={8} className="h-16 border border-black text-center">ไม่พบรายการเอกสาร</td></tr>}
-              </tbody>
-            </table>
+            {revisionGroups.map((columns, groupIndex) => <div key={columns.join('-')} className="mb-3">
+              {groupIndex > 0 && <p className="mb-1 text-[11px] font-semibold">ประวัติ Revision เพิ่มเติม</p>}
+              <table className="w-full table-fixed border-collapse border-2 border-black text-[9px]">
+                <thead className="[display:table-header-group]">
+                  <tr><th rowSpan={2} className="w-8 border border-black p-1">ลำดับที่</th><th rowSpan={2} className="w-24 border border-black p-1">รหัสเอกสาร</th><th rowSpan={2} className="w-48 border border-black p-1">ชื่อเอกสาร</th>{columns.map(rev => <th key={rev} className="border border-black p-1">Rev. {rev}</th>)}</tr>
+                  <tr>{columns.map(rev => <th key={rev} className="border border-black p-1 text-[8px]">วันที่บังคับใช้</th>)}</tr>
+                </thead>
+                <tbody>
+                  {documents.length ? documents.map((document, index) => {
+                    const history = new Map(getMasterRevisionHistory(document).map(item => [item.rev, item]));
+                    return <tr key={document.id} className="break-inside-avoid">
+                      <td className="border border-black p-1 text-center">{index + 1}</td>
+                      <td className="border border-black p-1 font-mono font-semibold">{document.docNo}</td>
+                      <td className="border border-black p-1"><strong>{document.docNameTh}</strong>{document.docNameEn ? <div className="text-[7px]">{document.docNameEn}</div> : null}</td>
+                      {columns.map(rev => <td key={rev} data-revision={rev} className="border border-black p-1 text-center">{formatDate(history.get(rev)?.effectiveDate)}</td>)}
+                    </tr>;
+                  }) : <tr><td colSpan={3 + columns.length} className="h-16 border border-black text-center">ไม่พบรายการเอกสาร</td></tr>}
+                </tbody>
+              </table>
+            </div>)}
             <footer className="mt-2 flex items-end justify-between text-[9px]"><span>พิมพ์จากระบบ DCC e-Control วันที่ {new Date().toLocaleDateString('th-TH')}</span><strong>{COMPANY.masterListFormCode}</strong></footer>
           </section>
         </div>
