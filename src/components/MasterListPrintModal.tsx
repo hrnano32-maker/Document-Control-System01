@@ -22,7 +22,7 @@ const formatDate = (value?: string) => {
 };
 
 export const MasterListPrintModal: React.FC<MasterListPrintModalProps> = ({ documents, selectedType, selectedDept, selectedStatus, searchQuery, onClose }) => {
-  const revisionGroups = getMasterRevisionColumnGroups(documents);
+  const [columns] = getMasterRevisionColumnGroups(documents);
   const reportTitle = `FM-QS-002-00_Master_List_${new Date().toISOString().slice(0, 10)}`;
   const selectedDepartment = DEPARTMENTS.find(item => item.id === selectedDept);
   const typeCodes = ['QM', 'QP', 'WI', 'FM', 'EX'] as const;
@@ -56,8 +56,7 @@ export const MasterListPrintModal: React.FC<MasterListPrintModalProps> = ({ docu
               <div className="flex flex-wrap justify-end gap-x-4 gap-y-1"><strong>ประเภทเอกสาร:</strong>{typeCodes.map(code => <span key={code}>{selectedType === code ? '☑' : '☐'} {code === 'EX' ? 'เอกสารภายนอก' : DOCUMENT_TYPES.find(item => item.code === code)?.labelTh.split(' (')[0]}</span>)}</div>
             </div>
             {(selectedStatus !== 'ALL' || searchQuery) && <div className="mb-2 text-[9px] text-slate-600">เงื่อนไขรายงาน: สถานะ {selectedStatus}{searchQuery ? ` • คำค้น “${searchQuery}”` : ''}</div>}
-            {revisionGroups.map((columns, groupIndex) => <div key={columns.join('-')} className="mb-3">
-              {groupIndex > 0 && <p className="mb-1 text-[11px] font-semibold">ประวัติ Revision เพิ่มเติม</p>}
+            <div className="mb-3">
               <table className="w-full table-fixed border-collapse border-2 border-black text-[9px]">
                 <thead className="[display:table-header-group]">
                   <tr><th rowSpan={2} className="w-8 border border-black p-1">ลำดับที่</th><th rowSpan={2} className="w-24 border border-black p-1">รหัสเอกสาร</th><th rowSpan={2} className="w-48 border border-black p-1">ชื่อเอกสาร</th>{columns.map(rev => <th key={rev} className="border border-black p-1">Rev. {rev}</th>)}</tr>
@@ -75,7 +74,7 @@ export const MasterListPrintModal: React.FC<MasterListPrintModalProps> = ({ docu
                   }) : <tr><td colSpan={3 + columns.length} className="h-16 border border-black text-center">ไม่พบรายการเอกสาร</td></tr>}
                 </tbody>
               </table>
-            </div>)}
+            </div>
             <footer className="mt-2 flex items-end justify-between text-[9px]"><span>พิมพ์จากระบบ DCC e-Control วันที่ {new Date().toLocaleDateString('th-TH')}</span><strong>{COMPANY.masterListFormCode}</strong></footer>
           </section>
         </div>
