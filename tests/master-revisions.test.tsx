@@ -34,11 +34,26 @@ test('a DCC-corrected historical date takes precedence over its old DAR value', 
   assert.equal(hasMissingRevisionDates(corrected, dar), false);
 });
 
-test('Rev.00 and revisions above 05 are retained with their own headers', () => {
+test('the initial Rev.00 starts the same table as Rev.01 through Rev.05', () => {
+  const document = { ...master, currentRevision: '00', effectiveDate: '2026-09-30', revisionHistory: [row('0', '2026-09-30')] };
+  const expected = ['00', '01', '02', '03', '04', '05'];
+  assert.deepEqual(getMasterRevisionColumnGroups([]), [expected]);
+  const html = renderToStaticMarkup(<MasterListPrintModal documents={[document, master]} selectedType="ALL" selectedDept="ALL" selectedStatus="ALL" searchQuery="" onClose={() => {}} />);
+  assert.equal((html.match(/<table\b/g) || []).length, 1);
+  assert.deepEqual([...html.matchAll(/<th\b[^>]*>Rev\. (\d+)<\/th>/g)].map(match => match[1]), expected);
+  const firstRow = html.split('<tbody>')[1].split('</tr>')[0];
+  assert.match(firstRow, /data-revision="00"[^>]*>30\/09\/2026<\/td>/);
+  assert.match(firstRow, /data-revision="01"[^>]*><\/td>/);
+  assert.doesNotMatch(html, /ประวัติ Revision เพิ่มเติม/);
+});
+
+test('revisions above 05 continue in numerical order in the same table', () => {
   const document = { ...master, revisionHistory: Array.from({ length: 13 }, (_, index) => row(String(index).padStart(2, '0'), '2026-01-01')) };
-  const columns = getMasterRevisionColumnGroups([document]).flat();
-  assert.equal(columns.length, new Set(columns).size);
-  for (let index = 0; index <= 12; index++) assert.ok(columns.includes(String(index).padStart(2, '0')));
+  const expected = Array.from({ length: 13 }, (_, index) => String(index).padStart(2, '0'));
+  assert.deepEqual(getMasterRevisionColumnGroups([document]), [expected]);
+  const html = renderToStaticMarkup(<MasterListPrintModal documents={[document]} selectedType="ALL" selectedDept="ALL" selectedStatus="ALL" searchQuery="" onClose={() => {}} />);
+  assert.equal((html.match(/<table\b/g) || []).length, 1);
+  assert.deepEqual([...html.matchAll(/<th\b[^>]*>Rev\. (\d+)<\/th>/g)].map(match => match[1]), expected);
 });
 
 test('reject invalid calendar dates, reversed revisions and premature review dates', () => {
