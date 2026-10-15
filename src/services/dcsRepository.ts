@@ -18,6 +18,8 @@ import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage
 import { auth, db, firebaseFunctions, storage } from '../lib/firebase';
 import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, DcsAnnouncement, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
 
+import { getMasterRevisionHistory, revisionKey } from '../utils/masterRevisions';
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 
@@ -489,34 +491,37 @@ export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord
     const previous = masterSnap.data() as MasterDocument | undefined;
     if (currentStatus === 'REGISTERED' && previous?.darReferenceId === dar.id) return { alreadyRegistered: true, previousFile: null };
     if (currentStatus !== 'APPROVED') throw new Error('สถานะ DAR ถูกเปลี่ยน กรุณารีเฟรชและตรวจสอบใหม่');
-    const history = previous?.revisionHistory || [];
-    const revision = dar.proposedRevision || dar.currentRevision || '00';
-    const distributionDepartments = (dar.distributionHolders || []).filter(x => x.checked).map(x => ({ dept: x.dept, copies: Math.max(1, Number(x.copies) || 1), position: x.position }));
+    const currentDar = { ...darSnap.data(), id: dar.id } as DarRecord;
+    if (documentKey(currentDar.docNo) !== masterRef.id) throw new Error('ข้อมูล DAR เปลี่ยน กรุณารีเฟรชก่อนขึ้นทะเบียน');
+    const history = previous ? getMasterRevisionHistory(previous) : [];
+    const revision = currentDar.proposedRevision || currentDar.currentRevision || '00';
+    const distributionDepartments = (currentDar.distributionHolders || []).filter(x => x.checked).map(x => ({ dept: x.dept, copies: Math.max(1, Number(x.copies) || 1), position: x.position }));
     const next: MasterDocument = clean({
       ...(previous || {}),
       id: masterRef.id,
-      docNo: dar.docNo,
-      docNameTh: dar.docNameTh,
-      docNameEn: dar.docNameEn,
-      docType: dar.docType,
-      ownerDept: dar.requestDept,
+      docNo: currentDar.docNo,
+      docNameTh: currentDar.docNameTh,
+      docNameEn: currentDar.docNameEn,
+      docType: currentDar.docType,
+      ownerDept: currentDar.requestDept,
       currentRevision: revision,
-      effectiveDate: dar.targetEffectiveDate || today,
+      effectiveDate: currentDar.targetEffectiveDate || today,
       reviewDueDate: reviewDue,
-      status: dar.requestType === 'OBSOLETE' ? 'OBSOLETE' : 'ACTIVE',
-      darReferenceId: dar.id,
+      status: currentDar.requestType === 'OBSOLETE' ? 'OBSOLETE' : 'ACTIVE',
+      darReferenceId: currentDar.id,
       createdAt: previous?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       retentionPeriodYears: previous?.retentionPeriodYears || 5,
       distributionDepartments,
-      fileName: dar.attachmentFileName,
-      fileSize: dar.attachmentFileSize,
-      fileType: dar.attachmentFileType,
+      fileName: currentDar.attachmentFileName,
+      fileSize: currentDar.attachmentFileSize,
+      fileType: currentDar.attachmentFileType,
       revisionHistory: [
-        ...history.map(item => ({ ...item, status: 'SUPERSEDED' as const })),
-        { rev: revision, effectiveDate: dar.targetEffectiveDate || today, darNo: dar.id, reason: dar.reasonForChange, registeredBy: user.userName, registeredDate: today, status: dar.requestType === 'OBSOLETE' ? 'OBSOLETE' as const : 'ACTIVE' as const, controlledDriveLink: '' },
+        ...history.filter(item => revisionKey(item.rev) !== revisionKey(revision)).map(item => ({ ...item, status: 'SUPERSEDED' as const })),
+        { rev: revision, effectiveDate: currentDar.targetEffectiveDate || today, darNo: currentDar.id, reason: currentDar.reasonForChange, registeredBy: user.userName, registeredDate: today, status: currentDar.requestType === 'OBSOLETE' ? 'OBSOLETE' as const : 'ACTIVE' as const, controlledDriveLink: '' },
       ],
     });
+    next.revisionHistory = getMasterRevisionHistory(next, { ...currentDar, status: 'REGISTERED' });
     tx.set(masterRef, next);
     tx.update(darRef, { status: 'REGISTERED', updatedAt: new Date().toISOString() });
     return { alreadyRegistered: false, previousFile: previous?.currentFileStoragePath ? { path: previous.currentFileStoragePath, revision: previous.currentRevision, newRevision: revision } : null };
