@@ -54,16 +54,11 @@ export const hasMissingRevisionDates = (master: MasterDocument, dar?: DarRecord)
   getMasterRevisionHistory(master, dar).some(row => !(master.revisionHistory || [])
     .some(stored => revisionKey(stored.rev) === row.rev && stored.effectiveDate === row.effectiveDate));
 
-// Keep the existing Rev.01-05 form. Extra revisions get their own correctly
-// labelled continuation tables rather than being truncated or put under Rev.01.
+// Rev.00 is the initial issue. All revisions belong to the same table, in order.
 export function getMasterRevisionColumnGroups(documents: MasterDocument[]): string[][] {
-  const keys = new Set(['01', '02', '03', '04', '05']);
+  const keys = new Set(['00', '01', '02', '03', '04', '05']);
   for (const master of documents) for (const item of getMasterRevisionHistory(master)) keys.add(item.rev);
-  const primary = ['01', '02', '03', '04', '05'];
-  const extra = [...keys].filter(key => !primary.includes(key)).sort(compareRevisions);
-  const groups = [primary];
-  for (let index = 0; index < extra.length; index += 5) groups.push(extra.slice(index, index + 5));
-  return groups;
+  return [[...keys].sort(compareRevisions)];
 }
 
 export function validateMasterRevisionDates(history: RevisionHistoryItem[], reviewDueDate: string, currentRevision: string) {
