@@ -2,6 +2,8 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromServer,
+  writeBatch,
   onSnapshot,
   orderBy,
   query,
@@ -305,6 +307,21 @@ export const validateDarEffectiveDates = (input: Pick<DarRecord, 'requestType' |
   });
 };
 
+// Surface the failing operation without discarding the user's form or hiding the Firebase code.
+const darSubmissionStep = async <T,>(stage: string, operation: () => Promise<T>): Promise<T> => {
+  try { return await operation(); }
+  catch (error) {
+    const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+    if (code === 'permission-denied' || code === 'storage/unauthorized') {
+      throw new Error(`ส่ง DAR ไม่สำเร็จ — ${stage}: ระบบปฏิเสธสิทธิ์ (${code}) กรุณาแจ้ง DCC พร้อมข้อความนี้ ข้อมูลในฟอร์มยังอยู่`);
+    }
+    if (code === 'unauthenticated' || code === 'storage/unauthenticated') {
+      throw new Error('การเข้าสู่ระบบหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนส่ง DAR');
+    }
+    throw error;
+  }
+};
+
 export const createDarRecord = async (user: CurrentUserSession, input: Omit<DarRecord, 'id' | 'requestDate' | 'status'>) => {
   validateDarEffectiveDates(input);
   if (input.requestDept !== user.currentDept && user.userRole !== 'DCC_ADMIN') throw new Error('ไม่มีสิทธิ์สร้าง DAR แทนหน่วยงานอื่น');
@@ -318,12 +335,19 @@ export const createDarRecord = async (user: CurrentUserSession, input: Omit<DarR
   }
   const attachmentBlob = await dataUrlBlob(input.attachmentFileDataUrl);
   const attachmentHeader = new Uint8Array(await attachmentBlob.slice(0, 5).arrayBuffer());
-  if (attachmentBlob.size > 25 * 1024 * 1024 || attachmentHeader.length !== 5
+  if (attachmentBlob.size >= 25 * 1024 * 1024 || attachmentHeader.length !== 5
     || attachmentHeader[0] !== 0x25 || attachmentHeader[1] !== 0x50 || attachmentHeader[2] !== 0x44
     || attachmentHeader[3] !== 0x46 || attachmentHeader[4] !== 0x2d) {
-    throw new Error('ไฟล์แนบไม่ใช่ PDF ที่ถูกต้อง หรือมีขนาดเกิน 25 MB');
+    throw new Error('ไฟล์แนบไม่ใช่ PDF ที่ถูกต้อง หรือมีขนาดตั้งแต่ 25 MB ขึ้นไป');
   }
-  const seq = await nextNumber('dar');
+  if (!auth.currentUser || auth.currentUser.uid !== user.uid) throw new Error('บัญชีเข้าสู่ระบบไม่ตรงกับหน้าฟอร์ม กรุณาเข้าสู่ระบบใหม่');
+  const profileSnapshot = await darSubmissionStep('ตรวจสิทธิ์บัญชีผู้ยื่น', () => getDocFromServer(doc(db, 'users', user.uid)));
+  if (!profileSnapshot.exists() || profileSnapshot.data().active !== true) throw new Error('บัญชียังไม่ได้รับอนุมัติหรือถูกปิดใช้งาน กรุณาติดต่อ DCC');
+  const profile = profileSnapshot.data();
+  if (profile.role !== 'DCC_ADMIN' && profile.department !== input.requestDept) {
+    throw new Error(`หน่วยงานในบัญชีคือ ${profile.department} แต่ใบ DAR ระบุ ${input.requestDept} กรุณาตรวจหน่วยงานผู้ขอ หรือเข้าสู่ระบบใหม่หลัง DCC เปลี่ยนชื่อแผนก`);
+  }
+  const seq = await darSubmissionStep('ออกเลขที่ DAR', () => nextNumber('dar'));
   const year = new Date().getFullYear();
   const id = `DAR-${year}-${String(seq).padStart(4, '0')}`;
   const createdAt = new Date().toISOString();
@@ -338,11 +362,18 @@ export const createDarRecord = async (user: CurrentUserSession, input: Omit<DarR
   delete record.attachmentFileDataUrl;
   if (dataUrl && record.attachmentFileName) {
     const path = `dcs/dar-attachments/${user.uid}/${id}/${safeName(record.attachmentFileName)}`;
-    await uploadBytes(ref(storage, path), attachmentBlob, { contentType: 'application/pdf' });
+    await darSubmissionStep('อัปโหลดไฟล์ PDF', () => uploadBytes(ref(storage, path), attachmentBlob, { contentType: 'application/pdf' }));
     record.attachmentStoragePath = path;
   }
-  await setDoc(doc(db, 'dcs_dars', id), record);
-  await writeAudit(user, 'DAR_CREATED', record.docNo, record.proposedRevision, `สร้างคำขอ ${id} และส่งถึง DCC`, { darId: id });
+  const auditRef = doc(collection(db, 'dcs_audit_logs'));
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'dcs_dars', id), record);
+  batch.set(auditRef, clean({
+    id: auditRef.id, timestamp: createdAt, createdAt, ...actorFields(user),
+    actionType: 'DAR_CREATED', docNo: record.docNo, revision: record.proposedRevision,
+    description: `สร้างคำขอ ${id} และส่งถึง DCC`, details: { darId: id },
+  }));
+  await darSubmissionStep('บันทึกใบ DAR และประวัติ', () => batch.commit());
   return id;
 };
 
