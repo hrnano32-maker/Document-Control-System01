@@ -39,7 +39,9 @@ export function buildCombinedDistributionRows(records: DistributionRecord[]): Co
     departments.forEach(dept => {
       if (record.departmentCancellations?.[dept]) return;
       const target = record.targets?.find(item => item.dept === dept);
-      const receipt = record.receipts?.[dept];
+      const storedReceipt = record.receipts?.[dept];
+      // A stored image alone is not evidence that this DAR was received.
+      const receipt = storedReceipt?.downloadedAt ? storedReceipt : undefined;
       const saved = record.distributionSheet?.rows.find(row => row.dept === dept);
       const department = departmentKey(dept);
       const copies = receipt?.receivedCopies || record.allocationByDepartment?.[dept] || target?.allocatedCopies || 1;
