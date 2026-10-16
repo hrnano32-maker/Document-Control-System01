@@ -23,22 +23,51 @@ interface DarPrintModalProps {
   onEdit?: () => void;
 }
 
-const DEFAULT_POSITIONS = [
-  'ผู้จัดการโรงงาน / Plant Manager',
-  'เจ้าหน้าที่ควบคุมเอกสาร (DCC)',
-  'ผู้จัดการฝ่ายผลิต (Production Mgr.)',
-  'ผู้จัดการฝ่ายประกันคุณภาพ (QA Mgr.)',
-  'ผู้จัดการฝ่ายควบคุมคุณภาพ (QC Mgr.)',
-  'ผู้จัดการฝ่ายวิศวกรรม (Engineering Mgr.)',
-  'หัวหน้าแผนกคลังสินค้า (Warehouse)',
-  'หัวหน้าแผนกจัดซื้อ (Purchasing)',
-  'หัวหน้าแผนกซ่อมบำรุง (Maintenance)',
-  'หัวหน้าแผนกความปลอดภัย (SHE/Safety)',
-  'หัวหน้าแผนกบุคคลและธุรการ (HR & Admin)',
-  'หัวหน้าฝ่ายวางแผนการผลิต (PMC)',
-  'หัวหน้าฝ่ายขายและการตลาด (Sales)',
-  'ผู้บริหารตัวแทนระบบ (QMR)',
-];
+// DAR-only print rules are included inside the sheet so exported HTML uses them too.
+const DAR_PRINT_CSS = `
+  #dar-printable-sheet .dar-print-value { display: none; }
+  #dar-printable-sheet[data-dar-static="true"] .dar-screen-field { display: none !important; }
+  #dar-printable-sheet[data-dar-static="true"] .dar-print-value { display: block; }
+  @media print {
+    html:has(#dar-printable-sheet) { font-size: 16px !important; }
+    body:has(#dar-printable-sheet) *:has(#dar-printable-sheet) {
+      display: block !important; position: static !important;
+      width: 100% !important; max-width: none !important;
+      height: auto !important; min-height: 0 !important; max-height: none !important;
+      overflow: visible !important; margin: 0 !important; padding: 0 !important;
+      transform: none !important; filter: none !important; backdrop-filter: none !important;
+      border: 0 !important; box-shadow: none !important; background: white !important;
+    }
+    body:has(#dar-printable-sheet) > :not(:has(#dar-printable-sheet)):not(#dar-printable-sheet),
+    body:has(#dar-printable-sheet) *:has(#dar-printable-sheet) > :not(:has(#dar-printable-sheet)):not(#dar-printable-sheet) {
+      display: none !important;
+    }
+    #dar-printable-sheet {
+      display: block !important; position: static !important;
+      width: 100% !important; max-width: none !important;
+      height: auto !important; max-height: none !important; overflow: visible !important;
+      margin: 0 !important; padding: 0 !important; border: 0 !important;
+      box-shadow: none !important; border-radius: 0 !important;
+      font-family: 'IBM Plex Sans Thai', Tahoma, sans-serif !important;
+      line-height: 1.25;
+      color: black !important; background: white !important;
+    }
+    #dar-printable-sheet .dar-screen-field, #dar-printable-sheet input[type="file"] { display: none !important; }
+    #dar-printable-sheet .dar-print-value { display: block !important; white-space: normal; overflow-wrap: anywhere; }
+    #dar-printable-sheet .dar-sheet-header { grid-template-columns: 90px minmax(0, 1fr) 20px; }
+    #dar-printable-sheet h1 { font-size: 18px !important; white-space: normal !important; }
+    #dar-printable-sheet .dar-document-table { table-layout: fixed; }
+    #dar-printable-sheet .dar-document-table th:nth-child(1) { width: 6%; }
+    #dar-printable-sheet .dar-document-table th:nth-child(2) { width: 18%; }
+    #dar-printable-sheet .dar-document-table th:nth-child(3) { width: 27%; }
+    #dar-printable-sheet .dar-document-table th:nth-child(4) { width: 17%; }
+    #dar-printable-sheet .dar-document-table th:nth-child(5) { width: 10%; }
+    #dar-printable-sheet .dar-document-table th:nth-child(6) { width: 22%; }
+    #dar-printable-sheet .dar-document-table th, #dar-printable-sheet .dar-document-table td { padding: 4px; overflow-wrap: anywhere; }
+    #dar-printable-sheet .dar-holder-grid { column-gap: 16px; }
+    #dar-printable-sheet .dar-holder-row, #dar-printable-sheet .dar-signatures, #dar-printable-sheet tr { break-inside: avoid; }
+  }
+`;
 
 export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose, onEdit }) => {
   const { updateDarSignatures, currentUser } = useDcs();
@@ -65,18 +94,14 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose, onEd
     dar.reviewItems || ['QP', 'WI']
   );
 
-  // Distribution holders list (14 items matching the form)
+  // Preserve the saved holders regardless of count; never invent selected recipients.
   const [distributionList, setDistributionList] = useState<{ checked: boolean; dept: Department; position: string; copies: string }[]>(() => {
-    if (dar.distributionHolders && dar.distributionHolders.length === 14) {
-      return dar.distributionHolders;
-    }
-    return DEFAULT_POSITIONS.map((pos, idx) => ({
-      checked: idx < 4,
-      dept: DEPARTMENTS.filter(d => d.id !== 'DCC')[idx]?.id || 'QA/QC',
-      position: pos,
-      copies: idx < 4 ? '1' : '',
+    if (dar.distributionHolders?.length) return dar.distributionHolders.map(item => ({ ...item }));
+    return DEPARTMENTS.filter(dept => dept.id !== 'DCC').map(dept => ({
+      checked: false, dept: dept.id, position: dept.nameTh, copies: '',
     }));
   });
+  const holderColumnSize = Math.ceil(distributionList.length / 2);
 
   const [isSaved, setIsSaved] = useState(false);
   const [activeDragBox, setActiveDragBox] = useState<string | null>(null);
@@ -375,8 +400,9 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose, onEd
             style={{ fontFamily: "'Prompt', 'Sarabun', system-ui, -apple-system, sans-serif" }}
           >
             
+            <style>{DAR_PRINT_CSS}</style>
             {/* 1. Header matching the original DAR form: logo + title only */}
-            <div className="mb-4 grid grid-cols-[100px_1fr_100px] items-center gap-2 min-h-[48px]">
+            <div className="dar-sheet-header mb-4 grid grid-cols-[100px_1fr_100px] items-center gap-2 min-h-[48px]">
               <div className="flex items-center justify-start">
                 <NanoLogo className="h-11 w-24" />
               </div>
@@ -510,7 +536,7 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose, onEd
             <div className="mb-2">
               <div className="font-bold text-[13px] text-black mb-1">ตามรายการดังต่อไปนี้</div>
               
-              <table className="w-full border-collapse border-2 border-black text-center text-xs">
+              <table className="dar-document-table w-full border-collapse border-2 border-black text-center text-xs">
                 <thead>
                   <tr className="border-b-2 border-black bg-white font-bold text-[12px]">
                     <th className="border-r border-black p-2 w-12">ลำดับ</th>
@@ -673,85 +699,35 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose, onEd
 
               <div className="font-bold text-[12px] mb-1.5">ผู้ถือครองตามตำแหน่งงาน</div>
 
-              {/* 2 Columns x 7 rows grid */}
-              <div className="grid grid-cols-2 gap-x-8 gap-y-1.5">
-                
-                {/* Column 1 (Items 0 to 6) */}
-                <div className="space-y-1.5">
-                  {distributionList.slice(0, 7).map((item, idx) => (
-                    <div key={idx} className="flex items-center gap-2 text-[11px]">
-                      <span
-                        onClick={() => toggleDistributionItem(idx)}
-                        className="w-4 h-4 border-2 border-black rounded-xs flex items-center justify-center text-[10px] font-bold cursor-pointer shrink-0"
-                      >
-                        {item.checked ? '✓' : ''}
-                      </span>
-                      
-                      <input
-                        type="text"
-                        value={item.position}
-                        onChange={(e) => updateDistributionPosition(idx, e.target.value)}
-                        placeholder="_____________________________________"
-                        className="border-b border-black/60 bg-transparent flex-1 text-[11px] focus:outline-none focus:border-indigo-600 truncate"
-                      />
-
-                      <div className="flex items-center gap-1 shrink-0">
-                        <span>จำนวนชุด</span>
-                        <input
-                          type="text"
-                          value={item.copies}
-                          onChange={(e) => updateDistributionCopies(idx, e.target.value)}
-                          placeholder="___"
-                          className="w-8 text-center border-b border-black/80 bg-transparent text-[11px] font-mono focus:outline-none font-bold"
-                        />
-                        <span>ชุด</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Column 2 (Items 7 to 13) */}
-                <div className="space-y-1.5">
-                  {distributionList.slice(7, 14).map((item, idx) => {
-                    const realIdx = idx + 7;
-                    return (
-                      <div key={realIdx} className="flex items-center gap-2 text-[11px]">
-                        <span
-                          onClick={() => toggleDistributionItem(realIdx)}
-                          className="w-4 h-4 border-2 border-black rounded-xs flex items-center justify-center text-[10px] font-bold cursor-pointer shrink-0"
-                        >
-                          {item.checked ? '✓' : ''}
-                        </span>
-                        
-                        <input
-                          type="text"
-                          value={item.position}
-                          onChange={(e) => updateDistributionPosition(realIdx, e.target.value)}
-                          placeholder="_____________________________________"
-                          className="border-b border-black/60 bg-transparent flex-1 text-[11px] focus:outline-none focus:border-indigo-600 truncate"
-                        />
-
-                        <div className="flex items-center gap-1 shrink-0">
-                          <span>จำนวนชุด</span>
-                          <input
-                            type="text"
-                            value={item.copies}
-                            onChange={(e) => updateDistributionCopies(realIdx, e.target.value)}
-                            placeholder="___"
-                            className="w-8 text-center border-b border-black/80 bg-transparent text-[11px] font-mono focus:outline-none font-bold"
-                          />
-                          <span>ชุด</span>
+              <div className="dar-holder-grid grid grid-cols-2 gap-x-4 gap-y-1.5">
+                {[0, 1].map(column => (
+                  <div key={column} className="min-w-0 space-y-1.5">
+                    {distributionList.slice(column * holderColumnSize, (column + 1) * holderColumnSize).map((item, offset) => {
+                      const idx = column * holderColumnSize + offset;
+                      const position = item.position || DEPARTMENTS.find(dept => dept.id === item.dept)?.nameTh || item.dept;
+                      return (
+                        <div key={idx} className="dar-holder-row flex items-start gap-1.5 text-[11px]" data-holder-index={idx}>
+                          <span onClick={() => toggleDistributionItem(idx)} className="mt-0.5 w-4 h-4 border-2 border-black rounded-xs flex items-center justify-center text-[10px] font-bold cursor-pointer shrink-0">
+                            {item.checked ? '✓' : ''}
+                          </span>
+                          <input type="text" value={position} onChange={e => updateDistributionPosition(idx, e.target.value)} aria-label={`หน่วยงานผู้รับรายการที่ ${idx + 1}`} className="dar-screen-field min-w-0 flex-1 border-b border-black/60 bg-transparent text-[11px] focus:outline-none focus:border-indigo-600" />
+                          <span className="dar-print-value min-w-0 flex-1 border-b border-black/60" data-holder-name="true">{position}</span>
+                          <div className="flex items-center gap-1 shrink-0 whitespace-nowrap">
+                            <span>จำนวนชุด</span>
+                            <input type="text" value={item.copies} onChange={e => updateDistributionCopies(idx, e.target.value)} aria-label={`จำนวนชุดรายการที่ ${idx + 1}`} placeholder="___" className="dar-screen-field w-8 text-center border-b border-black/80 bg-transparent text-[11px] font-mono focus:outline-none font-bold" />
+                            <span className="dar-print-value w-8 min-h-[16px] text-center border-b border-black/80 font-mono font-bold" data-holder-copies="true">{item.copies || '\u00a0'}</span>
+                            <span>ชุด</span>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
 
             {/* 6. Signatures Bottom Section (Exact 2-Box Split matching PDF) */}
-            <div className="grid grid-cols-12 gap-3 mb-2 text-xs">
+            <div className="dar-signatures grid grid-cols-12 gap-3 mb-2 text-xs">
               
               {/* Left Box: แผนกที่ขอดำเนินการ + ผู้ขอดำเนินการ & ผู้อนุมัติ */}
               <div className="col-span-8 border-2 border-black flex flex-col justify-between">
