@@ -62,14 +62,15 @@ export const DEFAULT_STANDARD_POSITIONS: string[] = [
 ];
 
 export const DistributionSheetModal: React.FC = () => {
-  const { selectedDistributionForSheet, setSelectedDistributionForSheet, distributions, currentUser } = useDcs();
+  const { selectedDistributionForSheet, setSelectedDistributionForSheet, distributions, currentUser, dars } = useDcs();
   const [editing, setEditing] = useState(false);
   const group = useMemo(() => selectedDistributionForSheet ? getDarDistributionGroup(selectedDistributionForSheet, distributions) : [], [selectedDistributionForSheet, distributions]);
   const groupKey = group.map(record => record.id).join('|');
   useEffect(() => { setEditing(false); }, [groupKey]);
   if (!selectedDistributionForSheet) return null;
   const current = distributions.find(record => record.id === selectedDistributionForSheet.id) || selectedDistributionForSheet;
-  if (group.length > 1 && !editing) return <CombinedDistributionSheet records={group} darId={group.find(record => record.darReferenceId)?.darReferenceId || ''} onClose={() => setSelectedDistributionForSheet(null)} onEdit={currentUser.userRole === 'DCC_ADMIN' ? record => { setSelectedDistributionForSheet(record); setEditing(true); } : undefined} />;
+  const darId = group.find(record => record.darReferenceId)?.darReferenceId || '';
+  if (group.length > 1 && !editing) return <CombinedDistributionSheet records={group} darId={darId} dar={dars.find(dar => dar.id === darId)} onClose={() => setSelectedDistributionForSheet(null)} onEdit={currentUser.userRole === 'DCC_ADMIN' ? record => { setSelectedDistributionForSheet(record); setEditing(true); } : undefined} />;
   return <SingleDistributionSheetModal distribution={current} isCombinedEditor={group.length > 1} onBackToCombined={() => setEditing(false)} />;
 };
 
