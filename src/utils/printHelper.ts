@@ -8,13 +8,42 @@ export function generateStandalonePrintHtml(elementId: string, documentTitle: st
   const element = document.getElementById(elementId);
   if (!element) return '';
 
+  // DAR uses the application's built CSS and a static snapshot of the current
+  // form values. Loading a different Tailwind version from a CDN can change
+  // the print layout, and editable inputs do not reliably survive HTML export.
+  const isDar = elementId === 'dar-printable-sheet';
+  let documentMarkup = element.outerHTML;
+  let styles = '<script src="https://cdn.tailwindcss.com"></script>';
+  if (isDar) {
+    const snapshot = element.cloneNode(true) as HTMLElement;
+    snapshot.dataset.darStatic = 'true';
+    snapshot.querySelectorAll('.dar-screen-field, input[type="file"], button').forEach(control => control.remove());
+    documentMarkup = snapshot.outerHTML;
+    styles = Array.from(document.styleSheets).map(sheet => {
+      try {
+        const css = Array.from(sheet.cssRules).map(rule => rule.cssText).join('\n');
+        return `<style>${css.replace(/<\/style/gi, '<\\/style')}</style>`;
+      } catch {
+        // Cross-origin font sheets may not expose CSS rules; preserve the URL.
+        if (!sheet.href) return '';
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = sheet.href;
+        return link.outerHTML;
+      }
+    }).join('\n');
+  }
+  const titleElement = document.createElement('span');
+  titleElement.textContent = documentTitle;
+  const safeTitle = titleElement.innerHTML;
+
   return `<!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${documentTitle}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>${safeTitle}</title>
+  ${styles}
   <style>
     @page {
       size: A4 portrait;
@@ -49,7 +78,7 @@ export function generateStandalonePrintHtml(elementId: string, documentTitle: st
     <div class="flex items-center gap-2">
       <span class="text-xl">🖨️</span>
       <div>
-        <h2 class="text-sm font-bold text-white">${documentTitle}</h2>
+        <h2 class="text-sm font-bold text-white">${safeTitle}</h2>
         <p class="text-xs text-slate-400">หน้าต่างพิมพ์เอกสารควบคุมมาตรฐาน ISO (พร้อมพิมพ์ A4 / บันทึก PDF)</p>
       </div>
     </div>
@@ -65,19 +94,19 @@ export function generateStandalonePrintHtml(elementId: string, documentTitle: st
 
   <!-- Document Content Container -->
   <div class="max-w-4xl mx-auto">
-    ${element.outerHTML}
+    ${documentMarkup}
   </div>
 
   <script>
     // Auto trigger print dialog after page styles render
     window.addEventListener('load', function() {
-      setTimeout(function() {
+      ${isDar ? "Promise.resolve(document.fonts && document.fonts.ready).then(function() { requestAnimationFrame(function() {" : "setTimeout(function() {"}
         try {
           window.print();
         } catch(e) {
           console.warn('Auto print trigger:', e);
         }
-      }, 500);
+      ${isDar ? "}); });" : "}, 500);"}
     });
   </script>
 </body>
