@@ -12,12 +12,24 @@ export function generateStandalonePrintHtml(elementId: string, documentTitle: st
   // form values. Loading a different Tailwind version from a CDN can change
   // the print layout, and editable inputs do not reliably survive HTML export.
   const isDar = elementId === 'dar-printable-sheet';
+  const usesApplicationStyles = isDar || ['masterlist-printable-sheet', 'distribution-recall-sheet'].includes(elementId);
   let documentMarkup = element.outerHTML;
   let styles = '<script src="https://cdn.tailwindcss.com"></script>';
-  if (isDar) {
+  if (usesApplicationStyles) {
     const snapshot = element.cloneNode(true) as HTMLElement;
-    snapshot.dataset.darStatic = 'true';
-    snapshot.querySelectorAll('.dar-screen-field, input[type="file"], button').forEach(control => control.remove());
+    if (isDar) snapshot.dataset.darStatic = 'true';
+    const liveControls = element.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select');
+    snapshot.querySelectorAll('input, textarea, select').forEach((control, index) => {
+      if (control.classList.contains('print:hidden') || control.classList.contains('dar-screen-field') || control.getAttribute('type') === 'file') {
+        control.remove();
+      } else {
+        const value = document.createElement('span');
+        value.className = control.className;
+        value.textContent = liveControls[index]?.value || '';
+        control.replaceWith(value);
+      }
+    });
+    snapshot.querySelectorAll('button').forEach(control => control.remove());
     documentMarkup = snapshot.outerHTML;
     styles = Array.from(document.styleSheets).map(sheet => {
       try {
@@ -100,13 +112,13 @@ export function generateStandalonePrintHtml(elementId: string, documentTitle: st
   <script>
     // Auto trigger print dialog after page styles render
     window.addEventListener('load', function() {
-      ${isDar ? "Promise.resolve(document.fonts && document.fonts.ready).then(function() { requestAnimationFrame(function() {" : "setTimeout(function() {"}
+      ${usesApplicationStyles ? "Promise.resolve(document.fonts && document.fonts.ready).then(function() { requestAnimationFrame(function() {" : "setTimeout(function() {"}
         try {
           window.print();
         } catch(e) {
           console.warn('Auto print trigger:', e);
         }
-      ${isDar ? "}); });" : "}, 500);"}
+      ${usesApplicationStyles ? "}); });" : "}, 500);"}
     });
   </script>
 </body>
