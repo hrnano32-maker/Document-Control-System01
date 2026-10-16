@@ -1,4 +1,5 @@
 import React from 'react';
+import { printSheetLayout } from '../utils/printSheetLayout';
 import { Download, ExternalLink, FileSpreadsheet, Printer, X } from 'lucide-react';
 import { COMPANY } from '../config/company';
 import { DEPARTMENTS, DOCUMENT_TYPES, MasterDocument } from '../types';
@@ -47,6 +48,7 @@ export const MasterListPrintModal: React.FC<MasterListPrintModalProps> = ({ docu
         </div>
         <div className="max-h-[80vh] overflow-auto bg-slate-200 p-4 sm:p-6">
           <section id="masterlist-printable-sheet" data-print-target="true" className="mx-auto min-h-[1122px] w-full max-w-[794px] bg-white px-8 py-7 text-black shadow-xl print:min-h-0 print:max-w-none print:px-0 print:py-0 print:shadow-none" style={{ fontFamily: "'Sarabun', 'IBM Plex Sans Thai', Tahoma, sans-serif" }}>
+            <style>{printSheetLayout('masterlist-printable-sheet')}</style>
             <header className="mb-3 grid grid-cols-[120px_1fr_120px] items-center">
               <NanoLogo className="h-12 w-28" />
               <div className="text-center"><p className="text-[10px] font-semibold">{COMPANY.nameTh}</p><p className="text-[9px] tracking-wide">{COMPANY.nameEn}</p><h1 className="mt-1 text-xl font-bold">ทะเบียนรายชื่อเอกสาร (Master List)</h1></div><div />
