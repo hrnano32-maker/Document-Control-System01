@@ -28,3 +28,13 @@ test('partial receipt cannot make the combined sheet complete',()=>{
 test('cancelled departments are excluded and cannot supply signatures for active departments',()=>{
  const a=make('A',{targetDepartments:['HR','QA/QC'],departmentCancellations:{'QA/QC':{reason:'',cancelledAt:'',cancelledBy:''}}});assert.equal(buildCombinedDistributionRows([a]).length,1);assert.equal(isCombinedSheetComplete([a]),true);
 });
+
+test('an image without a receipt date is never shown as an actual DAR receipt',()=>{
+ const a=make('A',{receipts:{HR:{...make('A').receipts!.HR,downloadedAt:'',signatureStoragePath:'profiles/hr.png'}}});
+ assert.equal(buildCombinedDistributionRows([a])[0].receipt,undefined);assert.equal(isCombinedSheetComplete([a]),false);
+});
+test('signatures from another DAR never enter the combined form',()=>{
+ const a=make('A'),b=make('B',{targetDepartments:['QA/QC'],receipts:{}}),other=make('C',{darReferenceId:'DAR-2026-0002',receipts:{HR:{...make('A').receipts!.HR,signatureStoragePath:'other-dar/hr.png'}}});
+ const rows=buildCombinedDistributionRows(getDarDistributionGroup(b,[a,b,other]));
+ assert.equal(rows.length,2);assert.deepEqual(rows.filter(row=>row.receipt).map(row=>row.receipt!.signatureStoragePath),['signatures/hr.png']);
+});
