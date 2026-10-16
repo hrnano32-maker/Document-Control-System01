@@ -25,6 +25,9 @@ import { getStorageFileUrl, normalizeQaQcDepartments, saveDistributionSheetRecor
 import { normalizeSignatureDataUrl } from '../utils/signatureImage';
 import { COMPANY } from '../config/company';
 import { NanoLogo } from './NanoLogo';
+import { CombinedDistributionSheet } from './CombinedDistributionSheet';
+import { getDarDistributionGroup } from '../utils/distributionSheetGroup';
+import { printSheetLayout } from '../utils/printSheetLayout';
 
 interface DistributionRowData {
   id: string;
@@ -59,8 +62,19 @@ export const DEFAULT_STANDARD_POSITIONS: string[] = [
 ];
 
 export const DistributionSheetModal: React.FC = () => {
+  const { selectedDistributionForSheet, setSelectedDistributionForSheet, distributions, currentUser } = useDcs();
+  const [editing, setEditing] = useState(false);
+  const group = useMemo(() => selectedDistributionForSheet ? getDarDistributionGroup(selectedDistributionForSheet, distributions) : [], [selectedDistributionForSheet, distributions]);
+  const groupKey = group.map(record => record.id).join('|');
+  useEffect(() => { setEditing(false); }, [groupKey]);
+  if (!selectedDistributionForSheet) return null;
+  const current = distributions.find(record => record.id === selectedDistributionForSheet.id) || selectedDistributionForSheet;
+  if (group.length > 1 && !editing) return <CombinedDistributionSheet records={group} darId={group.find(record => record.darReferenceId)?.darReferenceId || ''} onClose={() => setSelectedDistributionForSheet(null)} onEdit={currentUser.userRole === 'DCC_ADMIN' ? record => { setSelectedDistributionForSheet(record); setEditing(true); } : undefined} />;
+  return <SingleDistributionSheetModal distribution={current} isCombinedEditor={group.length > 1} onBackToCombined={() => setEditing(false)} />;
+};
+
+const SingleDistributionSheetModal: React.FC<{ distribution: DistributionRecord; isCombinedEditor: boolean; onBackToCombined: () => void }> = ({ distribution: selectedDistributionForSheet, isCombinedEditor, onBackToCombined }) => {
   const {
-    selectedDistributionForSheet,
     setSelectedDistributionForSheet,
     currentUser,
     documents,
@@ -108,6 +122,9 @@ export const DistributionSheetModal: React.FC = () => {
   // Determine initial active DAR
   const initialDar = useMemo(() => {
     if (!selectedDistributionForSheet) return undefined;
+    if (selectedDistributionForSheet.darReferenceId) {
+      return dars.find(dar => dar.id === selectedDistributionForSheet.darReferenceId);
+    }
     if (linkedDoc?.darReferenceId) {
       const darByRef = dars.find(d => d.id === linkedDoc.darReferenceId);
       if (darByRef) return darByRef;
@@ -120,7 +137,7 @@ export const DistributionSheetModal: React.FC = () => {
     );
     if (darByRev) return darByRev;
     if (candidateDars.length > 0) return candidateDars[0];
-    return dars[0];
+    return undefined;
   }, [linkedDoc, candidateDars, dars, selectedDistributionForSheet]);
 
   const currentDar = useMemo(() => {
@@ -325,7 +342,7 @@ export const DistributionSheetModal: React.FC = () => {
 
   const dist = selectedDistributionForSheet;
   const hasLegacyQaQc = dist.targetDepartments.some(dept => ['QA', 'QC'].includes(String(dept)));
-  const canPrint = dist.status === 'COMPLETED' && dist.targetDepartments.length > 0 && dist.targetDepartments.every(dept => Boolean(dist.receipts?.[dept]?.downloadedAt));
+  const canPrint = !isCombinedEditor && dist.status === 'COMPLETED' && dist.targetDepartments.length > 0 && dist.targetDepartments.every(dept => Boolean(dist.receipts?.[dept]?.downloadedAt));
 
   const handleClose = () => {
     setSelectedDistributionForSheet(null);
@@ -646,6 +663,7 @@ export const DistributionSheetModal: React.FC = () => {
           </div>
         </div>
 
+        {isCombinedEditor && <div className="print:hidden border-b border-indigo-300 bg-indigo-50 p-3 text-sm text-indigo-950"><strong>แก้ไขข้อมูล {dist.distributionNo}</strong> · บันทึกแล้วกลับไปพิมพ์ใบรวม DAR <button type="button" onClick={onBackToCombined} className="ml-3 rounded bg-indigo-600 px-3 py-2 font-bold text-white">กลับใบแจกจ่ายรวม DAR</button></div>}
         {/* DAR Reference & Originating Link Bar (Strict Requirement: Initialized with initiating DAR, add more afterwards) */}
         <div className="print:hidden bg-indigo-950 text-indigo-100 px-4 py-2.5 border-b border-indigo-900 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2.5 flex-wrap">
@@ -788,6 +806,7 @@ export const DistributionSheetModal: React.FC = () => {
             style={{ fontFamily: "'Prompt', 'Sarabun', system-ui, -apple-system, sans-serif" }}
           >
             
+            <style>{printSheetLayout('distribution-recall-sheet')}</style>
             {/* Header with NANO Logo & Form Title */}
             <div className="mb-5 grid grid-cols-[100px_1fr_100px] items-center gap-2 min-h-[48px]">
               <div className="flex items-center justify-start">
