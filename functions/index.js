@@ -606,104 +606,12 @@ exports.createAutomaticDistributionFromDar = onCall({ region: REGION, timeoutSec
 // Re-issuing a copy belongs to the original distribution. It must never create
 // another DC-DIS number. Only the requesting department's controlled files and
 // receipt window are refreshed; every other department remains in the same set.
-exports.reissueControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async request => {
-  await requireDcc(request);
-  const distributionId = cleanText(request.data?.distributionId, 80);
-  const requestId = cleanText(request.data?.requestId, 80);
-  if (!distributionId || !requestId) throw new HttpsError('invalid-argument', 'ข้อมูลคำขอสำเนาใหม่ไม่ครบ');
-
-  const db = getFirestore();
-  const distRef = db.collection('dcs_distributions').doc(distributionId);
-  const requestRef = db.collection('dcs_copy_requests').doc(requestId);
-  const [distSnapshot, requestSnapshot] = await Promise.all([distRef.get(), requestRef.get()]);
-  if (!distSnapshot.exists || !requestSnapshot.exists) throw new HttpsError('not-found', 'ไม่พบใบแจกจ่ายหรือคำขอสำเนาใหม่');
-  const data = distSnapshot.data();
-  const copyRequest = requestSnapshot.data();
-  if (copyRequest.distributionId !== distributionId || copyRequest.status !== 'PROCESSING') {
-    throw new HttpsError('failed-precondition', 'สถานะคำขอไม่ถูกต้องหรือคำขอไม่ได้อยู่ในใบแจกจ่ายนี้');
-  }
-  const department = copyRequest.dept;
-  if (!data.targetDepartments?.includes(department)) throw new HttpsError('failed-precondition', 'แผนกผู้ขอไม่อยู่ในใบแจกจ่ายต้นฉบับ');
-  const bucket = getStorage().bucket();
-  const existingPaths = data.departmentFileLists?.[department]
-    || (data.departmentFiles?.[department] ? [data.departmentFiles[department]] : []);
-  const existingChecks = await Promise.all(existingPaths.map(path => bucket.file(path).exists()));
-  let paths = existingPaths.filter((_, index) => existingChecks[index]?.[0]);
-  let keys = data.departmentFileKeyLists?.[department] || paths.map(path => path.split('/').pop());
-
-  // Reuse current text-footer files. Rebuild legacy image-stamped or purged files
-  // from the clean active archive, never from a previously stamped copy. This
-  // stays in the same distribution and only affects the requesting department.
-  if (!paths.length || paths.length !== existingPaths.length || data.controlledStampVersions?.[department] !== CONTROLLED_STAMP_VERSION) {
-    const masterSnapshot = await db.collection('dcs_documents').doc(data.docId).get();
-    if (!masterSnapshot.exists) throw new HttpsError('failed-precondition', 'ไม่พบเอกสารต้นฉบับใน Master List');
-    const master = masterSnapshot.data();
-    if (master.currentRevision !== data.revision || master.status !== 'ACTIVE') {
-      throw new HttpsError('failed-precondition', 'ไม่สามารถเปิดสิทธิ์ได้ เพราะ Revision นี้ไม่ใช่ฉบับใช้งานปัจจุบัน');
-    }
-    const sourcePaths = Array.isArray(master.currentFileStoragePaths) && master.currentFileStoragePaths.length
-      ? master.currentFileStoragePaths
-      : [master.currentFileStoragePath].filter(Boolean);
-    if (!sourcePaths.length) throw new HttpsError('failed-precondition', 'ไม่พบไฟล์ต้นฉบับที่จัดเก็บใน Master List');
-    const fileNames = Array.isArray(data.fileNames) && data.fileNames.length ? data.fileNames : [data.fileName || 'document.pdf'];
-    paths = [];
-    keys = [];
-    for (let index = 0; index < sourcePaths.length; index += 1) {
-      await requestRef.update({ processingDetail: `กำลังกู้ไฟล์เดิมสำหรับแผนก ${department} ${index + 1}/${sourcePaths.length}`, processingPercent: 40 + Math.round(((index + 1) / sourcePaths.length) * 50), updatedAt: new Date().toISOString() });
-      const pdf = await loadPdf(sourcePaths[index]);
-      await controlledStamp(pdf, department);
-      const outputName = `${String(index + 1).padStart(2, '0')}-${safeSegment(fileNames[index] || `document-${index + 1}.pdf`)}`.replace(/\.pdf$/i, '') + '.pdf';
-      const path = `dcs/distributions/${distributionId}/controlled/${safeSegment(department)}/${outputName}`;
-      await savePdf(pdf, path);
-      paths.push(path);
-      keys.push(outputName);
-    }
-  }
-
-  const now = new Date();
-  const receipts = { ...(data.receipts || {}) };
-  delete receipts[department];
-  const targets = (data.targets || []).map(target => target.dept === department
-    ? { ...target, isDownloaded: false, downloadTimestamp: null, downloaderName: null, downloaderEmpId: null, downloaderPosition: null, signatureDataUrl: null, status: 'PENDING' }
-    : target);
-  const history = Array.isArray(data.copyReissueHistory) ? data.copyReissueHistory : [];
-  const departmentExpirationEpoch = Object.fromEntries((data.targetDepartments || []).map(target => [
-    target,
-    Number(data.departmentExpirationEpoch?.[target] || data.expirationEpoch || now.getTime()),
-  ]));
-  departmentExpirationEpoch[department] = now.getTime() + 3 * 24 * 60 * 60 * 1000;
-  const batch = db.batch();
-  batch.update(distRef, {
-    receipts,
-    targets,
-    status: 'IN_PROGRESS',
-    expirationDate: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-    expirationEpoch: now.getTime() + 3 * 24 * 60 * 60 * 1000,
-    expirationAt: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000),
-    departmentExpirationEpoch,
-    departmentFiles: { ...(data.departmentFiles || {}), [department]: paths[0] },
-    departmentFileLists: { ...(data.departmentFileLists || {}), [department]: paths },
-    departmentFileKeys: { ...(data.departmentFileKeys || {}), [department]: safeSegment(department) },
-    departmentFileKeyLists: { ...(data.departmentFileKeyLists || {}), [department]: keys },
-    controlledStampVersions: { ...(data.controlledStampVersions || {}), [department]: CONTROLLED_STAMP_VERSION },
-    storageStatus: 'AVAILABLE',
-    stampStatus: 'COMPLETED',
-    copyReissueHistory: [...history, { requestId, department, approvedAt: now.toISOString(), approvedBy: request.auth.uid, fileCount: paths.length }],
-    updatedAt: now.toISOString(),
-  });
-  batch.update(requestRef, {
-    status: 'APPROVED',
-    dccDecisionBy: copyRequest.processingByName || request.auth.uid,
-    dccDecisionDate: now.toISOString(),
-    dccDecisionNote: copyRequest.pendingDecisionNote || 'อนุมัติเปิดสิทธิ์รับเอกสารอีก 3 วันในใบแจกจ่ายเดิม',
-    reissuedDistributionId: distributionId,
-    processingDetail: 'เปิดสิทธิ์รับเอกสารในใบแจกจ่ายเดิมสำเร็จ',
-    processingPercent: 100,
-    updatedAt: now.toISOString(),
-  });
-  await batch.commit();
-  return { distributionId, requestId, department, fileCount: paths.length };
-});
+const { createReissueHandler } = require('./reissueDistribution');
+exports.reissueControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, createReissueHandler({
+  getFirestore, getStorage, requireDcc, HttpsError, loadPdf, savePdf, controlledStamp,
+  stampVersion: CONTROLLED_STAMP_VERSION, safeSegment,
+  validDepartments: REGISTRATION_DEPARTMENTS, notify: notifyDistributionReady,
+}));
 
 exports.cancelPreviousRevision = onCall({ region: REGION, timeoutSeconds: 120, memory: '512MiB' }, async request => {
   await requireDcc(request);
@@ -745,7 +653,8 @@ exports.manageDistributionRecord = onCall({ region: REGION, timeoutSeconds: 540,
   const snapshot = await distRef.get();
   if (!snapshot.exists) throw new HttpsError('not-found', 'ไม่พบรายการแจกจ่าย');
   const data = snapshot.data();
-  const receiptCount = Object.keys(data.receipts || {}).length;
+  if (data.reissueLock?.expiresAt > Date.now()) throw new HttpsError('aborted', 'กำลังเปิดสิทธิ์รับเอกสาร กรุณารอแล้วลองใหม่');
+  const receiptCount = Object.keys({ ...(data.firstReceipts || {}), ...(data.receipts || {}) }).length;
   if (action === 'DELETE') {
     // A reissue can leave several PROCESSING records when a previous approval
     // failed after the record was created. Deleting any one of those records
@@ -755,7 +664,7 @@ exports.manageDistributionRecord = onCall({ region: REGION, timeoutSeconds: 540,
       ? await db.collection('dcs_distributions').where('reissueOf', '==', data.reissueOf).get()
       : null;
     const relatedDocs = relatedSnapshot?.docs || [snapshot];
-    const receivedRecord = relatedDocs.find(item => Object.keys(item.data().receipts || {}).length > 0);
+    const receivedRecord = relatedDocs.find(item => Object.keys({ ...(item.data().firstReceipts || {}), ...(item.data().receipts || {}) }).length > 0);
     if (receiptCount > 0 || receivedRecord) {
       throw new HttpsError('failed-precondition', 'ลบไม่ได้ เนื่องจากมีหน่วยงานรับเอกสารแล้ว กรุณาใช้คำสั่งยกเลิกเพื่อเก็บประวัติ');
     }
@@ -921,20 +830,33 @@ exports.normalizeQaQcDepartments = onCall({ region: REGION, timeoutSeconds: 540,
 });
 
 async function purgeDistribution(snapshot, reason) {
-  const data = snapshot.data();
-  if (!data || data.storageStatus === 'PURGED') return;
+  const db = getFirestore();
+  const lockId = `purge-${randomBytes(12).toString('hex')}`;
+  const claimed = await db.runTransaction(async tx => {
+    const fresh = await tx.get(snapshot.ref);
+    const data = fresh.data();
+    if (!data || data.storageStatus === 'PURGED' || data.reissueLock?.expiresAt > Date.now()) return false;
+    if (reason === 'DOWNLOAD_WINDOW_EXPIRED' && Number(data.expirationEpoch) > Date.now()) return false;
+    if (reason === 'ALL_DEPARTMENTS_DOWNLOADED' && data.storageStatus !== 'PURGE_PENDING') return false;
+    tx.update(snapshot.ref, { reissueLock: { id: lockId, expiresAt: Date.now() + 12 * 60000 } });
+    return true;
+  });
+  if (!claimed) return;
   try {
     await getStorage().bucket().deleteFiles({ prefix: `dcs/distributions/${snapshot.id}/` });
-    await snapshot.ref.update({
-      storageStatus: 'PURGED',
-      ...(reason === 'DOWNLOAD_WINDOW_EXPIRED' && data.status !== 'COMPLETED' ? { status: 'EXPIRED' } : {}),
-      fileDeletedAt: new Date().toISOString(),
-      purgeReason: reason,
-      updatedAt: new Date().toISOString(),
+    await db.runTransaction(async tx => {
+      const fresh = await tx.get(snapshot.ref);
+      const data = fresh.data();
+      if (data?.reissueLock?.id !== lockId) return;
+      tx.update(snapshot.ref, {
+        storageStatus: 'PURGED', reissueLock: null,
+        ...(reason === 'DOWNLOAD_WINDOW_EXPIRED' && data.status !== 'COMPLETED' ? { status: 'EXPIRED' } : {}),
+        fileDeletedAt: new Date().toISOString(), purgeReason: reason, updatedAt: new Date().toISOString(),
+      });
     });
   } catch (error) {
     console.error('PURGE_FAILED', snapshot.id, error);
-    await snapshot.ref.update({ storageStatus: 'PURGE_PENDING', purgeError: String(error), updatedAt: new Date().toISOString() });
+    await snapshot.ref.update({ reissueLock: null, storageStatus: 'PURGE_PENDING', purgeError: String(error), updatedAt: new Date().toISOString() });
   }
 }
 
@@ -1010,7 +932,7 @@ exports.downloadControlledCopyFile = onRequest({
     const paths = distribution.departmentFileLists?.[department]
       || (distribution.departmentFiles?.[department] ? [distribution.departmentFiles[department]] : []);
     if (!paths.length) return response.status(404).json({ error: 'FILES_NOT_FOUND' });
-    const sourceNames = Array.isArray(distribution.fileNames) ? distribution.fileNames : [distribution.fileName || 'document.pdf'];
+    const sourceNames = distribution.departmentFileNames?.[department] || (Array.isArray(distribution.fileNames) ? distribution.fileNames : [distribution.fileName || 'document.pdf']);
     const outputNames = paths.map((_, index) => `CONTROLLED_${safeSegment(department)}_${safeSegment(sourceNames[index] || `document-${index + 1}.pdf`)}`);
     const bucket = getStorage().bucket();
 
@@ -1129,6 +1051,7 @@ exports.cancelDistributionDepartment = onCall({ region: REGION, timeoutSeconds: 
     const snap = await tx.get(distRef);
     if (!snap.exists) throw new HttpsError('not-found', 'ไม่พบรายการแจกจ่าย');
     const data = snap.data();
+    if (data.reissueLock?.expiresAt > Date.now()) throw new HttpsError('aborted', 'กำลังเปิดสิทธิ์รับเอกสาร กรุณารอแล้วลองใหม่');
     const prior = data.departmentCancellations?.[department];
     if (prior) return prior.filePaths || [];
     if (data.status === 'CANCELLED') throw new HttpsError('failed-precondition', 'รายการนี้ยกเลิกทั้งชุดแล้ว');
@@ -1204,3 +1127,4 @@ exports.repairQaQcAccess = onCall({ region: REGION, timeoutSeconds: 540, memory:
   }
   return counts;
 });
+

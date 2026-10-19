@@ -18,10 +18,13 @@ test('legacy reissue inherits only an explicit parent reference; cycles terminat
 test('identical receipt evidence shares one department row with both document references',()=>{
  const a=make('A'),b=make('B');const before=JSON.stringify([a,b]);const rows=buildCombinedDistributionRows([a,b]);assert.equal(rows.length,1);assert.deepEqual(rows[0].documentIndexes,[1,2]);assert.equal(rows[0].copies,1);assert.equal(JSON.stringify([a,b]),before);
 });
-test('one department uses its latest signed receipt and keeps the matching date, copies and return evidence',()=>{
- const a=make('A'),b=make('B',{receipts:{HR:{...make('A').receipts!.HR,receivedCopies:2,downloadedAt:'2026-10-17T01:00:00Z',signatureStoragePath:'signatures/hr-new.png'}},distributionSheet:{receiveRevision:'01',returnRevision:'00',updatedAt:'',updatedBy:'DCC',rows:[{dept:'HR',position:'HR',copies:'2',returnDate:'2026-10-18',returnSignatureStoragePath:'returns/hr.png'}]}});
- const rows=buildCombinedDistributionRows([a,b]);assert.equal(rows.length,1);assert.equal(rows[0].receipt!.signatureStoragePath,'signatures/hr-new.png');assert.equal(rows[0].receipt!.downloadedAt,'2026-10-17T01:00:00Z');assert.equal(rows[0].copies,2);assert.equal(rows[0].returnSignatureStoragePath,'returns/hr.png');
- assert.equal(buildCombinedDistributionRows([b,a])[0].receipt!.signatureStoragePath,'signatures/hr-new.png');
+test('one department keeps its first signed receipt when later receipts are added',()=>{
+ const a=make('A'),b=make('B',{receipts:{HR:{...make('A').receipts!.HR,receivedCopies:2,downloadedAt:'2026-10-17T01:00:00Z',signatureStoragePath:'signatures/hr-new.png'}}});
+ for (const records of [[a,b],[b,a]]) {
+   const rows=buildCombinedDistributionRows(records);
+   assert.equal(rows.length,1);assert.equal(rows[0].receipt!.signatureStoragePath,'signatures/hr.png');
+   assert.equal(rows[0].receipt!.downloadedAt,'2026-10-16T01:00:00Z');assert.equal(rows[0].copies,1);
+ }
 });
 test('partial receipt cannot make the combined sheet complete',()=>{
  const a=make('A'),b=make('B',{receipts:{},status:'IN_PROGRESS'});assert.equal(isCombinedSheetComplete([a,b]),false);assert.equal(isCombinedSheetComplete([a]),true);assert.equal(isCombinedSheetComplete([]),false);
@@ -44,7 +47,18 @@ test('waiting departments and receipts without a signature are excluded without 
  const a=make('A',{targetDepartments:['HR','Planning','QA/QC'],receipts:{HR:make('A').receipts!.HR,'QA/QC':{...make('A').receipts!.HR,dept:'QA/QC',signatureStoragePath:''}}});const before=JSON.stringify(a);
  assert.deepEqual(buildCombinedDistributionRows([a]).map(row=>row.department),['HR']);assert.equal(JSON.stringify(a),before);
 });
-test('QA, QC and QA/QC show one canonical department with the latest signed receipt',()=>{
+test('QA, QC and QA/QC show one canonical department with the first signed receipt',()=>{
  const a=make('A',{targetDepartments:['QA' as any],receipts:{QA:{...make('A').receipts!.HR,dept:'QA' as any}}}),b=make('B',{targetDepartments:['QA/QC'],receipts:{'QA/QC':{...make('A').receipts!.HR,dept:'QA/QC',downloadedAt:'2026-10-19T01:00:00Z'}}});
- const rows=buildCombinedDistributionRows([a,b]);assert.equal(rows.length,1);assert.equal(rows[0].department,'QA/QC');assert.equal(rows[0].receipt!.downloadedAt,'2026-10-19T01:00:00Z');
+ const rows=buildCombinedDistributionRows([a,b]);assert.equal(rows.length,1);assert.equal(rows[0].department,'QA/QC');assert.equal(rows[0].receipt!.downloadedAt,'2026-10-16T01:00:00Z');
+});
+
+
+test('reopening does not remove a first receipt from the sheet; a new department appears only after signing',()=>{
+ const first=make('A').receipts!.HR;
+ const reopened=make('A',{status:'IN_PROGRESS',targetDepartments:['HR','Planning'],firstReceipts:{HR:first},receipts:{}});
+ assert.deepEqual(buildCombinedDistributionRows([reopened]).map(row=>row.department),['HR']);
+ reopened.receipts={HR:{...first,downloadedAt:'2026-10-20T01:00:00Z',signatureStoragePath:'signatures/new.png'},Planning:{...first,dept:'Planning',downloadedAt:'2026-10-21T01:00:00Z',signatureStoragePath:'signatures/planning.png'}};
+ const rows=buildCombinedDistributionRows([reopened]);
+ assert.deepEqual(rows.map(row=>row.department),['HR','Planning']);
+ assert.equal(rows[0].receipt!.signatureStoragePath,'signatures/hr.png');
 });

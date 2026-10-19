@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { PDFDocument, PDFName, PDFString } = require('pdf-lib');
+const { createReissueHandler } = require('./reissueDistribution');
 const { controlledStamp, CONTROLLED_STAMP_VERSION } = require('./controlledStamp');
 const source = fs.readFileSync(require('node:path').join(__dirname, 'index.js'), 'utf8');
 
@@ -17,12 +18,18 @@ async function setup(version, missing = false) {
   const loaded = [];
   const refs = name => ({ name, get: async () => ({ exists: records.has(name), data: () => structuredClone(records.get(name)) }), update: async patch => Object.assign(records.get(name), patch) });
   const db = { collection: name => ({ doc: id => refs(`${name}/${id}`) }), batch: () => { const writes = []; return { update: (ref, patch) => writes.push([ref, patch]), commit: async () => { for (const [ref, patch] of writes) await ref.update(patch); } }; } };
+  db.runTransaction = async callback => {
+    const writes = [];
+    const result = await callback({ get: ref => ref.get(), update: (ref, patch) => writes.push(() => ref.update(patch)), set: (ref, value) => writes.push(() => records.set(ref.name, value)) });
+    for (const write of writes) await write();
+    return result;
+  };
   const bucket = { file: path => ({ exists: async () => [files.has(path)], save: async bytes => { saved.push(path); files.set(path, bytes); }, delete: async () => { files.delete(path); } }) };
   const data = { docId: 'WI-PD2-004', docNo: 'WI-PD2-004', revision: '05', targetDepartments: ['Production 2/3', 'HR'], targets: [{ dept: 'Production 2/3', isDownloaded: true }, { dept: 'HR', isDownloaded: true }], departmentFiles: { 'Production 2/3': 'old/one.pdf', HR: 'hr/unchanged.pdf' }, departmentFileLists: { 'Production 2/3': ['old/one.pdf', 'old/two.pdf'], HR: ['hr/unchanged.pdf'] }, fileNames: ['one.pdf', 'two.pdf'], receipts: { 'Production 2/3': { downloadedAt: 'old' }, HR: { downloadedAt: 'keep' } }, controlledStampVersions: { 'Production 2/3': version, HR: 'untouched' } };
   records.set('dcs_distributions/same-distribution', data);
   records.set('dcs_copy_requests/request', { distributionId: 'same-distribution', status: 'PROCESSING', dept: 'Production 2/3' });
   records.set('dcs_documents/WI-PD2-004', { currentRevision: '05', status: 'ACTIVE', currentFileStoragePaths: ['archive/one.pdf', 'archive/two.pdf'] });
-  const context = { exports: {}, REGION: 'test', Buffer, PDFDocument, controlledStamp, CONTROLLED_STAMP_VERSION,
+  const context = { exports: {}, REGION: 'test', createReissueHandler, REGISTRATION_DEPARTMENTS: new Set(['Production 2/3', 'HR']), Buffer, PDFDocument, controlledStamp, CONTROLLED_STAMP_VERSION,
     onCall: (_, handler) => handler, requireDcc: async request => { if (request.auth?.uid !== 'dcc') throw Error('DCC required'); },
     cleanText: value => String(value || '').trim(), safeSegment: value => String(value).replace(/[^A-Za-z0-9_.-]/g, '_'),
     getFirestore: () => db, getStorage: () => ({ bucket: () => bucket }),
@@ -75,7 +82,8 @@ for (const [name, version, missing, regenerate] of [
   assert.equal(state.data.departmentFiles.HR, 'hr/unchanged.pdf');
   assert.equal(state.data.controlledStampVersions.HR, 'untouched');
   assert.equal(state.data.controlledStampVersions['Production 2/3'], CONTROLLED_STAMP_VERSION);
-  assert.equal(state.records.size, 3);
+  assert.equal(state.records.size, 4); // original records plus the idempotency/audit operation
+  assert.equal([...state.records.keys()].filter(key => key.startsWith('dcs_distributions/')).length, 1);
   if (regenerate) for (const path of state.data.departmentFileLists['Production 2/3']) {
     const pdf = await PDFDocument.load(state.files.get(path));
     assert.equal(pdf.getPage(0).getHeight(), 886);
@@ -90,3 +98,4 @@ test('legacy refresh rejects obsolete revision or non-DCC before writing files',
   await assert.rejects(state.handlers.reissueControlledCopies({ ...request, auth: { uid: 'department' } }), /DCC/);
   assert.equal(state.saved.length, 0);
 });
+

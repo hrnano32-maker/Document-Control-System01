@@ -287,6 +287,9 @@ export interface DistributionRecord {
   targetDepartments: Department[];
   allocationByDepartment: Record<string, number>;
   receipts?: Record<string, DistributionReceipt>;
+  firstReceipts?: Record<string, DistributionReceipt>;
+  departmentFileNames?: Record<string, string[]>;
+  reissueProgress?: { operationId: string; percent: number; detail: string };
   distributionSheet?: {
     docNo?: string;
     docNameTh?: string;
@@ -474,3 +477,4 @@ export interface DocumentViewPayload {
   effectiveDate?: string;
   isControlledCopy?: boolean;
 }
+

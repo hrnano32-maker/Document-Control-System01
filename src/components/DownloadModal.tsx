@@ -112,7 +112,7 @@ export const DownloadModal: React.FC = () => {
       .then(urls => {
         if (!active) return;
         setReadyDownloads(urls.map((url, index) => {
-          const baseName = distribution.fileNames?.[index] || distribution.fileName || `${distribution.docNo}_${index + 1}.pdf`;
+          const baseName = distribution.departmentFileNames?.[dept]?.[index] || distribution.fileNames?.[index] || distribution.fileName || `${distribution.docNo}_${index + 1}.pdf`;
           return { url, name: `CONTROLLED_${dept}_${baseName}` };
         }));
       })
@@ -174,7 +174,7 @@ export const DownloadModal: React.FC = () => {
         return;
       }
       setReadyDownloads(urls.map((url, index) => {
-        const baseName = distribution.fileNames?.[index] || distribution.fileName || `${distribution.docNo}_Rev${distribution.revision}_CONTROLLED_${index + 1}.pdf`;
+        const baseName = distribution.departmentFileNames?.[dept]?.[index] || distribution.fileNames?.[index] || distribution.fileName || `${distribution.docNo}_Rev${distribution.revision}_CONTROLLED_${index + 1}.pdf`;
         return { url, name: `CONTROLLED_${dept}_${baseName}` };
       }));
       setSubmitStatus('บันทึกการรับสำเร็จ กรุณากดดาวน์โหลดไฟล์ทีละรายการ');
@@ -602,3 +602,4 @@ export const DownloadModal: React.FC = () => {
     </div>
   );
 };
+

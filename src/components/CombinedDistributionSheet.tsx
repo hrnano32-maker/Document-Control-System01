@@ -23,7 +23,7 @@ const dateText = (date?: string) => {
 
 export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit }: Props) {
   const rows = useMemo(() => buildCombinedDistributionRows(records), [records]);
-  // Preserve the original form with only the latest signed receipt per department.
+  // Preserve the original form with only the first signed receipt per department.
   const departments = useMemo(() => {
     const grouped = new Map<string, typeof rows>();
     rows.forEach(row => grouped.set(row.department, [...(grouped.get(row.department) || []), row]));
@@ -81,7 +81,7 @@ export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit
           </div>
         </div>
         <div className="print:hidden border-b bg-indigo-50 px-4 py-3 text-sm text-indigo-950">
-          แสดงเฉพาะหน่วยงานที่เซ็นรับแล้ว {departments.length} หน่วยงาน · ใช้หลักฐานการรับล่าสุดของแต่ละหน่วยงานใน DAR นี้
+          แสดงเฉพาะหน่วยงานที่เซ็นรับแล้ว {departments.length} หน่วยงาน · ใช้หลักฐานการรับครั้งแรกของแต่ละหน่วยงานใน DAR นี้
           {rows.length === 0 && <p className="mt-1 font-bold text-amber-800">ยังไม่มีรายการเซ็นรับเอกสารสำหรับ DAR นี้</p>}
           {loading && <p role="status" className="mt-1">กำลังเตรียมลายเซ็นสำหรับพิมพ์…</p>}
           {error && <p role="alert" className="mt-1 text-red-700">{error} <button onClick={() => setAttempt(value => value + 1)} className="font-bold underline">ลองใหม่</button></p>}
@@ -155,3 +155,4 @@ export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit
     </div>
   );
 }
+

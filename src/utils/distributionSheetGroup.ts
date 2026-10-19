@@ -36,11 +36,13 @@ export function buildCombinedDistributionRows(records: DistributionRecord[]): Co
   const rows = new Map<string, CombinedSheetRow>();
   records.forEach((record, index) => {
     if (record.status === 'CANCELLED') return;
-    const departments = [...new Set([...(record.targetDepartments || []), ...(record.targets || []).map(target => target.dept)])];
+    const departments = [...new Set([...(record.targetDepartments || []), ...(record.targets || []).map(target => target.dept), ...Object.keys(record.firstReceipts || {})])];
     departments.forEach(dept => {
       if (record.departmentCancellations?.[dept]) return;
       const target = record.targets?.find(item => item.dept === dept);
-      const storedReceipt = record.receipts?.[dept];
+      const storedReceipt = [record.firstReceipts?.[dept], record.receipts?.[dept]]
+        .filter((receipt): receipt is DistributionReceipt => Boolean(receipt?.downloadedAt?.trim() && receipt.signatureStoragePath?.trim()))
+        .sort((a, b) => (Date.parse(a.downloadedAt) - Date.parse(b.downloadedAt)) || a.downloadedAt.localeCompare(b.downloadedAt))[0];
       // Only completed, signed receipts belong on this acknowledgement form.
       if (!storedReceipt?.downloadedAt?.trim() || !storedReceipt.signatureStoragePath?.trim()) return;
       const receipt = storedReceipt;
@@ -50,7 +52,7 @@ export function buildCombinedDistributionRows(records: DistributionRecord[]): Co
       const returnDate = saved?.returnDate || '';
       const returnSignerName = saved?.returnSignerName || '';
       const returnSignatureStoragePath = saved?.returnSignatureStoragePath || '';
-      // One acknowledgement per department for this DAR. Keep the most recent
+      // One acknowledgement per department for this DAR. Keep the first
       // signature/date/copy-count together; older evidence remains in storage.
       const key = JSON.stringify([department, copies, receipt?.downloadedAt || '', receipt?.signatureStoragePath || '', receipt?.downloaderUid || '', receipt?.downloaderName || '', returnDate, returnSignerName, returnSignatureStoragePath]);
       const existing = rows.get(department);
@@ -63,7 +65,7 @@ export function buildCombinedDistributionRows(records: DistributionRecord[]): Co
         const dateOrder = Number.isFinite(candidateTime) && Number.isFinite(previousTime)
           ? candidateTime - previousTime
           : receipt.downloadedAt.localeCompare(existing?.receipt?.downloadedAt || '');
-        if (!existing || dateOrder > 0 || (dateOrder === 0 && key.localeCompare(existing.key) > 0)) {
+        if (!existing || dateOrder < 0 || (dateOrder === 0 && key.localeCompare(existing.key) < 0)) {
           rows.set(department, { key, department, copies, receipt, recordIds: [record.id], documentIndexes: [index + 1], returnDate, returnSignerName, returnSignatureStoragePath });
         }
       }
@@ -79,3 +81,4 @@ export function isCombinedSheetComplete(records: DistributionRecord[]): boolean 
     return record.status !== 'CANCELLED' && departments.length > 0 && departments.every(dept => Boolean(record.receipts?.[dept]?.downloadedAt));
   });
 }
+

@@ -4,6 +4,7 @@ import { MasterDocument, DOCUMENT_TYPES, DEPARTMENTS, DocumentType } from '../ty
 import { MasterListPrintModal } from './MasterListPrintModal';
 import { MasterRevisionDatesModal } from './MasterRevisionDatesModal';
 import { restoreMasterRevisionDates } from '../services/masterDateRepository';
+import { findExistingDistribution, initialDistributionSelection, canonicalDistributionDepartment } from '../utils/distributionReopen';
 import { getMasterRevisionHistory, hasMissingRevisionDates } from '../utils/masterRevisions';
 import {
   FileText,
@@ -140,9 +141,12 @@ export const MasterListView: React.FC = () => {
     return matchSearch && matchType && matchDept && matchStatus;
   });
 
+  const existingDistribution = quickDistributeDoc ? findExistingDistribution(quickDistributeDoc, distributions) : undefined;
+
   const handleOpenQuickDistribute = (doc: MasterDocument) => {
     setQuickDistributeDoc(doc);
-    setTargetDepts((doc.distributionDepartments || []).map(item => item.dept));
+    setTargetDepts(initialDistributionSelection(doc, findExistingDistribution(doc, distributions)));
+    setDistFiles([]);
     setDistInstructions(`แจกจ่ายเอกสารควบคุม ${doc.docNo} Rev.${doc.currentRevision} กรุณาดาวน์โหลดภายใน 3 วัน`);
     setDistSuccessMsg('');
     setDistError('');
@@ -152,7 +156,7 @@ export const MasterListView: React.FC = () => {
   };
 
   const handleConfirmDistribution = async () => {
-    if (!quickDistributeDoc || targetDepts.length === 0 || distFiles.length === 0) return;
+    if (!quickDistributeDoc || targetDepts.length === 0 || (!existingDistribution && distFiles.length === 0)) return;
     setDistError(''); setIsDistributing(true);
     setDistProgressText('กำลังตรวจสอบข้อมูลก่อนแจกจ่าย');
     setDistProgressPercent(1);
@@ -169,7 +173,7 @@ export const MasterListView: React.FC = () => {
       );
       setDistProgressText('ดำเนินการครบทุกขั้นตอน');
       setDistProgressPercent(100);
-      setDistSuccessMsg(`สร้างใบแจกจ่ายเลขที่ ${distNo} สำเร็จเรียบร้อย!`);
+      setDistSuccessMsg(existingDistribution ? `เปิดรับเพิ่มในชุดเดิม ${distNo} สำเร็จ` : `สร้างชุดแจกจ่าย ${distNo} สำเร็จ`);
     } catch (error) {
       setDistError(error instanceof Error ? error.message : 'สร้างรายการแจกจ่ายไม่สำเร็จ');
       setIsDistributing(false); return;
@@ -826,27 +830,27 @@ export const MasterListView: React.FC = () => {
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="font-bold text-slate-900 text-xs">
-                        หน่วยงานผู้รับตามใบ DAR และแผนกที่ DCC เพิ่ม ({targetDepts.length} หน่วยงาน)
+                        เลือกหน่วยงานที่ต้องการแจกจ่ายครั้งนี้ ({targetDepts.length} หน่วยงาน)
                       </label>
-                      <span className="text-[10px] text-slate-500">แผนกใน DAR ถูกล็อกไว้ • DCC สามารถติ๊กเพิ่มแผนกอื่นได้</span>
+                      <span className="text-[10px] text-slate-500">DCC เลือกหรือยกเลิกการเลือกแผนกได้ทุกช่อง</span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto p-2 border border-slate-200 rounded-xl bg-slate-50/50">
                       {DEPARTMENTS.filter(d => d.id !== 'DCC').map(dept => {
                         const isChecked = targetDepts.includes(dept.id);
-                        const isRequiredByDar = (quickDistributeDoc.distributionDepartments || []).some(item => item.dept === dept.id);
+                        const isRequiredByDar = (quickDistributeDoc.distributionDepartments || []).some(item => canonicalDistributionDepartment(item.dept) === dept.id);
                         return (
                           <label
                             key={dept.id}
                             className={`flex items-center gap-2 p-2 rounded-lg border text-xs transition-colors ${
                               isChecked ? 'bg-indigo-50 border-indigo-300 text-indigo-900 font-semibold' : 'bg-white border-slate-200 text-slate-700'
-                            } ${isRequiredByDar ? 'cursor-not-allowed' : 'cursor-pointer hover:border-cyan-400'}`}
-                            title={isRequiredByDar ? 'แผนกนี้ระบุไว้ใน DAR จึงไม่สามารถนำออกได้' : 'DCC สามารถเพิ่มหรือนำแผนกนี้ออกได้'}
+                            } ${isDistributing ? 'cursor-not-allowed' : 'cursor-pointer hover:border-cyan-400'}`}
+                            title="เลือกเพื่อแจกจ่ายหรือเปิดสิทธิ์รับใหม่เฉพาะแผนกนี้"
                           >
                             <input
                               type="checkbox"
                               checked={isChecked}
-                              disabled={isRequiredByDar}
+                              disabled={isDistributing}
                               onChange={() => setTargetDepts(prev => isChecked ? prev.filter(item => item !== dept.id) : [...prev, dept.id])}
                               className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
                             />
@@ -860,8 +864,8 @@ export const MasterListView: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">ไฟล์ Controlled Copy ฉบับจริง เลือกพร้อมกันได้หลายไฟล์ <span className="text-rose-600">*</span></label>
-                    <input type="file" multiple accept="application/pdf,.pdf" onChange={async event => {
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">{existingDistribution ? 'ไฟล์ PDF สำหรับรอบนี้ (ไม่แนบ = ใช้ไฟล์เดิม)' : 'ไฟล์ Controlled Copy ฉบับจริง เลือกพร้อมกันได้หลายไฟล์ *'}</label>
+                    <input type="file" disabled={isDistributing} multiple accept="application/pdf,.pdf" onChange={async event => {
                       const files: File[] = Array.from(event.currentTarget.files || []);
                       setDistError('');
                       if (!files.length) { setDistFiles([]); return; }
@@ -900,7 +904,7 @@ export const MasterListView: React.FC = () => {
                   <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-800 space-y-0.5">
                     <strong>⏳ กฎการแจกจ่าย:</strong>
                     <p>
-                      เมื่อกดแจกจ่าย ระบบจะออกรหัสใบแจกจ่ายอัตโนมัติ (DC-DIS) และตั้งเวลานับถอยหลัง 3 วันสำหรับแต่ละหน่วยงานในการดาวน์โหลด Controlled Copy (Copy 1/1)
+                      {existingDistribution ? 'เปิดสิทธิ์ 3 วันเฉพาะแผนกที่เลือกในชุดเดิม ไม่สร้างใบแจกจ่ายใหม่ และเก็บลายเซ็นรับครั้งแรกไว้ แผนกที่ไม่เลือกยังคงสิทธิ์เดิม' : 'แจกจ่ายให้แผนกที่เลือกและเปิดสิทธิ์ดาวน์โหลด 3 วัน'}
                     </p>
                   </div>
                   {isDistributing && (
@@ -935,12 +939,12 @@ export const MasterListView: React.FC = () => {
                 <button
                   type="button"
                   id="btn-confirm-quick-distribute"
-                  disabled={targetDepts.length === 0 || distFiles.length === 0 || isDistributing}
+                  disabled={targetDepts.length === 0 || (!existingDistribution && distFiles.length === 0) || isDistributing}
                   onClick={handleConfirmDistribution}
                   className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 rounded-lg shadow-sm flex items-center gap-1.5 cursor-pointer transition-all"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  {isDistributing ? `${distProgressPercent}% — ${distProgressText || 'กำลังดำเนินการ'}` : `ยืนยันการแจกจ่าย (${targetDepts.length} แผนก)`}
+                  {isDistributing ? `${distProgressPercent}% — ${distProgressText || 'กำลังดำเนินการ'}` : `${existingDistribution ? 'เปิดรับเพิ่มในชุดเดิม' : 'ยืนยันการแจกจ่าย'} (${targetDepts.length} แผนก)`}
                 </button>
               </div>
             )}
@@ -969,3 +973,4 @@ export const MasterListView: React.FC = () => {
     </div>
   );
 };
+

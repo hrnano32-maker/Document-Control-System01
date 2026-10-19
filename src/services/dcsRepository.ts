@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   getDocFromServer,
   writeBatch,
   onSnapshot,
@@ -18,6 +19,8 @@ import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage
 import { auth, db, firebaseFunctions, storage } from '../lib/firebase';
 import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, DcsAnnouncement, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
 
+import { DEPARTMENTS } from '../types';
+import { findExistingDistribution, canonicalDistributionDepartment } from '../utils/distributionReopen';
 import { getMasterRevisionHistory, revisionKey } from '../utils/masterRevisions';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -547,14 +550,45 @@ export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord
 
 export const createDistributionRecord = async (user: CurrentUserSession, master: MasterDocument, selectedDepartments: Department[], instructions: string, files?: { name: string; size: string; type: string; dataUrl?: string }[], onProgress?: (message: string, percent: number) => void) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่แจกจ่ายเอกสารได้');
-  const darAllocation = master.distributionDepartments || [];
-  if (!darAllocation.length) throw new Error('DAR ต้นทางไม่ได้ระบุหน่วยงานแจกจ่าย');
+  const darAllocation = (master.distributionDepartments || []).map(item => ({ ...item, dept: canonicalDistributionDepartment(item.dept) }));
   const requiredDepartments = darAllocation.map(item => item.dept);
-  const finalDepartments = Array.from(new Set([...requiredDepartments, ...(selectedDepartments || [])]));
+  const finalDepartments = Array.from(new Set((selectedDepartments || []).map(canonicalDistributionDepartment)));
+  if (!finalDepartments.length || finalDepartments.some(dept => !DEPARTMENTS.some(item => item.id === dept && item.id !== 'DCC'))) throw new Error('กรุณาเลือกแผนกที่ต้องการแจกจ่าย');
   const allocation = finalDepartments.map(dept => darAllocation.find(item => item.dept === dept) || ({ dept, copies: 1, position: `ผู้รับผิดชอบเอกสารประจำ ${dept} (DCC เพิ่ม)` }));
-  if (!files?.length || files.some(file => !file.dataUrl)) throw new Error('ต้องอัปโหลดไฟล์ Controlled Copy ฉบับจริงอย่างน้อย 1 ไฟล์ก่อนแจกจ่าย');
-  if (files.length > 20) throw new Error('อัปโหลดได้สูงสุด 20 ไฟล์ต่อชุดแจกจ่าย');
-  if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) throw new Error('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น');
+  if (files?.some(file => !file.dataUrl)) throw new Error('ข้อมูล PDF ไม่ครบ กรุณาเลือกไฟล์ใหม่');
+  if ((files?.length || 0) > 20) throw new Error('อัปโหลดได้สูงสุด 20 ไฟล์ต่อชุดแจกจ่าย');
+  if (files?.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) throw new Error('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น');
+  onProgress?.('กำลังตรวจสอบชุดแจกจ่ายเดิมตาม DAR', 2);
+  const previous = await getDocs(query(collection(db, 'dcs_distributions'), where('darReferenceId', '==', master.darReferenceId)));
+  const existing = findExistingDistribution(master, previous.docs.map(row => ({ ...row.data(), id: row.id }) as DistributionRecord));
+  if (existing) {
+    const operationId = crypto.randomUUID();
+    const sourceFiles: { path: string; name: string }[] = [];
+    const distRef = doc(db, 'dcs_distributions', existing.id);
+    let stopProgress: (() => void) | undefined;
+    try {
+      for (let index = 0; index < (files?.length || 0); index += 1) {
+        const file = files![index];
+        const path = `dcs/distributions/${existing.id}/source/${operationId}-${String(index + 1).padStart(2, '0')}-${safeName(file.name)}`;
+        onProgress?.(`กำลังอัปโหลด PDF ${index + 1}/${files!.length}`, 5 + Math.round(((index + 1) / files!.length) * 25));
+        await uploadBytes(ref(storage, path), await dataUrlBlob(file.dataUrl!), { contentType: 'application/pdf' });
+        sourceFiles.push({ path, name: file.name });
+      }
+      onProgress?.('กำลังเปิดสิทธิ์รับเอกสารในชุดเดิม', 35);
+      stopProgress = onSnapshot(distRef, snapshot => {
+        const progress = (snapshot.data() as DistributionRecord | undefined)?.reissueProgress;
+        if (progress?.operationId === operationId && progress.percent > 0) onProgress?.(progress.detail, 35 + Math.round(progress.percent * 0.65));
+      });
+      await httpsCallable(firebaseFunctions, 'reissueControlledCopies', { timeout: 540000 })({ distributionId: existing.id, operationId, departments: finalDepartments, sourceFiles, instructions });
+      onProgress?.('เปิดสิทธิ์รับใหม่ในชุดเดิมสำเร็จ ลายเซ็นครั้งแรกยังคงอยู่', 100);
+      await writeAudit(user, 'DISTRIBUTION_INITIATED', master.docNo, master.currentRevision, `เปิดสิทธิ์รับเพิ่มในชุดเดิม ${existing.distributionNo}`, { targets: finalDepartments, distributionId: existing.id }).catch(error => console.warn('REISSUE_AUDIT_FAILED', error));
+      return existing.distributionNo;
+    } finally {
+      stopProgress?.();
+      // Keep staged PDFs if the callable timed out: the server may still be processing them.
+    }
+  }
+  if (!files?.length) throw new Error('ต้องแนบ PDF อย่างน้อย 1 ไฟล์สำหรับการแจกจ่ายครั้งแรก');
   onProgress?.('กำลังออกเลขที่ใบแจกจ่าย', 2);
   const seq = await nextNumber('distribution');
   const year = new Date().getFullYear();
@@ -612,7 +646,7 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
 
 export const manageDistributionRecord = async (user: CurrentUserSession, distribution: DistributionRecord, action: 'CANCEL' | 'DELETE', reason = '') => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่จัดการรายการแจกจ่ายได้');
-  if (action === 'DELETE' && Object.keys(distribution.receipts || {}).length > 0) {
+  if (action === 'DELETE' && Object.keys({ ...(distribution.firstReceipts || {}), ...(distribution.receipts || {}) }).length > 0) {
     throw new Error('ลบไม่ได้ เนื่องจากมีหน่วยงานรับเอกสารแล้ว กรุณาใช้ปุ่มยกเลิก');
   }
   await httpsCallable<{ distributionId: string; action: 'CANCEL' | 'DELETE'; reason: string }, unknown>(
@@ -838,3 +872,4 @@ export const reviseMasterDocument = async (user: CurrentUserSession, master: Mas
     await httpsCallable(firebaseFunctions, 'cancelPreviousRevision')({ docId: master.id, previousPath: master.currentFileStoragePath, previousRevision: master.currentRevision, newRevision: newRev });
   }
 };
+
