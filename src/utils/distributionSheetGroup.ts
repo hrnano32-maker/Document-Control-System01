@@ -35,28 +35,37 @@ const departmentKey = (dept: string) => ['QA', 'QC', 'QA/QC'].includes(dept.trim
 export function buildCombinedDistributionRows(records: DistributionRecord[]): CombinedSheetRow[] {
   const rows = new Map<string, CombinedSheetRow>();
   records.forEach((record, index) => {
+    if (record.status === 'CANCELLED') return;
     const departments = [...new Set([...(record.targetDepartments || []), ...(record.targets || []).map(target => target.dept)])];
     departments.forEach(dept => {
       if (record.departmentCancellations?.[dept]) return;
       const target = record.targets?.find(item => item.dept === dept);
       const storedReceipt = record.receipts?.[dept];
-      // A stored image alone is not evidence that this DAR was received.
-      const receipt = storedReceipt?.downloadedAt ? storedReceipt : undefined;
+      // Only completed, signed receipts belong on this acknowledgement form.
+      if (!storedReceipt?.downloadedAt?.trim() || !storedReceipt.signatureStoragePath?.trim()) return;
+      const receipt = storedReceipt;
       const saved = record.distributionSheet?.rows.find(row => row.dept === dept);
       const department = departmentKey(dept);
       const copies = receipt?.receivedCopies || record.allocationByDepartment?.[dept] || target?.allocatedCopies || 1;
       const returnDate = saved?.returnDate || '';
       const returnSignerName = saved?.returnSignerName || '';
       const returnSignatureStoragePath = saved?.returnSignatureStoragePath || '';
-      // Only identical evidence may share a row. Different signatures/dates stay
-      // separate with their covered document numbers; no receipt is invented.
+      // One acknowledgement per department for this DAR. Keep the most recent
+      // signature/date/copy-count together; older evidence remains in storage.
       const key = JSON.stringify([department, copies, receipt?.downloadedAt || '', receipt?.signatureStoragePath || '', receipt?.downloaderUid || '', receipt?.downloaderName || '', returnDate, returnSignerName, returnSignatureStoragePath]);
-      const existing = rows.get(key);
-      if (existing) {
+      const existing = rows.get(department);
+      if (existing?.key === key) {
         if (!existing.recordIds.includes(record.id)) existing.recordIds.push(record.id);
         if (!existing.documentIndexes.includes(index + 1)) existing.documentIndexes.push(index + 1);
       } else {
-        rows.set(key, { key, department, copies, receipt, recordIds: [record.id], documentIndexes: [index + 1], returnDate, returnSignerName, returnSignatureStoragePath });
+        const candidateTime = Date.parse(receipt.downloadedAt);
+        const previousTime = Date.parse(existing?.receipt?.downloadedAt || '');
+        const dateOrder = Number.isFinite(candidateTime) && Number.isFinite(previousTime)
+          ? candidateTime - previousTime
+          : receipt.downloadedAt.localeCompare(existing?.receipt?.downloadedAt || '');
+        if (!existing || dateOrder > 0 || (dateOrder === 0 && key.localeCompare(existing.key) > 0)) {
+          rows.set(department, { key, department, copies, receipt, recordIds: [record.id], documentIndexes: [index + 1], returnDate, returnSignerName, returnSignatureStoragePath });
+        }
       }
     });
   });
