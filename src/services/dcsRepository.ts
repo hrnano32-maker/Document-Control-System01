@@ -127,7 +127,15 @@ const normalizeDistributionQaQc = (distribution: DistributionRecord): Distributi
 
 export const subscribeDistributions = (user: CurrentUserSession, callback: (rows: DistributionRecord[]) => void) => {
   const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('createdAt', 'desc')] : [where('targetDepartments', 'array-contains', user.currentDept), orderBy('createdAt', 'desc')];
-  return onSnapshot(query(collection(db, 'dcs_distributions'), ...constraints), snap => callback(snap.docs.map(item => normalizeDistributionQaQc(item.data() as DistributionRecord))));
+  return onSnapshot(query(collection(db, 'dcs_distributions'), ...constraints), snap => {
+    const rows = snap.docs.map(item => normalizeDistributionQaQc(item.data() as DistributionRecord));
+    // DCC retains cancelled distributions for audit; recipients only see active allocations.
+    callback(user.userRole === 'DCC_ADMIN' ? rows : rows.filter(dist =>
+      dist.status !== 'CANCELLED' &&
+      !dist.departmentCancellations?.[user.currentDept] &&
+      dist.targets.some(target => target.dept === user.currentDept)
+    ));
+  });
 };
 export const subscribeCopyRequests = (user: CurrentUserSession, callback: (rows: CopyReRequest[]) => void) => {
   const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('createdAt', 'desc')] : [where('dept', '==', user.currentDept), orderBy('createdAt', 'desc')];
