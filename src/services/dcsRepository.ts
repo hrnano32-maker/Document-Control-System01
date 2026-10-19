@@ -780,12 +780,19 @@ export const decideCopyRequest = async (user: CurrentUserSession, request: CopyR
       }));
       await httpsCallable(firebaseFunctions, 'reissueControlledCopies', { timeout: 540000 })({ distributionId: request.distributionId, requestId: request.id });
     } catch (error) {
-      await updateDoc(requestRef, clean({
-        status: 'PROCESSING',
-        reissuedDistributionId: request.distributionId,
-        processingError: error instanceof Error ? error.message : String(error),
-        updatedAt: new Date().toISOString(),
-      })).catch(() => undefined);
+      // A timeout may arrive after the server committed APPROVED. Never roll that back.
+      // Confirmed rejections can be retried; an uncertain timeout stays in progress.
+      const retryableRejection = ['functions/aborted', 'functions/failed-precondition', 'functions/invalid-argument', 'functions/not-found'].includes(String((error as { code?: string })?.code));
+      await runTransaction(db, async transaction => {
+        const current = await transaction.get(requestRef);
+        if (!current.exists() || current.data().status !== 'PROCESSING') return;
+        transaction.update(requestRef, clean({
+          status: retryableRejection ? 'PENDING' : 'PROCESSING',
+          reissuedDistributionId: request.distributionId,
+          processingError: error instanceof Error ? error.message : String(error),
+          updatedAt: new Date().toISOString(),
+        }));
+      }).catch(() => undefined);
       throw error;
     }
   }

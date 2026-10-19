@@ -107,3 +107,10 @@ test('legacy QA/QC aliases preserve the earliest signed evidence and reopen one 
   assert.equal(patch.firstReceipts['QA/QC'].downloadedAt, early.downloadedAt);
   assert.deepEqual(patch.receipts, {});
 });
+
+test('a confirmed PDF failure returns a copy request to pending for retry without losing its first receipt', async () => {
+  const f = fixture({ request: true, failStamp: true });
+  await assert.rejects(f.run({ requestId: 'REQ-1' }), /PDF failed/);
+  assert.equal(f.state.get('dcs_copy_requests/REQ-1').status, 'PENDING');
+  assert.equal(f.distribution.receipts.HR.signatureStoragePath, 'signatures/HR.png');
+});

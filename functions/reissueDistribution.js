@@ -168,8 +168,11 @@ function createReissueHandler({ getFirestore, getStorage, requireDcc, HttpsError
     } catch (error) {
       if (!committed) {
         await db.runTransaction(async tx => {
-          const snapshot = await tx.get(distRef);
-          if (snapshot.data()?.reissueLock?.id === operationId) tx.update(distRef, { reissueLock: null, reissueProgress: { operationId, percent: 0, detail: 'เปิดสิทธิ์ไม่สำเร็จ กรุณาลองใหม่' } });
+          const [snapshot, currentRequest] = await Promise.all([tx.get(distRef), requestRef ? tx.get(requestRef) : null]);
+          if (snapshot.data()?.reissueLock?.id === operationId) {
+            tx.update(distRef, { reissueLock: null, reissueProgress: { operationId, percent: 0, detail: 'เปิดสิทธิ์ไม่สำเร็จ กรุณาลองใหม่' } });
+            if (currentRequest?.data()?.status === 'PROCESSING') tx.update(requestRef, { status: 'PENDING', processingError: String(error), processingDetail: 'เปิดสิทธิ์ไม่สำเร็จ สามารถลองอนุมัติใหม่ได้', updatedAt: new Date().toISOString() });
+          }
           tx.set(operationRef, { status: 'FAILED', distributionId, error: String(error), failedAt: new Date().toISOString() });
         });
         await Promise.all(generatedPaths.map(path => getStorage().bucket().file(path).delete({ ignoreNotFound: true }).catch(() => undefined)));
