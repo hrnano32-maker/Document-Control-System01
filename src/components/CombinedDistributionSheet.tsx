@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { DistributionRecord, DarRecord } from '../types';
 import { getStorageFileUrl } from '../services/dcsRepository';
 import { normalizeSignatureDataUrl } from '../utils/signatureImage';
-import { buildCombinedDistributionRows, isCombinedSheetComplete } from '../utils/distributionSheetGroup';
+import { buildCombinedDistributionRows } from '../utils/distributionSheetGroup';
 import { downloadPrintableHtml, openPrintInNewTab, printElementById } from '../utils/printHelper';
 import { printSheetLayout } from '../utils/printSheetLayout';
 import { COMPANY } from '../config/company';
@@ -23,8 +23,7 @@ const dateText = (date?: string) => {
 
 export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit }: Props) {
   const rows = useMemo(() => buildCombinedDistributionRows(records), [records]);
-  // Keep the original seven-column form: one department row, with its actual
-  // receipt/signature pairs stacked in the existing cells when dates differ.
+  // Preserve the original form with only the latest signed receipt per department.
   const departments = useMemo(() => {
     const grouped = new Map<string, typeof rows>();
     rows.forEach(row => grouped.set(row.department, [...(grouped.get(row.department) || []), row]));
@@ -35,7 +34,6 @@ export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit
   const docName = primary?.distributionSheet?.docNameTh || dar?.docNameTh || primary?.docNameTh || '';
   const receiveRev = primary?.distributionSheet?.receiveRevision || primary?.revision || dar?.proposedRevision || '00';
   const returnRev = primary?.distributionSheet?.returnRevision || (dar?.requestType === 'NEW' ? '-' : dar?.currentRevision) || '-';
-  const complete = isCombinedSheetComplete(records);
   const [signatures, setSignatures] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -64,7 +62,7 @@ export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit
     window.addEventListener('keydown', listener);
     return () => window.removeEventListener('keydown', listener);
   }, [onClose]);
-  const ready = complete && !loading && !error;
+  const ready = rows.length > 0 && !loading && !error && paths.every(path => Boolean(signatures[path]));
   const title = `FM-QS-003-00_${darId}_Distribution`;
   const print = () => { if (ready) printElementById('distribution-recall-sheet', title); };
   const open = () => { if (ready && !openPrintInNewTab('distribution-recall-sheet', title)) print(); };
@@ -83,8 +81,8 @@ export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit
           </div>
         </div>
         <div className="print:hidden border-b bg-indigo-50 px-4 py-3 text-sm text-indigo-950">
-          แสดงหลักฐานการรับเอกสารของหน่วยงานที่ได้รับแจกจ่ายจาก DAR นี้
-          {!complete && <p className="mt-1 font-bold text-amber-800">ยังรับเอกสารไม่ครบทุกหน่วยงานในชุด DAR นี้ จึงยังพิมพ์ฉบับสมบูรณ์ไม่ได้</p>}
+          แสดงเฉพาะหน่วยงานที่เซ็นรับแล้ว {departments.length} หน่วยงาน · ใช้หลักฐานการรับล่าสุดของแต่ละหน่วยงานใน DAR นี้
+          {rows.length === 0 && <p className="mt-1 font-bold text-amber-800">ยังไม่มีรายการเซ็นรับเอกสารสำหรับ DAR นี้</p>}
           {loading && <p role="status" className="mt-1">กำลังเตรียมลายเซ็นสำหรับพิมพ์…</p>}
           {error && <p role="alert" className="mt-1 text-red-700">{error} <button onClick={() => setAttempt(value => value + 1)} className="font-bold underline">ลองใหม่</button></p>}
           {onEdit && <div className="mt-2 flex flex-wrap gap-2">{records.map(record => <button key={record.id} onClick={() => onEdit(record)} className="rounded border border-indigo-300 bg-white px-2 py-1">แก้ไขข้อมูล {record.docNo}</button>)}</div>}
@@ -140,7 +138,7 @@ export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit
                   <td className="border-r border-black p-1 text-center font-medium text-[12px] align-middle">{index + 1}</td>
                   <td className="border-r border-black p-1 text-left align-middle"><span className="px-1 text-[12px] font-medium text-black">{department}</span></td>
                   <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} className="receipt-evidence flex min-h-[28px] items-center justify-center text-[12px] font-mono font-bold">{row.copies}</div>)}</td>
-                  <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} data-receipt-signature="true" className="receipt-evidence flex min-h-[28px] items-center justify-center">{signature(row.receipt?.signatureStoragePath) || <span className="text-[11px] text-slate-400">{row.receipt?.downloadedAt ? 'ไม่พบลายเซ็น' : 'รอผู้รับลงนาม'}</span>}</div>)}</td>
+                  <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} data-receipt-signature="true" className="receipt-evidence flex min-h-[28px] items-center justify-center">{signature(row.receipt?.signatureStoragePath) || <span className="text-[11px] text-slate-400">{loading ? 'กำลังโหลดลายเซ็น…' : 'โหลดลายเซ็นไม่สำเร็จ'}</span>}</div>)}</td>
                   <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} data-receipt-date="true" className="receipt-evidence flex min-h-[28px] items-center justify-center text-[11px] font-mono">{dateText(row.receipt?.downloadedAt)}</div>)}</td>
                   <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} className="receipt-evidence flex min-h-[28px] items-center justify-center">{signature(row.returnSignatureStoragePath)}</div>)}</td>
                   <td className="p-1 text-center align-middle">{evidence.map(row => <div key={row.key} className="receipt-evidence flex min-h-[28px] items-center justify-center text-[11px] font-mono">{dateText(row.returnDate)}</div>)}</td>
@@ -148,7 +146,7 @@ export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit
               </table>
             </div>
             <div className="flex justify-between items-center text-[11px] font-mono text-black font-semibold pt-1">
-              <span className="text-slate-500 font-normal">* ใบแจกจ่ายนี้เริ่มต้นสร้างตามรายการหน่วยงานที่ระบุในใบ DAR ({darId})</span>
+              <span className="text-slate-500 font-normal">* แสดงเฉพาะหน่วยงานที่เซ็นรับแล้ว ตามใบ DAR ({darId})</span>
               <span>{COMPANY.distributionFormCode}</span>
             </div>
           </div>
