@@ -340,6 +340,7 @@ export const DistributionManager: React.FC = () => {
                     {currentUser.currentDept === 'DCC' && <button
                       type="button"
                       onClick={() => openDocumentViewer({
+                        distributionId: dist.id,
                         title: dist.docNameTh,
                         docNo: dist.docNo,
                         docNameTh: dist.docNameTh,

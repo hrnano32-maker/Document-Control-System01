@@ -456,6 +456,7 @@ export interface DcsAnnouncement {
 }
 
 export interface DocumentViewPayload {
+  distributionId?: string;
   title: string;
   docNo?: string;
   docNameTh?: string;

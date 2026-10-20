@@ -710,25 +710,37 @@ exports.manageDistributionRecord = onCall({ region: REGION, timeoutSeconds: 540,
     return { action, deleted: true, distributionId, deletedCount: relatedDocs.length, requestReset: Boolean(data.reissueOf) };
   }
 
-  if (data.stampStatus === 'PROCESSING') {
-    throw new HttpsError('failed-precondition', 'ระบบกำลังประทับตรา กรุณารอให้เสร็จก่อนดำเนินการ');
-  }
-
   if (!reason) throw new HttpsError('invalid-argument', 'กรุณาระบุเหตุผลการยกเลิก');
-  if (data.status === 'CANCELLED') return { action, cancelled: true, distributionId };
-  await getStorage().bucket().deleteFiles({ prefix: `dcs/distributions/${distributionId}/` });
-  const cancelledAt = new Date().toISOString();
-  await distRef.update({
-    status: 'CANCELLED',
-    cancelledAt,
-    cancelledBy: request.auth.uid,
-    cancellationReason: reason,
-    storageStatus: 'PURGED',
-    fileDeletedAt: cancelledAt,
-    departmentFiles: {},
-    departmentFileLists: {},
-    updatedAt: cancelledAt,
+  // Revoke in Firestore before touching Storage. A failed/slow deletion must
+  // never leave recipients authorised or allow a late receipt to revive the set.
+  const needsCleanup = await db.runTransaction(async tx => {
+    const fresh = await tx.get(distRef);
+    if (!fresh.exists) throw new HttpsError('not-found', 'ไม่พบรายการแจกจ่าย');
+    const current = fresh.data();
+    if (current.reissueLock?.expiresAt > Date.now()) throw new HttpsError('aborted', 'กำลังเปิดสิทธิ์รับเอกสาร กรุณารอแล้วลองใหม่');
+    if (current.status === 'CANCELLED') {
+      if (current.storageStatus === 'PURGED') return false;
+      tx.update(distRef, { storageStatus: 'PURGE_PENDING', updatedAt: new Date().toISOString() });
+      return true;
+    }
+    if (current.stampStatus === 'PROCESSING') throw new HttpsError('failed-precondition', 'ระบบกำลังประทับตรา กรุณารอให้เสร็จก่อนดำเนินการ');
+    const cancelledAt = new Date().toISOString();
+    tx.update(distRef, {
+      status: 'CANCELLED', cancelledAt, cancelledBy: request.auth.uid,
+      cancellationReason: reason, storageStatus: 'PURGE_PENDING', updatedAt: cancelledAt,
+    });
+    return true;
   });
+  if (!needsCleanup) return { action, cancelled: true, distributionId };
+  try {
+    await getStorage().bucket().deleteFiles({ prefix: `dcs/distributions/${distributionId}/` });
+    const now = new Date().toISOString();
+    await distRef.update({ storageStatus: 'PURGED', fileDeletedAt: now, departmentFiles: {}, departmentFileLists: {}, purgeError: null, updatedAt: now });
+  } catch (error) {
+    console.error('CANCELLED_DISTRIBUTION_PURGE_FAILED', distributionId, error);
+    // The scheduled purge retries PURGE_PENDING. The cancellation itself is done.
+    return { action, cancelled: true, distributionId, cleanupPending: true };
+  }
   return { action, cancelled: true, distributionId };
 });
 
@@ -850,7 +862,7 @@ async function purgeDistribution(snapshot, reason) {
       if (data?.reissueLock?.id !== lockId) return;
       tx.update(snapshot.ref, {
         storageStatus: 'PURGED', reissueLock: null,
-        ...(reason === 'DOWNLOAD_WINDOW_EXPIRED' && data.status !== 'COMPLETED' ? { status: 'EXPIRED' } : {}),
+        ...(reason === 'DOWNLOAD_WINDOW_EXPIRED' && !['COMPLETED', 'CANCELLED'].includes(data.status) ? { status: 'EXPIRED' } : {}),
         fileDeletedAt: new Date().toISOString(), purgeReason: reason, updatedAt: new Date().toISOString(),
       });
     });
@@ -918,6 +930,7 @@ exports.downloadControlledCopyFile = onRequest({
     const department = profile.department;
     const receipt = distribution.receipts?.[department];
     if (profile.role !== 'DCC_ADMIN') {
+      if (distribution.departmentCancellations?.[department]) return response.status(410).json({ error: 'FILE_NOT_AVAILABLE' });
       if (!distribution.targetDepartments?.includes(department)) return response.status(403).json({ error: 'NOT_A_RECIPIENT' });
       // Older receipts were created before downloaderUid was introduced. They
       // remain downloadable only by the active account of that same department.

@@ -7,6 +7,10 @@ service firebase.storage {
     function activeUser() { return signedIn() && profile().active == true; }
     function isDcc() { return activeUser() && profile().role == 'DCC_ADMIN'; }
     function sameDepartment(department) { return activeUser() && profile().department == department; }
+    function distributionNotCancelled(distributionId) {
+      let data = firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data;
+      return data.status != 'CANCELLED' && !(profile().department in data.get('departmentCancellations', {}));
+    }
 
     match /dcs/documents/{documentId}/{fileName} {
       allow read: if activeUser();
@@ -63,6 +67,7 @@ service firebase.storage {
 
     match /dcs/distributions/{distributionId}/controlled/{fileName} {
       allow read: if activeUser() && (isDcc() || (
+        distributionNotCancelled(distributionId) &&
         firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.departmentFileKeys[profile().department] + '.pdf' == fileName
         &&
         firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.targetDepartments.hasAny([profile().department])
@@ -76,6 +81,7 @@ service firebase.storage {
 
     match /dcs/distributions/{distributionId}/controlled/{departmentKey}/{fileName} {
       allow read: if activeUser() && (isDcc() || (
+        distributionNotCancelled(distributionId) &&
         firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.departmentFileKeys[profile().department] == departmentKey
         && firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.targetDepartments.hasAny([profile().department])
         && request.time <= firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.expirationAt

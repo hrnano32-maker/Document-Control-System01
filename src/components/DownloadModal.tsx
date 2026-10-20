@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import type { Department, DistributionRecord } from '../types';
 import { useDcs } from '../context/DcsContext';
 import {
   Download,
@@ -17,8 +18,12 @@ import { downloadControlledCopyFromServer, getStorageFileUrl } from '../services
 import { normalizeSignatureDataUrl } from '../utils/signatureImage';
 
 export const DownloadModal: React.FC = () => {
+  const { selectedDistributionForDownload: selection, currentUser } = useDcs();
+  return selection ? <ActiveDownloadModal key={`${currentUser.uid}:${selection.distribution.id}:${selection.dept}`} selection={selection} /> : null;
+};
+
+const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRecord; dept: Department } }> = ({ selection: selectedDistributionForDownload }) => {
   const {
-    selectedDistributionForDownload,
     setSelectedDistributionForDownload,
     setSelectedDistributionForReRequest,
     downloadControlledCopy,
@@ -26,9 +31,14 @@ export const DownloadModal: React.FC = () => {
     currentUser,
   } = useDcs();
 
-  if (!selectedDistributionForDownload) return null;
-
   const { distribution, dept } = selectedDistributionForDownload;
+  const downloadAbort = useRef(new AbortController());
+  useEffect(() => {
+    const controller = new AbortController();
+    downloadAbort.current = controller;
+    // Revocation closes this component. Never save a response that arrives later.
+    return () => controller.abort();
+  }, []);
 
   const target = distribution.targets.find(t => t.dept === dept);
 
@@ -126,6 +136,7 @@ export const DownloadModal: React.FC = () => {
   }, [currentUser.uid, dept, distribution, isExpired, target?.isDownloaded]);
 
   const handleConfirmDownload = async () => {
+    const signal = downloadAbort.current.signal;
     setErrorMsg('');
 
     if (isExpired) {
@@ -165,6 +176,7 @@ export const DownloadModal: React.FC = () => {
       }
     );
 
+    if (signal.aborted) return;
     if (result.success) {
       confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
       const urls = result.downloadUrls?.length ? result.downloadUrls : (result.downloadUrl ? [result.downloadUrl] : []);
@@ -233,11 +245,13 @@ export const DownloadModal: React.FC = () => {
   };
 
   const downloadReadyFile = async (file: { url: string; name: string }, index: number) => {
+    const signal = downloadAbort.current.signal;
     setErrorMsg('');
     setDownloadingIndex(index);
     try {
       if (!getReadyStoragePaths()[index]) throw new Error('ไม่พบตำแหน่งไฟล์');
-      const blob = await downloadControlledCopyFromServer(distribution.id, index);
+      const blob = await downloadControlledCopyFromServer(distribution.id, index, signal);
+      if (signal.aborted) return;
       saveBlobToDevice(blob, file.name);
     } catch (caught) {
       setErrorMsg(caught instanceof Error ? caught.message : `ดาวน์โหลดไฟล์ที่ ${index + 1} ไม่สำเร็จ กรุณากดใหม่อีกครั้ง`);
@@ -247,12 +261,14 @@ export const DownloadModal: React.FC = () => {
   };
 
   const downloadAllReadyFiles = async () => {
+    const signal = downloadAbort.current.signal;
     if (!readyDownloads.length || isDownloadingAll) return;
     setErrorMsg('');
     setIsDownloadingAll(true);
     try {
       setSubmitStatus(`กำลังรวม ${readyDownloads.length} ไฟล์เป็น ZIP`);
-      const blob = await downloadControlledCopyFromServer(distribution.id, 'all');
+      const blob = await downloadControlledCopyFromServer(distribution.id, 'all', signal);
+      if (signal.aborted) return;
       saveBlobToDevice(blob, `CONTROLLED_${distribution.docNo}_Rev${distribution.revision}_${dept.replace(/[^a-zA-Z0-9._-]/g, '_')}.zip`);
     } catch (caught) {
       setErrorMsg(caught instanceof Error ? caught.message : 'ดาวน์โหลดไฟล์ทั้งหมดไม่สำเร็จ กรุณาลองใหม่ หรือกดดาวน์โหลดทีละไฟล์');

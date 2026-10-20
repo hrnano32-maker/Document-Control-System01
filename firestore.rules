@@ -50,6 +50,8 @@ service cloud.firestore {
     function recipientReceiptUpdate() {
       let dept = profile().department;
       return activeUser()
+        && resource.data.status != 'CANCELLED'
+        && !(dept in resource.data.get('departmentCancellations', {}))
         && resource.data.targetDepartments.hasAny([dept])
         && request.time <= resource.data.expirationAt
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receipts', 'status', 'allDownloadedAt', 'storageStatus', 'updatedAt'])
@@ -135,6 +137,8 @@ service cloud.firestore {
       allow create: if activeUser()
         && sameDepartment(request.resource.data.dept)
         && request.resource.data.status == 'PENDING'
+        && get(/databases/$(database)/documents/dcs_distributions/$(request.resource.data.distributionId)).data.status != 'CANCELLED'
+        && !(profile().department in get(/databases/$(database)/documents/dcs_distributions/$(request.resource.data.distributionId)).data.get('departmentCancellations', {}))
         && get(/databases/$(database)/documents/dcs_distributions/$(request.resource.data.distributionId)).data.targetDepartments.hasAny([profile().department]);
       allow update: if isDcc();
       allow delete: if false;

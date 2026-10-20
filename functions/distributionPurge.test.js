@@ -25,3 +25,8 @@ test('purging skips an in-progress reopen, but still removes actually expired fi
   const expired = await runPurge({ expirationEpoch: 1, status: 'IN_PROGRESS', storageStatus: 'AVAILABLE' });
   assert.equal(expired.deletes, 1); assert.equal(expired.data.status, 'EXPIRED'); assert.equal(expired.data.reissueLock, null);
 });
+
+test('expired-file cleanup cannot change a cancelled set back to EXPIRED', async () => {
+  const result = await runPurge({ expirationEpoch: 1, status: 'CANCELLED', storageStatus: 'AVAILABLE' });
+  assert.equal(result.deletes, 1); assert.equal(result.data.status, 'CANCELLED');
+});

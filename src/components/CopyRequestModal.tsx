@@ -35,7 +35,7 @@ export const CopyRequestModal: React.FC = () => {
     setReasonDetails(selectedDistributionForReRequest.reasonDetails || '');
     setIsSuccess(false);
     setErrorMsg('');
-  }, [selectedDistributionForReRequest, currentUser.userName, currentUser.userEmpId]);
+  }, [selectedDistributionForReRequest?.distribution.id, selectedDistributionForReRequest?.dept, selectedDistributionForReRequest?.reasonType, selectedDistributionForReRequest?.reasonDetails, currentUser.userName, currentUser.userEmpId]);
 
   // Close on Escape key press
   useEffect(() => {

@@ -20,6 +20,7 @@ import { auth, db, firebaseFunctions, storage } from '../lib/firebase';
 import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, DcsAnnouncement, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
 
 import { DEPARTMENTS } from '../types';
+import { hasDistributionAllocation } from '../utils/distributionAccess';
 import { findExistingDistribution, canonicalDistributionDepartment } from '../utils/distributionReopen';
 import { getMasterRevisionHistory, revisionKey } from '../utils/masterRevisions';
 
@@ -130,11 +131,7 @@ export const subscribeDistributions = (user: CurrentUserSession, callback: (rows
   return onSnapshot(query(collection(db, 'dcs_distributions'), ...constraints), snap => {
     const rows = snap.docs.map(item => normalizeDistributionQaQc(item.data() as DistributionRecord));
     // DCC retains cancelled distributions for audit; recipients only see active allocations.
-    callback(user.userRole === 'DCC_ADMIN' ? rows : rows.filter(dist =>
-      dist.status !== 'CANCELLED' &&
-      !dist.departmentCancellations?.[user.currentDept] &&
-      dist.targets.some(target => target.dept === user.currentDept)
-    ));
+    callback(user.userRole === 'DCC_ADMIN' ? rows : rows.filter(dist => hasDistributionAllocation(dist, user.currentDept)));
   });
 };
 export const subscribeCopyRequests = (user: CurrentUserSession, callback: (rows: CopyReRequest[]) => void) => {
@@ -693,7 +690,7 @@ export const acknowledgeDownload = async (
   onProgress?: (message: string, percent: number) => void,
 ) => {
   if (user.currentDept !== dept) throw new Error('บัญชีนี้ไม่ตรงกับหน่วยงานผู้รับเอกสาร');
-  if (distribution.status === 'CANCELLED') throw new Error('รายการแจกจ่ายนี้ถูกยกเลิกแล้ว กรุณาติดต่อ DCC');
+  if (!hasDistributionAllocation(distribution, dept)) throw new Error('รายการแจกจ่ายนี้ถูกยกเลิกหรือไม่มีสิทธิ์รับเอกสารแล้ว กรุณาติดต่อ DCC');
   const distRef = doc(db, 'dcs_distributions', distribution.id);
   const departmentPaths = distribution.departmentFileLists?.[dept] || (distribution.departmentFiles?.[dept] ? [distribution.departmentFiles[dept]] : []);
   if (!departmentPaths.length || distribution.stampStatus !== 'COMPLETED') throw new Error('ไฟล์ Controlled Copy ของหน่วยงานยังไม่พร้อม กรุณาติดต่อ DCC');
@@ -732,7 +729,7 @@ export const acknowledgeDownload = async (
       const snapshot = await tx.get(distRef);
       const current = snapshot.data() as DistributionRecord & { receipts?: Record<string, any> };
       if (!current) throw new Error('ไม่พบรายการแจกจ่าย');
-      if (current.status === 'CANCELLED') throw new Error('รายการแจกจ่ายนี้ถูกยกเลิกแล้ว กรุณาติดต่อ DCC');
+      if (!hasDistributionAllocation(current, dept)) throw new Error('รายการแจกจ่ายนี้ถูกยกเลิกหรือไม่มีสิทธิ์รับเอกสารแล้ว กรุณาติดต่อ DCC');
       if (!current.targetDepartments.includes(dept)) throw new Error('หน่วยงานนี้ไม่อยู่ในรายชื่อแจกจ่าย');
       const departmentExpiry = current.departmentExpirationEpoch?.[dept] || new Date(current.expirationDate).getTime();
       if (Date.now() > departmentExpiry) throw new Error('สิทธิ์ดาวน์โหลดหมดอายุ กรุณาขอไฟล์ใหม่จาก DCC');
@@ -749,6 +746,8 @@ export const acknowledgeDownload = async (
 
 export const createCopyRequestRecord = async (user: CurrentUserSession, distribution: DistributionRecord, dept: Department, requestedBy: string, empId: string, reasonType: CopyReRequest['reasonType'], reasonDetails: string) => {
   if (user.currentDept !== dept) throw new Error('ไม่มีสิทธิ์ยื่นคำขอแทนหน่วยงานอื่น');
+  const latest = await getDocFromServer(doc(db, 'dcs_distributions', distribution.id));
+  if (!hasDistributionAllocation(latest.data() as DistributionRecord | undefined, dept)) throw new Error('รายการแจกจ่ายนี้ถูกยกเลิกหรือไม่มีสิทธิ์รับเอกสารแล้ว กรุณาติดต่อ DCC');
   const seq = await nextNumber('request');
   const id = `REQ-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
   const record: CopyReRequest & { createdAt: string } = { id, distributionId: distribution.id, distributionNo: distribution.distributionNo, docNo: distribution.docNo, docNameTh: distribution.docNameTh, revision: distribution.revision, dept, requestedBy, empId, reasonType, reasonDetails, requestDate: new Date().toISOString(), createdAt: new Date().toISOString(), status: 'PENDING' };
@@ -820,6 +819,7 @@ const CONTROLLED_DOWNLOAD_ENDPOINT = 'https://asia-southeast1-dar-online-form.cl
 export const downloadControlledCopyFromServer = async (
   distributionId: string,
   fileIndex: number | 'all',
+  signal?: AbortSignal,
 ): Promise<Blob> => {
   if (!auth.currentUser) throw new Error('กรุณาเข้าสู่ระบบใหม่');
   const token = await auth.currentUser.getIdToken();
@@ -830,6 +830,7 @@ export const downloadControlledCopyFromServer = async (
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
     cache: 'no-store',
+    signal,
   });
   if (!response.ok) {
     const code = await response.json().then(value => value?.error).catch(() => 'DOWNLOAD_FAILED');

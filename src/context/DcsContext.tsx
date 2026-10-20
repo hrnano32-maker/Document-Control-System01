@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { hasDistributionAllocation, refreshDistributionSelection } from '../utils/distributionAccess';
 import type { AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, DcsAnnouncement, Department, DistributionRecord, DocumentViewPayload, MasterDocument } from '../types';
 import { changeDcsPassword, observeDcsAuth, signInDcsUser, signOutDcsUser, updateOwnSignature } from '../services/authService';
 import { acknowledgeDownload, cancelAnnouncementRecord, cancelDarRecord, createAnnouncementRecord, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, manageDistributionRecord, deleteDarDraftRecord, patchDarRecord, recordAnnouncementActivity, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAnnouncements, subscribeAuditForUser, subscribeMasterDocuments, subscribeMasterListRegistry, subscribeCopyRequests, subscribeDars, subscribeDistributions, updateAnnouncementRecord, writeAudit } from '../services/dcsRepository';
@@ -63,10 +64,29 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (session?.mustChangePassword) setIsChangePasswordOpen(true);
   }), []);
   useEffect(() => {
+    setSelectedDistributionForDownload(null);
+    setSelectedDistributionForReRequest(null);
+    setSelectedDistributionForSheet(null);
+    setSelectedDocumentForView(null);
     if (!currentUser.isAuthenticated) { setDocuments([]); setMasterListDocuments([]); setDars([]); setDistributions([]); setReRequests([]); setAuditLogs([]); setAnnouncements([]); return; }
-    const stops = [subscribeMasterDocuments(currentUser, setDocuments), subscribeMasterListRegistry(setMasterListDocuments), subscribeDars(currentUser, setDars), subscribeDistributions(currentUser, rows => setDistributions(rows.map(hydrateDistribution))), subscribeCopyRequests(currentUser, setReRequests), subscribeAuditForUser(currentUser, setAuditLogs), subscribeAnnouncements(currentUser, setAnnouncements)];
+    const receiveDistributions = (rows: DistributionRecord[]) => {
+      const latest = rows.map(hydrateDistribution);
+      setDistributions(latest);
+      setSelectedDistributionForDownload(selected => refreshDistributionSelection(selected, latest));
+      setSelectedDistributionForReRequest(selected => refreshDistributionSelection(selected, latest));
+      setSelectedDistributionForSheet(selected => {
+        if (!selected) return null;
+        const updated = latest.find(row => row.id === selected.id);
+        return updated && (currentUser.userRole === 'DCC_ADMIN' || hasDistributionAllocation(updated, currentUser.currentDept)) ? updated : null;
+      });
+      setSelectedDocumentForView(selected => {
+        if (!selected?.distributionId || currentUser.userRole === 'DCC_ADMIN') return selected;
+        return hasDistributionAllocation(latest.find(row => row.id === selected.distributionId), currentUser.currentDept) ? selected : null;
+      });
+    };
+    const stops = [subscribeMasterDocuments(currentUser, setDocuments), subscribeMasterListRegistry(setMasterListDocuments), subscribeDars(currentUser, setDars), subscribeDistributions(currentUser, receiveDistributions), subscribeCopyRequests(currentUser, setReRequests), subscribeAuditForUser(currentUser, setAuditLogs), subscribeAnnouncements(currentUser, setAnnouncements)];
     return () => stops.forEach(stop => stop());
-  }, [currentUser.isAuthenticated, currentUser.uid]);
+  }, [currentUser.isAuthenticated, currentUser.uid, currentUser.currentDept, currentUser.userRole]);
 
   const needDar = (id: string) => { const row = dars.find(x => x.id === id); if (!row) throw new Error('ไม่พบ DAR'); return row; };
   const needDoc = (id: string) => { const row = documents.find(x => x.id === id); if (!row) throw new Error('ไม่พบเอกสาร'); return row; };
