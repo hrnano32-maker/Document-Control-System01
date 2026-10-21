@@ -39,6 +39,7 @@ import {
   ChevronDown,
   Check,
   Eye,
+  PenLine,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { DarPrintModal } from './DarPrintModal';
@@ -62,6 +63,8 @@ export const DarManagement: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
+  const DAR_PAGE_SIZE = 10;
+  const [darPage, setDarPage] = useState(1);
   const submitInFlight = useRef(false);
   const [isSubmittingDar, setIsSubmittingDar] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -279,6 +282,12 @@ export const DarManagement: React.FC = () => {
     return matchSearch && matchStatus && matchType;
   });
 
+  const totalDarPages = Math.max(1, Math.ceil(filteredDars.length / DAR_PAGE_SIZE));
+  const visiblePage = Math.min(darPage, totalDarPages);
+  const pagedDars = filteredDars.slice((visiblePage - 1) * DAR_PAGE_SIZE, visiblePage * DAR_PAGE_SIZE);
+  useEffect(() => { setDarPage(1); }, [searchQuery, statusFilter, typeFilter, currentUser.uid, currentUser.currentDept]);
+  useEffect(() => { setDarPage(page => Math.min(page, totalDarPages)); }, [totalDarPages]);
+
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitInFlight.current) return;
@@ -408,13 +417,13 @@ export const DarManagement: React.FC = () => {
   };
 
   return (
-    <div id="dcs-dar-view" className="space-y-6 pb-12">
+    <div id="dcs-dar-view" className="space-y-3 pb-4">
       
       {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-[17px] leading-6 font-bold text-slate-900 tracking-tight">
               ใบขอดำเนินการเอกสาร (DAR - Document Action Request)
             </h1>
             <span className="bg-amber-100 text-amber-800 text-xs font-bold px-2.5 py-0.5 rounded-full border border-amber-200">
@@ -437,15 +446,15 @@ export const DarManagement: React.FC = () => {
             setFormError('');
             setIsCreateModalOpen(true);
           }}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+          className="shrink-0 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
         >
           <Plus className="w-4 h-4" />
-          สร้าง DAR ใหม่ (New Request)
+          สร้าง DAR ใหม่
         </button>
       </div>
 
       {/* Filter and Search */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+      <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-xs">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           
           <div className="relative">
@@ -491,126 +500,87 @@ export const DarManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* DAR Compact Horizontal List */}
-      <div className="space-y-2">
-        {filteredDars.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200">
-            <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-            ไม่พบรายการ DAR ตามเงื่อนไข
-          </div>
-        ) : (
-          filteredDars.map(dar => (
-            <div key={dar.id} className="bg-white rounded-xl border border-slate-200 shadow-xs hover:shadow-md transition-shadow overflow-hidden">
-              <div className="grid grid-cols-1 xl:grid-cols-[220px_minmax(360px,1fr)_210px_430px] xl:items-stretch">
-                <div className="p-4 flex xl:items-center">
-                  <span className="font-mono font-bold text-xs text-indigo-700 bg-indigo-50 px-3 py-2 rounded-lg border border-indigo-200 inline-flex items-center gap-2">
-                    <FileText className="w-4 h-4" /> {dar.id}
-                  </span>
-                </div>
-
-                <div className="p-4 min-w-0 xl:border-l border-slate-100">
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-5 gap-y-3">
-                    <div className="col-span-2 lg:col-span-1">
-                      <span className="block text-[10px] text-slate-400 mb-1">รหัสเอกสาร</span>
-                      <div className="font-mono font-bold text-sm text-slate-900">{dar.docNo}</div>
-                      <div className="font-bold text-sm text-slate-800 truncate">{dar.docNameTh}</div>
+      {/* One compact row per DAR, ten records per page. */}
+      <section aria-label="รายการ DAR" className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1120px] table-fixed text-left text-[13px] leading-[18px]">
+            <colgroup>
+              <col style={{ width: '12%' }} /><col style={{ width: '22%' }} />
+              <col style={{ width: '10%' }} /><col style={{ width: '8%' }} />
+              <col style={{ width: '10%' }} /><col style={{ width: '14%' }} />
+              <col style={{ width: '24%' }} />
+            </colgroup>
+            <thead className="border-b border-slate-200 bg-slate-50 text-slate-600">
+              <tr>
+                {['เลขที่ DAR', 'รหัส / ชื่อเอกสาร', 'หน่วยงาน', 'Revision', 'เหตุผล', 'สถานะ / ประเภท', 'จัดการเอกสาร'].map(label => (
+                  <th key={label} scope="col" className="px-3 py-2 font-semibold">{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {pagedDars.length === 0 ? (
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">ไม่พบรายการ DAR ตามเงื่อนไข</td></tr>
+              ) : pagedDars.map(dar => (
+                <tr key={dar.id} data-dar-id={dar.id} className="hover:bg-indigo-50/30">
+                  <td className="px-3 py-1.5 align-middle">
+                    <button type="button" onClick={() => { setSelectedDarForReview(dar); setReviewRemarks(dar.dccRemarks || ''); }} className="font-mono font-semibold text-indigo-700 hover:underline whitespace-nowrap">{dar.id}</button>
+                  </td>
+                  <td className="px-3 py-1.5 align-middle">
+                    <div className="truncate font-mono font-semibold text-slate-900" title={dar.docNo}>{dar.docNo}</div>
+                    <div className="truncate text-slate-700" title={dar.docNameTh}>{dar.docNameTh}</div>
+                  </td>
+                  <td className="px-3 py-1.5 align-middle"><div className="truncate" title={dar.requestDept}>{dar.requestDept}</div></td>
+                  <td className="px-3 py-1.5 align-middle">
+                    <div className="whitespace-nowrap font-mono font-semibold text-indigo-700">{dar.currentRevision} → {dar.proposedRevision}</div>
+                    {(dar.isSkippedRevision || dar.skippedRevisionReason) && (
+                      <span className="flex items-center gap-1 text-[11px] text-amber-800" title={dar.skippedRevisionReason || `ข้าม Revision ${dar.currentRevision} → ${dar.proposedRevision}`}><AlertTriangle className="h-3 w-3 shrink-0" /> ข้าม Rev.</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-1.5 align-middle"><div className="line-clamp-2 text-slate-600" title={dar.reasonForChange}>{dar.reasonForChange}</div></td>
+                  <td className="px-3 py-1.5 align-middle">
+                    <div className={`truncate font-semibold ${
+                      dar.status === 'PENDING_REVIEW' ? 'text-amber-800' :
+                      dar.status === 'UNDER_REVIEW' ? 'text-cyan-800' :
+                      dar.status === 'APPROVED' ? 'text-blue-800' :
+                      dar.status === 'REGISTERED' ? 'text-emerald-800' : 'text-rose-800'
+                    }`}>
+                      {dar.status === 'PENDING_REVIEW' && '⏳ รอ DCC ตรวจสอบ'}
+                      {dar.status === 'UNDER_REVIEW' && '🔍 อยู่ระหว่างตรวจ'}
+                      {dar.status === 'APPROVED' && '🟢 อนุมัติแล้ว'}
+                      {dar.status === 'REGISTERED' && '⭐ ขึ้นทะเบียนแล้ว'}
+                      {dar.status === 'REJECTED' && '🔴 ไม่อนุมัติ'}
+                      {dar.status === 'CANCELLED' && '⚫ ยกเลิกคำขอแล้ว'}
                     </div>
-                    <div>
-                      <span className="block text-[10px] text-slate-400 mb-1">หน่วยงาน</span>
-                      <strong className="text-sm text-slate-800">{dar.requestDept}</strong>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] text-slate-400 mb-1">Revision</span>
-                      <strong className="font-mono text-sm text-indigo-700">{dar.currentRevision} ➔ {dar.proposedRevision}</strong>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] text-slate-400 mb-1">เหตุผล</span>
-                      <span className="text-xs text-slate-700 line-clamp-2">{dar.reasonForChange}</span>
-                    </div>
-                  </div>
-                  {(dar.isSkippedRevision || dar.skippedRevisionReason) && (
-                    <div className="mt-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
-                      <AlertTriangle className="w-3 h-3 inline mr-1" /> ข้าม Revision {dar.currentRevision} ➔ {dar.proposedRevision}
-                      {dar.skippedRevisionReason ? ` • ${dar.skippedRevisionReason}` : ''}
-                    </div>
-                  )}
-                </div>
-
-                <div className="p-4 xl:border-l border-slate-100 flex flex-col justify-center gap-2">
-                  <span className="text-[10px] text-slate-400">สถานะ</span>
-                  <span className={`w-fit px-3 py-1 rounded-full font-bold text-xs border ${
-                    dar.status === 'PENDING_REVIEW' ? 'bg-amber-50 text-amber-800 border-amber-200' :
-                    dar.status === 'UNDER_REVIEW' ? 'bg-cyan-50 text-cyan-800 border-cyan-200' :
-                    dar.status === 'APPROVED' ? 'bg-blue-50 text-blue-800 border-blue-200' :
-                    dar.status === 'REGISTERED' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                    'bg-rose-50 text-rose-800 border-rose-200'
-                  }`}>
-                    {dar.status === 'PENDING_REVIEW' && '⏳ รอ DCC ตรวจสอบ'}
-                    {dar.status === 'UNDER_REVIEW' && '🔍 อยู่ระหว่างตรวจ'}
-                    {dar.status === 'APPROVED' && '🟢 อนุมัติแล้ว'}
-                    {dar.status === 'REGISTERED' && '⭐ ขึ้นทะเบียนแล้ว'}
-                    {dar.status === 'REJECTED' && '🔴 ไม่อนุมัติ'}
-                    {dar.status === 'CANCELLED' && '⚫ ยกเลิกคำขอแล้ว'}
-                  </span>
-                  <span className={`w-fit text-xs font-bold px-2.5 py-1 rounded-lg border ${
-                    dar.requestType === 'NEW' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                    dar.requestType === 'REVISION' ? 'bg-blue-50 text-blue-800 border-blue-200' :
-                    'bg-rose-50 text-rose-800 border-rose-200'
-                  }`}>
-                    {dar.requestType === 'NEW' ? '✨ เอกสารใหม่' : dar.requestType === 'REVISION' ? '✏️ ขอแก้ไข' : '🗑️ ขอยกเลิก'}
-                  </span>
-                </div>
-
-                <div className="p-4 xl:border-l border-slate-100">
-                  <span className="block text-[10px] text-slate-400 mb-2">จัดการเอกสาร</span>
-                  {dar.status === 'APPROVED' && currentUser.userRole === 'DCC_ADMIN' && (
-                    <div className="mb-2 rounded-xl border-2 border-emerald-300 bg-emerald-50 p-2.5">
-                      <p className="mb-2 text-[11px] font-bold text-emerald-900">
-                        ขั้นตอนถัดไป: ขึ้นทะเบียนและแจกจ่ายอัตโนมัติ
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => handleRegisterToMasterList(dar.id)}
-                        disabled={registeringDarId !== null}
-                        className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-black text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {registeringDarId === dar.id
-                          ? <><RefreshCw className="h-4 w-4 animate-spin" /> กำลังขึ้นทะเบียน...</>
-                          : <><Sparkles className="h-4 w-4" /> ขึ้นทะเบียนและแจกจ่าย</>}
+                    <div className="truncate text-slate-500">{dar.requestType === 'NEW' ? 'เอกสารใหม่' : dar.requestType === 'REVISION' ? 'ขอแก้ไข' : 'ขอยกเลิก'}</div>
+                  </td>
+                  <td className="px-3 py-1.5 align-middle">
+                    <div className="flex items-center gap-1 whitespace-nowrap [&>button]:inline-flex [&>button]:h-[30px] [&>button]:min-w-[30px] [&>button]:shrink-0 [&>button]:items-center [&>button]:justify-center [&>button]:rounded-md [&>button]:border [&>button]:disabled:cursor-not-allowed [&>button]:disabled:opacity-50 [&_svg]:h-4 [&_svg]:w-4">
+                      <button type="button" title="ดาวน์โหลดไฟล์แนบ" aria-label={`ดาวน์โหลด ${dar.id}`} onClick={() => handleDownloadDarDraft(dar)} disabled={downloadingDarId !== null} className="border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100">
+                        {downloadingDarId === dar.id ? <RefreshCw className="animate-spin" /> : <Download />}
                       </button>
+                      <button type="button" title="เปิดดูเอกสาร" aria-label={`เปิดดู ${dar.id}`} onClick={() => openDocumentViewer({title: dar.docNameTh, docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn, docType: dar.docType, revision: dar.proposedRevision, dept: dar.requestDept, fileName: dar.attachmentFileName, fileSize: dar.attachmentFileSize, fileType: dar.attachmentFileType, fileDataUrl: dar.attachmentFileDataUrl, fileStoragePath: dar.attachmentStoragePath, darId: dar.id, reasonForChange: dar.reasonForChange, changeDetails: dar.changeDetails, isoClause: dar.isoClause})} className="border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"><Eye /></button>
+                      <button type="button" title="พิมพ์ A4" aria-label={`พิมพ์ ${dar.id}`} onClick={() => setSelectedDarForPrint(dar)} className="border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"><Printer /></button>
+                      <button type="button" title="รายละเอียด / พิจารณา" aria-label={`รายละเอียด / พิจารณา ${dar.id}`} onClick={() => { setSelectedDarForReview(dar); setReviewRemarks(dar.dccRemarks || ''); }} className="border-slate-900 bg-slate-900 text-white hover:bg-slate-800"><FileText /></button>
+                      {isDcc && <button type="button" title="DCC แก้ไขข้อมูล" aria-label={`DCC แก้ไขข้อมูล ${dar.id}`} onClick={() => openDarCorrection(dar)} className="border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50"><PenLine /></button>}
+                      {dar.status === 'APPROVED' && currentUser.userRole === 'DCC_ADMIN' && <button type="button" title="ขึ้นทะเบียนและแจกจ่ายอัตโนมัติ" aria-label={`ขึ้นทะเบียนและแจกจ่าย ${dar.id}`} onClick={() => handleRegisterToMasterList(dar.id)} disabled={registeringDarId !== null} className="border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100">{registeringDarId === dar.id ? <RefreshCw className="animate-spin" /> : <Sparkles />}</button>}
+                      {['PENDING_REVIEW','UNDER_REVIEW','REJECTED'].includes(dar.status) && (currentUser.userRole === 'DCC_ADMIN' || currentUser.currentDept === dar.requestDept) && <button type="button" title="ลบ DAR" aria-label={`ลบ ${dar.id}`} onClick={() => handleDeleteDar(dar)} className="border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"><Trash2 /></button>}
+                      {dar.status === 'APPROVED' && currentUser.userRole === 'DCC_ADMIN' && <button type="button" title="DCC ยกเลิก" aria-label={`DCC ยกเลิก ${dar.id}`} onClick={() => handleCancelDar(dar)} className="border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"><X /></button>}
                     </div>
-                  )}
-                  <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => handleDownloadDarDraft(dar)} disabled={downloadingDarId !== null} className="h-9 px-3 text-xs text-indigo-700 font-bold flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg border border-indigo-200">
-                      {downloadingDarId === dar.id ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> กำลังดาวน์โหลด...</> : <><Download className="w-3.5 h-3.5" /> ดาวน์โหลด</>}
-                    </button>
-                    <button type="button" onClick={() => openDocumentViewer({title: dar.docNameTh, docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn, docType: dar.docType, revision: dar.proposedRevision, dept: dar.requestDept, fileName: dar.attachmentFileName, fileSize: dar.attachmentFileSize, fileType: dar.attachmentFileType, fileDataUrl: dar.attachmentFileDataUrl, fileStoragePath: dar.attachmentStoragePath, darId: dar.id, reasonForChange: dar.reasonForChange, changeDetails: dar.changeDetails, isoClause: dar.isoClause})} className="h-9 px-3 text-xs text-slate-700 font-semibold flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200">
-                      <Eye className="w-3.5 h-3.5" /> เปิดดู
-                    </button>
-                    <button type="button" onClick={() => setSelectedDarForPrint(dar)} className="h-9 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5">
-                      <Printer className="w-3.5 h-3.5" /> พิมพ์ A4
-                    </button>
-                    <button onClick={() => { setSelectedDarForReview(dar); setReviewRemarks(dar.dccRemarks || ''); }} className="h-9 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5">
-                      <FileText className="w-3.5 h-3.5" /> รายละเอียด / พิจารณา
-                    </button>
-                  </div>
-                  <div className="flex justify-end gap-2 mt-2">
-                    {isDcc && (
-                      <button type="button" onClick={() => openDarCorrection(dar)} className="text-[11px] text-indigo-700 font-bold hover:underline">✏️ DCC แก้ไขข้อมูล</button>
-                    )}
-                    {['PENDING_REVIEW','UNDER_REVIEW','REJECTED'].includes(dar.status) && (currentUser.userRole === 'DCC_ADMIN' || currentUser.currentDept === dar.requestDept) && (
-                      <button type="button" onClick={() => handleDeleteDar(dar)} className="text-[11px] text-rose-700 font-bold hover:underline"><Trash2 className="w-3 h-3 inline mr-1" />ลบ DAR</button>
-                    )}
-                    {dar.status === 'APPROVED' && currentUser.userRole === 'DCC_ADMIN' && (
-                      <button type="button" onClick={() => handleCancelDar(dar)} className="text-[11px] text-amber-800 font-bold hover:underline"><X className="w-3 h-3 inline mr-1" />DCC ยกเลิก</button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <nav aria-label="เปลี่ยนหน้ารายการ DAR" className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2 text-[13px]">
+          <span className="text-slate-600">แสดง {filteredDars.length ? (visiblePage - 1) * DAR_PAGE_SIZE + 1 : 0}–{Math.min(visiblePage * DAR_PAGE_SIZE, filteredDars.length)} จาก {filteredDars.length} รายการ · หน้าละ 10 DAR</span>
+          <div className="flex items-center gap-2">
+            <button type="button" aria-label="DAR หน้าก่อนหน้า" disabled={visiblePage === 1} onClick={() => setDarPage(visiblePage - 1)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-slate-700 disabled:opacity-40 hover:enabled:bg-indigo-50">ก่อนหน้า</button>
+            <span className="tabular-nums text-slate-700">หน้า {visiblePage} / {totalDarPages}</span>
+            <button type="button" aria-label="DAR หน้าถัดไป" disabled={visiblePage === totalDarPages} onClick={() => setDarPage(visiblePage + 1)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-slate-700 disabled:opacity-40 hover:enabled:bg-indigo-50">ถัดไป</button>
+          </div>
+        </nav>
+      </section>
 
       {editingDar && isDcc && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4">
@@ -1741,3 +1711,4 @@ export const DarManagement: React.FC = () => {
     </div>
   );
 };
+
