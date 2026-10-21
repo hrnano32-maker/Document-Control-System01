@@ -53,7 +53,8 @@ service cloud.firestore {
         && resource.data.status != 'CANCELLED'
         && !(dept in resource.data.get('departmentCancellations', {}))
         && resource.data.targetDepartments.hasAny([dept])
-        && request.time <= resource.data.expirationAt
+        && !(resource.data.get('storageStatus', 'AVAILABLE') in ['PURGED', 'PURGE_PENDING'])
+        && request.time.toMillis() < resource.data.get('departmentExpirationEpoch', {}).get(dept, resource.data.expirationAt.toMillis())
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receipts', 'status', 'allDownloadedAt', 'storageStatus', 'updatedAt'])
         && request.resource.data.receipts.diff(resource.data.receipts).affectedKeys().hasOnly([dept])
         && !(dept in resource.data.receipts)

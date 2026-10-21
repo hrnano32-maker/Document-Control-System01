@@ -20,7 +20,7 @@ import { auth, db, firebaseFunctions, storage } from '../lib/firebase';
 import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, DcsAnnouncement, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
 
 import { DEPARTMENTS } from '../types';
-import { hasDistributionAllocation } from '../utils/distributionAccess';
+import { hasDistributionAllocation, getDistributionDownloadAccess } from '../utils/distributionAccess';
 import { findExistingDistribution, canonicalDistributionDepartment } from '../utils/distributionReopen';
 import { getMasterRevisionHistory, revisionKey } from '../utils/masterRevisions';
 
@@ -690,10 +690,13 @@ export const acknowledgeDownload = async (
   onProgress?: (message: string, percent: number) => void,
 ) => {
   if (user.currentDept !== dept) throw new Error('บัญชีนี้ไม่ตรงกับหน่วยงานผู้รับเอกสาร');
-  if (!hasDistributionAllocation(distribution, dept)) throw new Error('รายการแจกจ่ายนี้ถูกยกเลิกหรือไม่มีสิทธิ์รับเอกสารแล้ว กรุณาติดต่อ DCC');
   const distRef = doc(db, 'dcs_distributions', distribution.id);
-  const departmentPaths = distribution.departmentFileLists?.[dept] || (distribution.departmentFiles?.[dept] ? [distribution.departmentFiles[dept]] : []);
-  if (!departmentPaths.length || distribution.stampStatus !== 'COMPLETED') throw new Error('ไฟล์ Controlled Copy ของหน่วยงานยังไม่พร้อม กรุณาติดต่อ DCC');
+  const latest = await getDocFromServer(distRef);
+  if (!latest.exists()) throw new Error('ไม่พบรายการแจกจ่าย');
+  const fresh = latest.data() as DistributionRecord;
+  const access = getDistributionDownloadAccess(fresh, dept);
+  if (!access.canDownload) throw new Error(access.message);
+  const departmentPaths = fresh.departmentFileLists?.[dept] || (fresh.departmentFiles?.[dept] ? [fresh.departmentFiles[dept]] : []);
 
   const withTimeout = async <T,>(task: Promise<T>, milliseconds: number, message: string): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -731,8 +734,8 @@ export const acknowledgeDownload = async (
       if (!current) throw new Error('ไม่พบรายการแจกจ่าย');
       if (!hasDistributionAllocation(current, dept)) throw new Error('รายการแจกจ่ายนี้ถูกยกเลิกหรือไม่มีสิทธิ์รับเอกสารแล้ว กรุณาติดต่อ DCC');
       if (!current.targetDepartments.includes(dept)) throw new Error('หน่วยงานนี้ไม่อยู่ในรายชื่อแจกจ่าย');
-      const departmentExpiry = current.departmentExpirationEpoch?.[dept] || new Date(current.expirationDate).getTime();
-      if (Date.now() > departmentExpiry) throw new Error('สิทธิ์ดาวน์โหลดหมดอายุ กรุณาขอไฟล์ใหม่จาก DCC');
+      const currentAccess = getDistributionDownloadAccess(current, dept);
+      if (!currentAccess.canDownload) throw new Error(currentAccess.message);
       if (current.receipts?.[dept]?.downloadedAt) throw new Error('หน่วยงานนี้ดาวน์โหลดฉบับนี้ไปแล้ว');
       const receipt = { dept, receivedCopies: current.allocationByDepartment[dept], downloadedAt: new Date().toISOString(), downloaderName: person.name, downloaderEmpId: person.empId, downloaderPosition: person.position, downloaderUid: user.uid, signatureStoragePath: user.signaturePath };
       const receipts = { ...(current.receipts || {}), [dept]: receipt };
@@ -834,10 +837,16 @@ export const downloadControlledCopyFromServer = async (
   });
   if (!response.ok) {
     const code = await response.json().then(value => value?.error).catch(() => 'DOWNLOAD_FAILED');
-    if (code === 'DOWNLOAD_EXPIRED') throw new Error('สิทธิ์ดาวน์โหลดหมดอายุแล้ว');
-    if (code === 'FILE_NOT_AVAILABLE') throw new Error('ไฟล์ถูกยกเลิกหรือลบแล้ว');
-    if (code === 'RECEIPT_REQUIRED') throw new Error('ไม่พบหลักฐานการรับเอกสารของบัญชีนี้');
-    throw new Error('เซิร์ฟเวอร์ไม่สามารถส่งไฟล์ได้ กรุณาลองใหม่');
+    const messages: Record<string, string> = {
+      DOWNLOAD_EXPIRED: 'สิทธิ์ดาวน์โหลดของแผนกหมดอายุแล้ว กรุณาร้องขอ DCC',
+      FILE_NOT_AVAILABLE: 'ไฟล์ถูกยกเลิกหรือลบแล้ว กรุณาติดต่อ DCC',
+      FILE_NOT_FOUND: 'ไม่พบไฟล์ Controlled Copy กรุณาร้องขอ DCC เตรียมไฟล์ใหม่',
+      FILES_NOT_FOUND: 'ไม่พบไฟล์ Controlled Copy กรุณาร้องขอ DCC เตรียมไฟล์ใหม่',
+      DISTRIBUTION_NOT_FOUND: 'ไม่พบรายการแจกจ่าย กรุณาติดต่อ DCC',
+      NOT_A_RECIPIENT: 'ไม่มีสิทธิ์รับเอกสารในรายการนี้ กรุณาติดต่อ DCC',
+      RECEIPT_REQUIRED: 'ไม่พบหลักฐานการรับเอกสารของบัญชีนี้',
+    };
+    throw Object.assign(new Error(messages[code] || 'เซิร์ฟเวอร์ไม่สามารถส่งไฟล์ได้ กรุณาลองใหม่'), { code });
   }
   return response.blob();
 };

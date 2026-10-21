@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useDcs } from '../context/DcsContext';
+import { getDistributionDownloadAccess } from '../utils/distributionAccess';
+import { useDistributionClock } from '../hooks/useDistributionClock';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { NanoLogo } from './NanoLogo';
 import {
@@ -33,6 +35,7 @@ export const Navbar: React.FC = () => {
     setIsChangePasswordOpen,
   } = useDcs();
 
+  const now = useDistributionClock();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [fontSize, setFontSize] = useState<'normal' | 'large' | 'extra-large'>('large');
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -75,8 +78,7 @@ export const Navbar: React.FC = () => {
   // Pending downloads for current dept
   const pendingDownloadsForMe = distributions.reduce((acc, dist) => {
     const target = dist.targets.find(t => t.dept === currentUser.currentDept);
-    const isExpired = new Date().getTime() > new Date(dist.expirationDate).getTime();
-    if (target && !target.isDownloaded && !isExpired) {
+    if (target && !target.isDownloaded && getDistributionDownloadAccess(dist, currentUser.currentDept, now).canDownload) {
       return acc + 1;
     }
     return acc;

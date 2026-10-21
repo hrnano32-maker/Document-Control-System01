@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useDcs } from '../context/DcsContext';
+import { getDistributionDownloadAccess } from '../utils/distributionAccess';
+import { useDistributionClock } from '../hooks/useDistributionClock';
 import {
   FileText,
   Send,
@@ -39,6 +41,7 @@ export const Dashboard: React.FC = () => {
     announcements,
   } = useDcs();
 
+  const now = useDistributionClock();
   const [cleaningDistributionId, setCleaningDistributionId] = useState<string | null>(null);
 
   const isDcc = currentUser.currentDept === 'DCC';
@@ -60,15 +63,13 @@ export const Dashboard: React.FC = () => {
   const deptPendingDownloads = distributions.filter(dist => {
     const target = dist.targets.find(t => t.dept === currentUser.currentDept);
     if (!target) return false;
-    const isExpired = new Date().getTime() > new Date(dist.expirationDate).getTime();
-    return !target.isDownloaded && !isExpired;
+    return !target.isDownloaded && getDistributionDownloadAccess(dist, currentUser.currentDept, now).canDownload;
   });
 
   const deptExpiredDownloads = distributions.filter(dist => {
     const target = dist.targets.find(t => t.dept === currentUser.currentDept);
     if (!target) return false;
-    const isExpired = new Date().getTime() > new Date(dist.expirationDate).getTime();
-    return !target.isDownloaded && isExpired;
+    return !target.isDownloaded && getDistributionDownloadAccess(dist, currentUser.currentDept, now).state === 'EXPIRED';
   });
 
   const deptOwnedDocs = documents.filter(d => d.ownerDept === currentUser.currentDept);
@@ -314,7 +315,7 @@ export const Dashboard: React.FC = () => {
                 const myTarget = dist.targets.find(t => t.dept === currentUser.currentDept);
                 const downloadedCount = dist.targets.filter(t => t.isDownloaded).length;
                 const totalTargets = dist.targets.length;
-                const isExpired = new Date().getTime() > new Date(dist.expirationDate).getTime();
+                const access = getDistributionDownloadAccess(dist, currentUser.currentDept, now);
 
                 return (
                   <div
@@ -369,13 +370,13 @@ export const Dashboard: React.FC = () => {
                           <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-200">
                             <CheckCircle2 className="w-4 h-4" /> รับสำเนาแล้ว (Copy 1/1)
                           </span>
-                        ) : isExpired ? (
-                          <button
+                        ) : !access.canDownload ? (
+                          access.canRequest ? <button
                             onClick={() => setSelectedDistributionForReRequest({ distribution: dist, dept: currentUser.currentDept })}
                             className="px-3 py-1.5 text-xs font-bold bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300 rounded-xl cursor-pointer"
                           >
-                            🔔 ร้องขอ DCC
-                          </button>
+                            🔔 {access.message} — ร้องขอ DCC
+                          </button> : <span className="text-xs text-slate-600">{access.message}</span>
                         ) : (
                           <button
                             onClick={() => setSelectedDistributionForDownload({ distribution: dist, dept: currentUser.currentDept })}
@@ -393,7 +394,7 @@ export const Dashboard: React.FC = () => {
                         สถานะการรับ: <strong className="text-slate-800">{downloadedCount}/{totalTargets} หน่วยงาน</strong>
                       </span>
                       <span>
-                        วันสิ้นสุดสิทธิ์: <strong className="text-slate-800">{new Date(dist.expirationDate).toLocaleDateString('th-TH')}</strong>
+                        {isDcc ? 'กำหนดรับแยกรายแผนก' : <>{access.message}{access.expiresAt > 0 && <> · สิ้นสุด {new Date(access.expiresAt).toLocaleString('th-TH')}</>}</>}
                       </span>
                     </div>
                   </div>

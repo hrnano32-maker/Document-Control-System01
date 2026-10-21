@@ -54,10 +54,10 @@ test('per-department cancellation removes only that allocation and keeps signatu
   assert.equal(h.data().status, 'IN_PROGRESS'); assert.equal(h.audits.length, 1);
   await h.department('QA/QC'); assert.equal(h.data().status, 'CANCELLED');
 });
-async function download(distribution, department, all = false) {
+async function download(distribution, department, all = false, missing = false) {
   const uid = department === 'HR' ? 'hr-user' : 'qa-user';
   let reads = 0, code, payload, bytes = Buffer.alloc(0);
-  const context = { exports: {}, onRequest: (_, fn) => fn, REGION: 'test', setDownloadCors() {}, cleanText: value => String(value || ''), safeSegment: value => value || 'file', getAuth: () => ({ verifyIdToken: async () => ({ uid }) }), getFirestore: () => ({ collection: name => ({ doc: () => ({ get: async () => ({ exists: true, data: () => name === 'users' ? { active: true, role: 'STAFF', department } : distribution }) }) }) }), getStorage: () => ({ bucket: () => ({ file: () => ({ exists: async () => [true], getMetadata: async () => [{ size: 8 }], createReadStream: () => { reads++; return Readable.from(Buffer.from('%PDF-1.7')); } }) }) }), console, Date };
+  const context = { exports: {}, onRequest: (_, fn) => fn, REGION: 'test', setDownloadCors() {}, cleanText: value => String(value || ''), safeSegment: value => value || 'file', getAuth: () => ({ verifyIdToken: async () => ({ uid }) }), getFirestore: () => ({ collection: name => ({ doc: () => ({ get: async () => ({ exists: true, data: () => name === 'users' ? { active: true, role: 'STAFF', department } : distribution }) }) }) }), archiver: require('archiver'), getStorage: () => ({ bucket: () => ({ file: () => ({ exists: async () => [!missing], getMetadata: async () => [{ size: 8 }], createReadStream: () => { reads++; return Readable.from(Buffer.from('%PDF-1.7')); } }) }) }), console, Date };
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('exports.downloadControlledCopyFile ='), source.indexOf('\nexports.downloadAnnouncementFile =')), context);
   const response = new Writable({ write(chunk, _, done) { bytes = Buffer.concat([bytes, chunk]); done(); } });
@@ -76,4 +76,36 @@ test('department cancellation wins even over a stale allocation; unaffected reci
   assert.equal((await download(record, 'HR')).code, 410);
   record.receipts['QA/QC'] = { downloadedAt: '2026-10-19', downloaderUid: 'qa-user' };
   const other = await download(record, 'QA/QC'); assert.equal(other.code, 200); assert.equal(other.bytes.toString(), '%PDF-1.7');
+});
+
+test('download enforces department expiry for individual and ZIP despite a later set deadline', async () => {
+  const record = { ...base(), departmentExpirationEpoch: { HR: Date.now() - 1, 'QA/QC': Date.now() + 86400000 } };
+  for (const all of [false, true]) {
+    const result = await download(record, 'HR', all);
+    assert.equal(result.code, 410); assert.equal(result.payload.error, 'DOWNLOAD_EXPIRED'); assert.equal(result.reads, 0);
+  }
+  record.receipts['QA/QC'] = { downloadedAt: '2026-10-21', downloaderUid: 'qa-user' };
+  assert.equal((await download(record, 'QA/QC')).bytes.toString(), '%PDF-1.7');
+});
+test('explicit invalid department deadlines fail closed; legacy date-only records still download', async () => {
+  for (const value of [0, -1, null, 'invalid']) {
+    assert.equal((await download({ ...base(), departmentExpirationEpoch: { HR: value } }, 'HR')).code, 410);
+  }
+  assert.equal((await download({ ...base(), expirationEpoch: undefined, expirationDate: '2099-10-22' }, 'HR')).code, 200);
+});
+test('files pending deletion cannot be downloaded even before their deadline', async () => {
+  for (const all of [false, true]) {
+    const result = await download({ ...base(), storageStatus: 'PURGE_PENDING' }, 'HR', all);
+    assert.equal(result.code, 410); assert.equal(result.payload.error, 'FILE_NOT_AVAILABLE'); assert.equal(result.reads, 0);
+  }
+});
+
+test('bulk download returns ZIP bytes for available files and a clear error before streaming missing files', async () => {
+  const bundle = await download(base(), 'HR', true);
+  assert.equal(bundle.code, 200); assert.equal(bundle.bytes.subarray(0, 2).toString(), 'PK'); assert.equal(bundle.reads, 1);
+  for (const all of [false, true]) {
+    const result = await download(base(), 'HR', all, true);
+    assert.equal(result.code, 404); assert.equal(result.reads, 0);
+    assert.equal(result.payload.error, all ? 'FILES_NOT_FOUND' : 'FILE_NOT_FOUND');
+  }
 });

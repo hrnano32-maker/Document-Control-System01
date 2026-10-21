@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useDcs } from '../context/DcsContext';
+import { getDistributionDownloadAccess } from '../utils/distributionAccess';
+import { useDistributionClock } from '../hooks/useDistributionClock';
 import {
   DistributionRecord,
   DEPARTMENTS,
@@ -44,6 +46,7 @@ export const DistributionManager: React.FC = () => {
     deleteDistribution,
   } = useDcs();
 
+  const now = useDistributionClock();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [reRequestNote, setReRequestNote] = useState('');
@@ -70,31 +73,13 @@ export const DistributionManager: React.FC = () => {
       dist.docNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
       dist.docNameTh.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchStatus = statusFilter === 'ALL' || dist.status === statusFilter;
+    const matchStatus = statusFilter === 'ALL' || (statusFilter === 'EXPIRED'
+      ? (isDcc ? dist.targetDepartments : [currentUser.currentDept]).some(dept => getDistributionDownloadAccess(dist, dept, now).state === 'EXPIRED')
+      : dist.status === statusFilter);
     return matchSearch && matchStatus;
   });
 
   const pendingReRequests = reRequests.filter(r => r.status === 'PENDING');
-
-  const getRemainingTimeText = (expirationDate: string) => {
-    const now = new Date().getTime();
-    const expiry = new Date(expirationDate).getTime();
-    const diffMs = expiry - now;
-
-    if (diffMs <= 0) {
-      return { isExpired: true, text: '🔴 ลิงก์หมดอายุแล้ว', color: 'bg-rose-50 text-rose-700 border-rose-200' };
-    }
-
-    const hours = Math.floor(diffMs / (1000 * 60 * 60));
-    const days = Math.floor(hours / 24);
-    const remHours = hours % 24;
-
-    if (hours < 24) {
-      return { isExpired: false, text: `🟡 เหลือเวลา ${hours} ชม.`, color: 'bg-amber-50 text-amber-700 border-amber-200' };
-    }
-
-    return { isExpired: false, text: `🟢 เหลือเวลา ${days} วัน ${remHours} ชม.`, color: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
-  };
 
   const handleApproveReRequest = async (reqId: string) => {
     if (processingRequestId) return;
@@ -298,9 +283,11 @@ export const DistributionManager: React.FC = () => {
           </div>
         ) : (
           filteredDistributions.map(dist => {
+            const myAccess = getDistributionDownloadAccess(dist, currentUser.currentDept, now);
             const timeInfo = dist.status === 'CANCELLED'
-              ? { isExpired: true, text: '⚫ ยกเลิกการแจกจ่ายแล้ว', color: 'bg-slate-100 text-slate-700 border-slate-300' }
-              : getRemainingTimeText(dist.expirationDate);
+              ? { text: '⚫ ยกเลิกการแจกจ่ายแล้ว', color: 'bg-slate-100 text-slate-700 border-slate-300' }
+              : isDcc ? { text: 'กำหนดรับแยกรายแผนก', color: 'bg-sky-50 text-sky-800 border-sky-200' }
+              : { text: myAccess.message, color: myAccess.canDownload ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200' };
             const activeTargets = dist.targets.filter(t => !dist.departmentCancellations?.[t.dept]);
             const downloadedCount = activeTargets.filter(t => t.isDownloaded).length;
             const totalTargets = activeTargets.length;
@@ -437,21 +424,22 @@ export const DistributionManager: React.FC = () => {
                               {currentUser.currentDept}: บันทึกการรับเอกสารแล้ว
                             </span>
                             <span className="text-xs text-emerald-700 font-mono font-medium">
-                              {myTarget.downloadTimestamp ? new Date(myTarget.downloadTimestamp).toLocaleDateString('th-TH') : ''}
+                              {myTarget.downloadTimestamp ? new Date(myTarget.downloadTimestamp).toLocaleDateString('th-TH') : ''}<br />{myAccess.message}
                             </span>
+                            {myAccess.canRequest && <button onClick={() => setSelectedDistributionForReRequest({ distribution: dist, dept: currentUser.currentDept })} className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white">ร้องขอ DCC</button>}
                           </div>
-                        ) : timeInfo.isExpired ? (
+                        ) : !myAccess.canDownload ? (
                           <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between">
                             <span className="text-xs font-bold text-rose-800 flex items-center gap-1.5">
                               <AlertCircle className="w-4 h-4 text-rose-600" />
-                              ลิงก์ของแผนกหมดอายุแล้ว
+                              {myAccess.message}
                             </span>
-                            <button
+                            {myAccess.canRequest && <button
                               onClick={() => setSelectedDistributionForReRequest({ distribution: dist, dept: currentUser.currentDept })}
                               className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors shadow-xs"
                             >
                               🔔 ร้องขอ DCC
-                            </button>
+                            </button>}
                           </div>
                         ) : (
                           <button
@@ -482,7 +470,8 @@ export const DistributionManager: React.FC = () => {
                     {dist.targets.map(target => {
                       const cancellation = dist.departmentCancellations?.[target.dept];
                       const isCancelled = dist.status === 'CANCELLED' || Boolean(cancellation);
-                      const isExpired = new Date().getTime() > new Date(dist.expirationDate).getTime();
+                      const access = getDistributionDownloadAccess(dist, target.dept, now);
+                      const isExpired = !access.canDownload;
                       return (
                         <div
                           key={target.dept}
@@ -510,21 +499,22 @@ export const DistributionManager: React.FC = () => {
                               <span className="text-xs text-slate-500 block font-mono">
                                 {new Date(target.downloadTimestamp!).toLocaleString('th-TH')}
                               </span>
+                              <p className={access.canDownload ? 'text-emerald-700' : 'text-rose-700'}>{access.message}</p>
                             </div>
                           ) : isExpired ? (
                             <div className="flex items-center justify-between pt-1.5 border-t border-rose-200/60">
-                              <span className="text-xs text-rose-700 font-bold">🔴 หมดเวลา 3 วัน</span>
-                              <button
+                              <span className="text-xs text-rose-700 font-bold">{access.message}</span>
+                              {access.canRequest && <button
                                 onClick={() => setSelectedDistributionForReRequest({ distribution: dist, dept: target.dept })}
                                 className="text-xs text-amber-700 hover:underline font-bold cursor-pointer"
                               >
                                 ร้องขอ DCC
-                              </button>
+                              </button>}
                             </div>
                           ) : (
                             <div className="flex items-center justify-between pt-1.5 border-t border-slate-200">
                               <span className="text-xs text-amber-700 font-semibold flex items-center gap-1">
-                                <Clock className="w-3.5 h-3.5" /> รอดาวน์โหลด
+                                <Clock className="w-3.5 h-3.5" /> {access.message}
                               </span>
                               {currentUser.currentDept === target.dept && (
                                 <button

@@ -938,9 +938,11 @@ exports.downloadControlledCopyFile = onRequest({
         return response.status(403).json({ error: 'RECEIPT_REQUIRED' });
       }
     }
-    if (distribution.status === 'CANCELLED' || distribution.storageStatus === 'PURGED') return response.status(410).json({ error: 'FILE_NOT_AVAILABLE' });
-    const departmentExpiry = Number(distribution.departmentExpirationEpoch?.[department] || distribution.expirationEpoch || 0);
-    if (Date.now() > departmentExpiry) return response.status(410).json({ error: 'DOWNLOAD_EXPIRED' });
+    if (distribution.status === 'CANCELLED' || ['PURGED', 'PURGE_PENDING'].includes(distribution.storageStatus)) return response.status(410).json({ error: 'FILE_NOT_AVAILABLE' });
+    const deadlines = distribution.departmentExpirationEpoch || {};
+    const departmentExpiry = Number(Object.prototype.hasOwnProperty.call(deadlines, department)
+      ? deadlines[department] : (distribution.expirationEpoch ?? Date.parse(distribution.expirationDate)));
+    if (!Number.isFinite(departmentExpiry) || departmentExpiry <= Date.now()) return response.status(410).json({ error: 'DOWNLOAD_EXPIRED' });
 
     const paths = distribution.departmentFileLists?.[department]
       || (distribution.departmentFiles?.[department] ? [distribution.departmentFiles[department]] : []);
@@ -950,6 +952,8 @@ exports.downloadControlledCopyFile = onRequest({
     const bucket = getStorage().bucket();
 
     if (String(request.query.all || '') === '1') {
+      const available = await Promise.all(paths.map(path => bucket.file(path).exists().then(([exists]) => exists)));
+      if (available.some(exists => !exists)) return response.status(404).json({ error: 'FILES_NOT_FOUND' });
       const zipName = `CONTROLLED_${safeSegment(distribution.docNo)}_Rev${safeSegment(distribution.revision)}_${safeSegment(department)}.zip`;
       response.status(200);
       response.set('Content-Type', 'application/zip');

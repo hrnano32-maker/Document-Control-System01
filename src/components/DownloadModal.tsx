@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { Department, DistributionRecord } from '../types';
 import { useDcs } from '../context/DcsContext';
+import { getDistributionDownloadAccess } from '../utils/distributionAccess';
+import { useDistributionClock } from '../hooks/useDistributionClock';
 import {
   Download,
   Lock,
@@ -33,12 +35,6 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
 
   const { distribution, dept } = selectedDistributionForDownload;
   const downloadAbort = useRef(new AbortController());
-  useEffect(() => {
-    const controller = new AbortController();
-    downloadAbort.current = controller;
-    // Revocation closes this component. Never save a response that arrives later.
-    return () => controller.abort();
-  }, []);
 
   const target = distribution.targets.find(t => t.dept === dept);
 
@@ -57,6 +53,23 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
   const [downloadingIndex, setDownloadingIndex] = useState<number | null>(null);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [isControlledFileMissing, setIsControlledFileMissing] = useState(false);
+  const [serverBlock, setServerBlock] = useState('');
+  const now = useDistributionClock();
+  const access = getDistributionDownloadAccess(distribution, dept, now);
+  const canDownload = access.canDownload && !serverBlock && !isControlledFileMissing;
+  const accessMessage = serverBlock || (isControlledFileMissing ? 'ไม่พบไฟล์ Controlled Copy กรุณาร้องขอ DCC เตรียมไฟล์ใหม่' : access.message);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    downloadAbort.current = controller;
+    if (!canDownload) {
+      controller.abort();
+      setReadyDownloads([]);
+      setIsSubmitting(false);
+    }
+    // Expiry and live revocation must also stop an in-flight browser download.
+    return () => controller.abort();
+  }, [canDownload]);
 
   const isMissingStorageFileError = (message: string) =>
     /storage\/object-not-found|object .* does not exist|ไม่พบไฟล์|ไฟล์.*ไม่มีอยู่/i.test(message);
@@ -67,15 +80,22 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
     console.error('CONTROLLED_COPY_FILE_MISSING', { distributionId: distribution.id, dept, message });
   };
 
-  // Calculate remaining time
-  const expiryTime = new Date(distribution.expirationDate).getTime();
-  const now = new Date().getTime();
-  const diffMs = expiryTime - now;
-  const isExpired = diffMs <= 0;
+  const checkCurrentAccess = () => {
+    const current = getDistributionDownloadAccess(distribution, dept, Date.now());
+    if (!current.canDownload) { setErrorMsg(current.message); return false; }
+    return canDownload;
+  };
 
-  const hoursRemaining = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60)));
-  const daysRemaining = Math.floor(hoursRemaining / 24);
-  const remHours = hoursRemaining % 24;
+  const handleDownloadError = (error: unknown) => {
+    const code = (error as { code?: string })?.code;
+    const message = error instanceof Error ? error.message : String(error);
+    if (['DOWNLOAD_EXPIRED', 'FILE_NOT_AVAILABLE', 'FILES_NOT_FOUND', 'FILE_NOT_FOUND', 'DISTRIBUTION_NOT_FOUND', 'NOT_A_RECIPIENT'].includes(code || '')
+      || /หมดอายุ|ไม่พบไฟล์|ไฟล์.*ไม่พร้อม|ถูกยกเลิก/.test(message)) {
+      setServerBlock(message);
+      setReadyDownloads([]);
+    }
+    setErrorMsg(message);
+  };
 
   // Close on Escape key press
   useEffect(() => {
@@ -112,7 +132,7 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
 
   useEffect(() => {
     const receipt = distribution.receipts?.[dept];
-    if (!target?.isDownloaded || receipt?.downloaderUid !== currentUser.uid || isExpired) return;
+    if (!target?.isDownloaded || receipt?.downloaderUid !== currentUser.uid || !canDownload) return;
     const paths = distribution.departmentFileLists?.[dept]
       || (distribution.departmentFiles?.[dept] ? [distribution.departmentFiles[dept]] : []);
     if (!paths.length) return;
@@ -133,16 +153,13 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
         else setErrorMsg('ไม่สามารถเปิดไฟล์ที่รับไว้แล้ว กรุณาติดต่อ DCC');
       });
     return () => { active = false; };
-  }, [currentUser.uid, dept, distribution, isExpired, target?.isDownloaded]);
+  }, [currentUser.uid, dept, distribution, canDownload, target?.isDownloaded]);
 
   const handleConfirmDownload = async () => {
     const signal = downloadAbort.current.signal;
     setErrorMsg('');
 
-    if (isExpired) {
-      setErrorMsg('ลิงก์ดาวน์โหลดหมดอายุแล้ว (เกิน 3 วัน) ไม่สามารถดำเนินการได้ กรุณาร้องขอ DCC');
-      return;
-    }
+    if (!checkCurrentAccess()) return;
 
     if (!downloaderName.trim()) {
       setErrorMsg('กรุณาระบุชื่อ-นามสกุล ผู้ดาวน์โหลด');
@@ -176,7 +193,7 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
       }
     );
 
-    if (signal.aborted) return;
+    if (signal.aborted || !checkCurrentAccess()) { setIsSubmitting(false); return; }
     if (result.success) {
       confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
       const urls = result.downloadUrls?.length ? result.downloadUrls : (result.downloadUrl ? [result.downloadUrl] : []);
@@ -195,7 +212,7 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
     } else {
       setIsSubmitting(false);
       if (isMissingStorageFileError(result.message)) showMissingFileError(result.message);
-      else setErrorMsg(result.message);
+      else handleDownloadError(new Error(result.message));
     }
   };
 
@@ -247,14 +264,15 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
   const downloadReadyFile = async (file: { url: string; name: string }, index: number) => {
     const signal = downloadAbort.current.signal;
     setErrorMsg('');
+    if (!checkCurrentAccess()) return;
     setDownloadingIndex(index);
     try {
       if (!getReadyStoragePaths()[index]) throw new Error('ไม่พบตำแหน่งไฟล์');
       const blob = await downloadControlledCopyFromServer(distribution.id, index, signal);
-      if (signal.aborted) return;
+      if (signal.aborted || !checkCurrentAccess()) return;
       saveBlobToDevice(blob, file.name);
     } catch (caught) {
-      setErrorMsg(caught instanceof Error ? caught.message : `ดาวน์โหลดไฟล์ที่ ${index + 1} ไม่สำเร็จ กรุณากดใหม่อีกครั้ง`);
+      if (!signal.aborted) handleDownloadError(caught);
     } finally {
       setDownloadingIndex(null);
     }
@@ -262,16 +280,16 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
 
   const downloadAllReadyFiles = async () => {
     const signal = downloadAbort.current.signal;
-    if (!readyDownloads.length || isDownloadingAll) return;
+    if (!readyDownloads.length || isDownloadingAll || !checkCurrentAccess()) return;
     setErrorMsg('');
     setIsDownloadingAll(true);
     try {
       setSubmitStatus(`กำลังรวม ${readyDownloads.length} ไฟล์เป็น ZIP`);
       const blob = await downloadControlledCopyFromServer(distribution.id, 'all', signal);
-      if (signal.aborted) return;
+      if (signal.aborted || !checkCurrentAccess()) return;
       saveBlobToDevice(blob, `CONTROLLED_${distribution.docNo}_Rev${distribution.revision}_${dept.replace(/[^a-zA-Z0-9._-]/g, '_')}.zip`);
     } catch (caught) {
-      setErrorMsg(caught instanceof Error ? caught.message : 'ดาวน์โหลดไฟล์ทั้งหมดไม่สำเร็จ กรุณาลองใหม่ หรือกดดาวน์โหลดทีละไฟล์');
+      if (!signal.aborted) handleDownloadError(caught);
     } finally {
       setDownloadingIndex(null);
       setIsDownloadingAll(false);
@@ -283,8 +301,8 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
     setSelectedDistributionForReRequest({
       distribution,
       dept,
-      reasonType: 'FILE_LOST_OR_DAMAGED',
-      reasonDetails: `ระบบไม่พบไฟล์ Controlled Copy ของแผนก ${dept} ใน Firebase Storage กรุณาสร้างไฟล์ใหม่ในใบแจกจ่าย ${distribution.distributionNo} เดิม`,
+      reasonType: access.state === 'EXPIRED' || /หมดอายุ/.test(serverBlock) ? 'EXPIRED_DOWNLOAD_WINDOW' : 'FILE_LOST_OR_DAMAGED',
+      reasonDetails: `${accessMessage} — ขอเปิดสิทธิ์หรือเตรียมไฟล์ให้แผนก ${dept} ในใบแจกจ่าย ${distribution.distributionNo} เดิม`,
     });
   };
 
@@ -330,30 +348,14 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
         {/* Modal Body */}
         <div className="p-6 space-y-5 max-h-[80vh] overflow-y-auto text-slate-800 text-xs">
           
-          {/* Expiration Timer Banner */}
-          <div className={`p-3 rounded-xl border flex items-center justify-between ${
-            isExpired 
-              ? 'bg-rose-50 border-rose-200 text-rose-800' 
-              : hoursRemaining < 24 
-                ? 'bg-amber-50 border-amber-200 text-amber-800'
-                : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-          }`}>
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 shrink-0" />
-              <div>
-                <span className="font-bold">
-                  {isExpired ? '🔴 ลิงก์ดาวน์โหลดหมดอายุแล้ว' : '🟢 อายุสิทธิ์ดาวน์โหลด (3 วัน)'}
-                </span>
-                <p className="text-[10px]">
-                  {isExpired 
-                    ? 'เกินกำหนด 72 ชม. นับจากวันที่แจกจ่าย' 
-                    : `เหลือเวลาอีก: ${daysRemaining} วัน ${remHours} ชั่วโมง (หมดอายุ: ${new Date(distribution.expirationDate).toLocaleString('th-TH')})`}
-                </p>
-              </div>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/80 border">
-              {distribution.distributionNo}
-            </span>
+          <div role="status" className={`p-3 rounded-xl border space-y-2 ${canDownload ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
+            <div className="flex items-center gap-2"><Clock className="w-4 h-4 shrink-0" /><strong>{accessMessage}</strong></div>
+            {access.expiresAt > 0 && <p className="text-xs">กำหนดรับของแผนก {dept}: {new Date(access.expiresAt).toLocaleString('th-TH')}</p>}
+            {!canDownload && (access.canRequest || serverBlock || isControlledFileMissing) && access.state !== 'CANCELLED' && <button
+              type="button" id="btn-request-download-access" onClick={requestControlledFileRebuild}
+              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700">
+              ร้องขอ DCC เปิดสิทธิ์ / เตรียมไฟล์ใหม่
+            </button>}
           </div>
 
           {/* Document Summary Card */}
@@ -380,7 +382,7 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
           </div>
 
           {/* Already Downloaded Warning Check */}
-          {target?.isDownloaded ? (
+          {(target?.isDownloaded || canDownload) && (target?.isDownloaded ? (
             <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl space-y-2">
               <div className="flex items-center gap-2 text-amber-800 font-bold">
                 <Lock className="w-4 h-4 text-amber-600" />
@@ -509,9 +511,9 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
               </div>
 
             </div>
-          )}
+          ))}
 
-          {isSubmitting && (
+          {isSubmitting && canDownload && (
             <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2">
               <div className="flex items-center justify-between text-xs font-bold text-indigo-900">
                 <span>{submitStatus || 'กำลังดำเนินการ...'}</span>
@@ -524,7 +526,7 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
             </div>
           )}
 
-          {readyDownloads.length > 0 && (
+          {canDownload && readyDownloads.length > 0 && (
             <div className="p-4 bg-emerald-50 border-2 border-emerald-300 rounded-xl space-y-3">
               <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
@@ -567,16 +569,7 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>{errorMsg}</span>
               </div>
-              {isControlledFileMissing && (
-                <button
-                  type="button"
-                  id="btn-request-missing-controlled-file"
-                  onClick={requestControlledFileRebuild}
-                  className="w-full rounded-xl bg-amber-600 px-4 py-2.5 font-bold text-white hover:bg-amber-700"
-                >
-                  ร้องขอ DCC สร้างไฟล์ใหม่
-                </button>
-              )}
+
             </div>
           )}
 
@@ -596,14 +589,14 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
               onClick={handleClose}
               className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
             >
-              {target?.isDownloaded || isExpired ? 'ปิดหน้าต่าง' : 'ยกเลิก / ปิด'}
+              {target?.isDownloaded || !canDownload ? 'ปิดหน้าต่าง' : 'ยกเลิก / ปิด'}
             </button>
 
-            {!target?.isDownloaded && readyDownloads.length === 0 && !isControlledFileMissing && (
+            {canDownload && !target?.isDownloaded && readyDownloads.length === 0 && (
               <button
                 type="button"
                 id="btn-confirm-download-controlled"
-                disabled={isSubmitting || isExpired || isLoadingSignature || !signatureData}
+                disabled={isSubmitting || isLoadingSignature || !signatureData}
                 onClick={handleConfirmDownload}
                 className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
               >

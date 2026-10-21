@@ -12,6 +12,13 @@ service firebase.storage {
       return data.status != 'CANCELLED' && !(profile().department in data.get('departmentCancellations', {}));
     }
 
+    function recipientDownloadWindow(distributionId) {
+      let data = firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data;
+      let expiry = data.get('departmentExpirationEpoch', {}).get(profile().department, data.expirationAt.toMillis());
+      return !(data.get('storageStatus', 'AVAILABLE') in ['PURGED', 'PURGE_PENDING'])
+        && request.time.toMillis() < expiry;
+    }
+
     match /dcs/documents/{documentId}/{fileName} {
       allow read: if activeUser();
       allow write: if isDcc() && request.resource.size < 25 * 1024 * 1024;
@@ -71,7 +78,7 @@ service firebase.storage {
         firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.departmentFileKeys[profile().department] + '.pdf' == fileName
         &&
         firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.targetDepartments.hasAny([profile().department])
-        && request.time <= firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.expirationAt
+        && recipientDownloadWindow(distributionId)
         && (!(profile().department in firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.receipts)
           || firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.receipts[profile().department].downloaderUid == request.auth.uid)
       ));
@@ -84,7 +91,7 @@ service firebase.storage {
         distributionNotCancelled(distributionId) &&
         firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.departmentFileKeys[profile().department] == departmentKey
         && firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.targetDepartments.hasAny([profile().department])
-        && request.time <= firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.expirationAt
+        && recipientDownloadWindow(distributionId)
         && (!(profile().department in firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.receipts)
           || firestore.get(/databases/(default)/documents/dcs_distributions/$(distributionId)).data.receipts[profile().department].downloaderUid == request.auth.uid)
       ));
