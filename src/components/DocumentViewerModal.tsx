@@ -26,7 +26,8 @@ import {
   FileBox,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { getStorageFileUrl } from '../services/dcsRepository';
+import { saveDownloadedBlob } from '../utils/darAttachments';
+import { getStorageFileUrl, downloadDarAttachmentFromServer } from '../services/dcsRepository';
 
 export const DocumentViewerModal: React.FC = () => {
   const {
@@ -79,6 +80,14 @@ export const DocumentViewerModal: React.FC = () => {
   };
 
   const handleDownload = async () => {
+    if (doc.darId) {
+      if (fileLoading) return;
+      setFileLoading(true); setFileError('');
+      try { saveDownloadedBlob(await downloadDarAttachmentFromServer(doc.darId, doc.darAttachmentIndex ?? 0), doc.fileName || 'document.pdf'); }
+      catch (error) { setFileError(error instanceof Error ? error.message : 'ดาวน์โหลดไฟล์แนบ DAR ไม่สำเร็จ'); }
+      finally { setFileLoading(false); }
+      return;
+    }
     const fileName = doc.fileName || `${doc.docNo || 'DOCUMENT'}_Rev${doc.revision || '00'}.${isPdf ? 'pdf' : isImage ? 'png' : 'docx'}`;
     let downloadSource = fileSource;
 
@@ -717,3 +726,4 @@ Google Drive URL: ${doc.driveLink || 'https://drive.google.com/drive/folders/dcc
     </div>
   );
 };
+

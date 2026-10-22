@@ -1,3 +1,4 @@
+const { MAX_PDF_BYTES, getDarAttachments, isDarAttachmentPath, validateDarPdfAttachments } = require('./darAttachments');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
@@ -276,7 +277,9 @@ exports.deleteDarDraft = onCall({ region: REGION, timeoutSeconds: 30, memory: '2
   const dar = darSnapshot.data();
   if (!['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(dar.status)) throw new HttpsError('failed-precondition', 'DAR สถานะนี้ไม่สามารถลบได้');
   if (profile.role !== 'DCC_ADMIN' && profile.department !== dar.requestDept) throw new HttpsError('permission-denied', 'ไม่มีสิทธิ์ลบ DAR ของแผนกอื่น');
-  if (dar.attachmentStoragePath) await getStorage().bucket().file(dar.attachmentStoragePath).delete({ ignoreNotFound: true });
+  const paths = [...new Set(getDarAttachments(dar).map(file => file.storagePath))];
+  if (paths.some(path => !isDarAttachmentPath(path, darId, !dar.attachments?.length))) throw new HttpsError('failed-precondition', 'ตำแหน่งไฟล์แนบไม่ตรงกับ DAR กรุณาติดต่อ DCC');
+  await Promise.all(paths.map(path => getStorage().bucket().file(path).delete({ ignoreNotFound: true })));
   await darSnapshot.ref.delete();
   return { deleted: true, darId };
 });
@@ -529,7 +532,7 @@ exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, me
   return { departmentFiles, departmentFileLists };
 });
 
-exports.createAutomaticDistributionFromDar = onCall({ region: REGION, timeoutSeconds: 120, memory: '512MiB' }, async request => {
+exports.createAutomaticDistributionFromDar = onCall({ region: REGION, timeoutSeconds: 540, memory: '512MiB' }, async request => {
   await requireDcc(request);
   const decoded = request.auth;
   const darId = cleanText(request.data?.darId, 100);
@@ -544,7 +547,19 @@ exports.createAutomaticDistributionFromDar = onCall({ region: REGION, timeoutSec
 
   const existing = await db.collection('dcs_distributions').where('darReferenceId', '==', darId).limit(1).get();
   if (!existing.empty) return { distributionId: existing.docs[0].id, existing: true };
-  if (!dar.attachmentStoragePath) throw new HttpsError('failed-precondition', 'DAR ไม่มีไฟล์ PDF ต้นฉบับ');
+  let attachments;
+  try { attachments = validateDarPdfAttachments(dar, darId); }
+  catch (error) { throw new HttpsError('failed-precondition', error.message); }
+  const bucket = getStorage().bucket();
+  // Validate every source before creating a distribution; never silently send only a subset.
+  for (const file of attachments) {
+    const source = bucket.file(file.storagePath);
+    const [exists] = await source.exists();
+    if (!exists) throw new HttpsError('not-found', `ไม่พบไฟล์ PDF: ${file.name}`);
+    const [metadata] = await source.getMetadata();
+    if (Number(metadata.size) >= MAX_PDF_BYTES || metadata.contentType !== 'application/pdf') throw new HttpsError('failed-precondition', `${file.name}: ต้องเป็น PDF ขนาดน้อยกว่า 25 MB`);
+    await loadPdf(file.storagePath);
+  }
   const masterId = encodeURIComponent(String(dar.docNo || '').trim().toUpperCase()).replace(/%/g, '_');
   const masterSnapshot = await db.collection('dcs_documents').doc(masterId).get();
   if (!masterSnapshot.exists || masterSnapshot.data().darReferenceId !== darId || masterSnapshot.data().status !== 'ACTIVE') {
@@ -567,13 +582,19 @@ exports.createAutomaticDistributionFromDar = onCall({ region: REGION, timeoutSec
     return next;
   });
   const id = `DC-DIS-${year}-${String(sequence).padStart(4, '0')}`;
-  const sourceName = `01-${safeSegment(dar.attachmentFileName || `${dar.docNo}.pdf`)}`.replace(/\.pdf$/i, '') + '.pdf';
-  const sourcePath = `dcs/distributions/${id}/source/${sourceName}`;
-  const bucket = getStorage().bucket();
-  const sourceFile = bucket.file(dar.attachmentStoragePath);
-  const [sourceExists] = await sourceFile.exists();
-  if (!sourceExists) throw new HttpsError('not-found', 'ไม่พบไฟล์ PDF ต้นฉบับของ DAR');
-  await sourceFile.copy(bucket.file(sourcePath));
+  const sourcePaths = [];
+  try {
+    for (let index = 0; index < attachments.length; index++) {
+      const file = attachments[index];
+      const sourceName = `${String(index + 1).padStart(2, '0')}-${safeSegment(file.name)}`.replace(/\.pdf$/i, '') + '.pdf';
+      const sourcePath = `dcs/distributions/${id}/source/${sourceName}`;
+      sourcePaths.push(sourcePath);
+      await bucket.file(file.storagePath).copy(bucket.file(sourcePath));
+    }
+  } catch (error) {
+    await Promise.allSettled(sourcePaths.map(path => bucket.file(path).delete({ ignoreNotFound: true })));
+    throw error;
+  }
 
   const now = new Date();
   const expirationEpoch = now.getTime() + 3 * 24 * 60 * 60 * 1000;
@@ -587,17 +608,19 @@ exports.createAutomaticDistributionFromDar = onCall({ region: REGION, timeoutSec
     status: 'IN_PROGRESS', darReferenceId: darId, targetDepartments: targets.map(target => target.dept),
     allocationByDepartment: Object.fromEntries(allocation.map(item => [item.dept, item.copies])), targets, receipts: {},
     instructions: `แจกจ่ายอัตโนมัติหลัง DCC อนุมัติ ${darId}: ${master.docNo} Rev.${master.currentRevision}`,
-    fileName: dar.attachmentFileName || `${master.docNo}.pdf`, fileSize: dar.attachmentFileSize || '', fileType: 'application/pdf',
-    fileNames: [dar.attachmentFileName || `${master.docNo}.pdf`], fileSizes: [dar.attachmentFileSize || ''], fileTypes: ['application/pdf'],
-    sourceStoragePath: sourcePath, sourceStoragePaths: [sourcePath], storageStatus: 'PROCESSING', stampStatus: 'PROCESSING',
-    processingStage: 'UPLOADED', processingDetail: 'คัดลอกไฟล์ต้นฉบับจาก DAR แล้ว กำลังประทับตรา', processingPercent: 38,
+    fileName: attachments[0].name, fileSize: attachments[0].size || '', fileType: 'application/pdf',
+    fileNames: attachments.map(file => file.name), fileSizes: attachments.map(file => file.size || ''), fileTypes: attachments.map(() => 'application/pdf'),
+    sourceStoragePath: sourcePaths[0], sourceStoragePaths: sourcePaths, storageStatus: 'PROCESSING', stampStatus: 'PROCESSING',
+    processingStage: 'UPLOADED', processingDetail: `คัดลอก PDF จาก DAR ครบ ${attachments.length} ไฟล์ กำลังประทับตรา`, processingPercent: 38,
     allDownloadedAt: null, fileDeletedAt: null, createdAt: now.toISOString(), autoCreated: true, createdByUid: decoded.uid,
   };
   try {
     await db.collection('dcs_distributions').doc(id).create(record);
     await darRef.update({ automaticDistributionId: id, automaticDistributionCreatedAt: now.toISOString(), updatedAt: now.toISOString() });
   } catch (error) {
-    await bucket.file(sourcePath).delete({ ignoreNotFound: true });
+    // If the distribution was created but updating its DAR failed, retain its files for retry.
+    const persisted = await db.collection('dcs_distributions').doc(id).get();
+    if (!persisted.exists) await Promise.allSettled(sourcePaths.map(path => bucket.file(path).delete({ ignoreNotFound: true })));
     throw error;
   }
   return { distributionId: id, existing: false };
@@ -1145,3 +1168,46 @@ exports.repairQaQcAccess = onCall({ region: REGION, timeoutSeconds: 540, memory:
   return counts;
 });
 
+
+
+// Send original DAR bytes through the authenticated endpoint, independent of Storage CORS.
+exports.downloadDarAttachmentFile = onRequest({ region: REGION, timeoutSeconds: 120, memory: '256MiB' }, async (request, response) => {
+  setDownloadCors(request, response);
+  if (request.method === 'OPTIONS') return response.status(204).send('');
+  if (request.method !== 'GET') return response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
+  const token = String(request.get('authorization') || '').match(/^Bearer (.+)$/i)?.[1];
+  if (!token) return response.status(401).json({ error: 'UNAUTHENTICATED' });
+  try {
+    const decoded = await getAuth().verifyIdToken(token);
+    const darId = cleanText(request.query.darId, 100);
+    const index = Number(request.query.index);
+    if (!darId || darId.includes('/') || !Number.isInteger(index) || index < 0) return response.status(400).json({ error: 'INVALID_ARGUMENT' });
+    const db = getFirestore();
+    const [profileSnapshot, darSnapshot] = await Promise.all([db.collection('users').doc(decoded.uid).get(), db.collection('dcs_dars').doc(darId).get()]);
+    if (!profileSnapshot.exists || profileSnapshot.data().active !== true) return response.status(403).json({ error: 'INACTIVE_USER' });
+    if (!darSnapshot.exists) return response.status(404).json({ error: 'DAR_NOT_FOUND' });
+    const profile = profileSnapshot.data(), dar = darSnapshot.data();
+    if (profile.role !== 'DCC_ADMIN' && profile.department !== dar.requestDept) return response.status(403).json({ error: 'FORBIDDEN' });
+    const attachment = getDarAttachments(dar)[index];
+    if (!attachment || !isDarAttachmentPath(attachment.storagePath, darId, !dar.attachments?.length)) return response.status(404).json({ error: 'FILE_NOT_FOUND' });
+    const file = getStorage().bucket().file(attachment.storagePath);
+    const [exists] = await file.exists();
+    if (!exists) return response.status(404).json({ error: 'FILE_NOT_FOUND' });
+    const [metadata] = await file.getMetadata();
+    const name = attachment.name || `document-${index + 1}.pdf`;
+    response.set('Content-Type', 'application/octet-stream');
+    response.set('Content-Disposition', `attachment; filename="${safeSegment(name)}"; filename*=UTF-8''${encodeURIComponent(name).replace(/'/g, '%27')}`);
+    response.set('Cache-Control', 'private,no-store');
+    if (metadata.size) response.set('Content-Length', String(metadata.size));
+    await new Promise((resolve, reject) => {
+      const stream = file.createReadStream();
+      stream.on('error', reject); response.on('finish', resolve); response.on('error', reject);
+      response.on('close', () => { stream.destroy(); resolve(); });
+      stream.pipe(response);
+    });
+  } catch (error) {
+    console.error('DAR_ATTACHMENT_DOWNLOAD_FAILED', error);
+    if (response.headersSent) response.destroy(error);
+    else response.status(String(error.code || '').startsWith('auth/') ? 401 : 500).json({ error: 'DOWNLOAD_FAILED' });
+  }
+});

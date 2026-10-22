@@ -130,6 +130,25 @@ export interface DarAdditionalDocument {
   reason: string;
 }
 
+export interface DarAttachment {
+  name: string;
+  size: string;
+  type: string;
+  storagePath: string;
+}
+
+export interface DarAttachmentInput {
+  name: string;
+  size: string;
+  type: string;
+  file?: Blob;
+  dataUrl?: string;
+}
+
+export type DarCreateInput = Omit<DarRecord, 'id' | 'requestDate' | 'status' | 'attachments'> & {
+  attachments?: DarAttachmentInput[];
+};
+
 export interface DarRecord {
   id: string; // e.g. DAR-2026-0001
   requestType: DarRequestType;
@@ -163,6 +182,7 @@ export interface DarRecord {
   systemCurrentRevision?: string;
 
   // Attached Draft Document / File
+  attachments?: DarAttachment[];
   attachmentFileName?: string;
   attachmentFileSize?: string;
   attachmentFileType?: string;
@@ -456,6 +476,7 @@ export interface DcsAnnouncement {
 }
 
 export interface DocumentViewPayload {
+  darAttachmentIndex?: number;
   distributionId?: string;
   title: string;
   docNo?: string;
@@ -478,4 +499,5 @@ export interface DocumentViewPayload {
   effectiveDate?: string;
   isControlledCopy?: boolean;
 }
+
 

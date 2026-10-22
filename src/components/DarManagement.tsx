@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDcs } from '../context/DcsContext';
-import { getStorageFileUrl, validateDarEffectiveDates, correctDarRecord } from '../services/dcsRepository';
+import { downloadDarAttachmentFromServer, validateDarEffectiveDates, correctDarRecord } from '../services/dcsRepository';
 import {
   DarRecord,
   DarAdditionalDocument,
@@ -42,6 +42,7 @@ import {
   PenLine,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { MAX_DAR_PDFS, formatPdfSize, validateDarPdf, getDarAttachments, saveDownloadedBlob } from '../utils/darAttachments';
 import { DarPrintModal } from './DarPrintModal';
 import { DarLivePreview } from './DarLivePreview';
 import { analyzeRevisionSequence, getNextRevision, formatRevision } from '../utils/revisionHelper';
@@ -72,6 +73,8 @@ export const DarManagement: React.FC = () => {
   const [selectedDarForPrint, setSelectedDarForPrint] = useState<DarRecord | null>(null);
   const [showMobileLivePreview, setShowMobileLivePreview] = useState(false);
   const [registeringDarId, setRegisteringDarId] = useState<string | null>(null);
+  const [attachmentDar, setAttachmentDar] = useState<DarRecord | null>(null);
+  const [darUploadProgress, setDarUploadProgress] = useState({ message: '', percent: 0 });
   const [downloadingDarId, setDownloadingDarId] = useState<string | null>(null);
 
   const [editingDar, setEditingDar] = useState<DarRecord | null>(null);
@@ -141,12 +144,9 @@ export const DarManagement: React.FC = () => {
   const [formError, setFormError] = useState('');
 
   // File Upload State in DAR Creation
-  const [attachedFile, setAttachedFile] = useState<{
-    name: string;
-    size: string;
-    type: string;
-    dataUrl?: string;
-  } | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [isReadingPdfs, setIsReadingPdfs] = useState(false);
+  const readingPdfs = useRef(false);
   const [requesterSignature, setRequesterSignature] = useState<string | undefined>(undefined);
   const [deptApproverName, setDeptApproverName] = useState('');
   const [deptApproverTitle, setDeptApproverTitle] = useState('');
@@ -154,39 +154,19 @@ export const DarManagement: React.FC = () => {
   const [deptApproverSignature, setDeptApproverSignature] = useState<string | undefined>(undefined);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
-  const handleDarAttachment = async (file: File) => {
+  const handleDarAttachments = async (files: File[]) => {
+    if (!files.length || readingPdfs.current || submitInFlight.current) return;
     setFormError('');
-    if (file.size > 25 * 1024 * 1024) {
-      setAttachedFile(null);
-      setFormError('ไฟล์ PDF ต้องมีขนาดไม่เกิน 25 MB');
-      return;
+    if (attachedFiles.length + files.length > MAX_DAR_PDFS) {
+      setFormError(`แนบได้สูงสุด ${MAX_DAR_PDFS} ไฟล์ต่อใบ DAR`); return;
     }
-
-    const header = new Uint8Array(await file.slice(0, 5).arrayBuffer());
-    const hasPdfHeader = header.length === 5
-      && header[0] === 0x25
-      && header[1] === 0x50
-      && header[2] === 0x44
-      && header[3] === 0x46
-      && header[4] === 0x2d;
-    if (!file.name.toLowerCase().endsWith('.pdf') || (file.type && file.type !== 'application/pdf') || !hasPdfHeader) {
-      setAttachedFile(null);
-      setFormError('แนบได้เฉพาะไฟล์ PDF จริงเท่านั้น กรุณาแปลงเอกสารเป็น PDF แล้วเลือกไฟล์ใหม่');
-      return;
-    }
-
-    const sizeStr = file.size > 1024 * 1024
-      ? `${(file.size / (1024 * 1024)).toFixed(2)} MB`
-      : `${(file.size / 1024).toFixed(1)} KB`;
-    const reader = new FileReader();
-    reader.onload = event => setAttachedFile({
-      name: file.name,
-      size: sizeStr,
-      type: 'application/pdf',
-      dataUrl: event.target?.result as string,
-    });
-    reader.onerror = () => setFormError('ไม่สามารถอ่านไฟล์ PDF ได้ กรุณาเลือกไฟล์ใหม่');
-    reader.readAsDataURL(file);
+    readingPdfs.current = true; setIsReadingPdfs(true);
+    try {
+      for (const file of files) await validateDarPdf(file, file.name);
+      setAttachedFiles(previous => [...previous, ...files]);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'อ่านไฟล์ PDF ไม่สำเร็จ');
+    } finally { readingPdfs.current = false; setIsReadingPdfs(false); }
   };
 
   // Distribution Holders requested in DAR (ตามแบบฟอร์ม FM-QS-001-01)
@@ -205,35 +185,40 @@ export const DarManagement: React.FC = () => {
   const isDcc = currentUser.userRole === 'DCC_ADMIN';
   const isDccOnlyRecipient = (dept: Department) => dept === 'QMR' || dept === 'Customer Rep';
 
-  // Helper to download draft file attached by DAR requester
-  const handleDownloadDarDraft = async (dar: DarRecord) => {
+  const handleDownloadDarDraft = async (dar: DarRecord, index?: number) => {
+    const files = getDarAttachments(dar);
+    if (index === undefined && files.length > 1) { setAttachmentDar(dar); return; }
     if (downloadingDarId) return;
-    const fileName = dar.attachmentFileName || `${dar.docNo}_Rev${dar.proposedRevision}_DRAFT.docx`;
-    if (!dar.attachmentStoragePath) {
-      alert('DAR รายการนี้ไม่มีเส้นทางไฟล์แนบใน Firebase Storage กรุณาติดต่อ DCC ให้อัปโหลดไฟล์ใหม่');
-      return;
-    }
-
+    const file = files[index ?? 0];
+    if (!file) { alert('DAR นี้ไม่มีไฟล์แนบในระบบ'); return; }
     setDownloadingDarId(dar.id);
-    try {
-      const fileUrl = await getStorageFileUrl(dar.attachmentStoragePath);
-      const link = document.createElement('a');
-      link.href = fileUrl;
-      link.download = fileName;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      window.setTimeout(() => {
-        document.body.removeChild(link);
-        URL.revokeObjectURL(fileUrl);
-      }, 1000);
-    } catch (error) {
-      console.error('DAR attachment download failed', error);
-      alert(`ดาวน์โหลดไฟล์ไม่สำเร็จ: ${error instanceof Error ? error.message : 'กรุณาตรวจสอบสิทธิ์ Firebase Storage แล้วลองใหม่'}`);
-    } finally {
-      setDownloadingDarId(null);
-    }
+    try { saveDownloadedBlob(await downloadDarAttachmentFromServer(dar.id, index ?? 0), file.name); }
+    catch (error) { alert(error instanceof Error ? error.message : 'ดาวน์โหลดไฟล์แนบไม่สำเร็จ'); }
+    finally { setDownloadingDarId(null); }
   };
+
+  const openDarAttachment = (dar: DarRecord, index?: number) => {
+    const files = getDarAttachments(dar);
+    if (index === undefined && files.length > 1) { setAttachmentDar(dar); return; }
+    const file = files[index ?? 0];
+    if (!file) { alert('DAR นี้ไม่มีไฟล์แนบในระบบ'); return; }
+    setAttachmentDar(null);
+    openDocumentViewer({ title: dar.docNameTh, docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn, docType: dar.docType, revision: dar.proposedRevision, dept: dar.requestDept,
+      fileName: file.name, fileSize: file.size, fileType: file.type, fileStoragePath: file.storagePath, darId: dar.id, darAttachmentIndex: index ?? 0,
+      reasonForChange: dar.reasonForChange, changeDetails: dar.changeDetails, isoClause: dar.isoClause });
+  };
+
+  const renderDarAttachments = (dar: DarRecord) => <div className="space-y-2" data-dar-attachments={dar.id}>
+    <h4 className="text-sm font-bold text-indigo-950">ไฟล์แนบ {getDarAttachments(dar).length} ไฟล์</h4>
+    {getDarAttachments(dar).map((file, index) => <div key={file.storagePath} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm">
+      <div className="min-w-0 flex-1"><p className="break-all font-semibold">{index + 1}. {file.name}</p><p className="text-slate-600">{file.size}</p></div>
+      <div className="flex shrink-0 gap-2">
+        <button type="button" onClick={() => openDarAttachment(dar, index)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-800">เปิดดู</button>
+        <button type="button" disabled={downloadingDarId !== null} onClick={() => handleDownloadDarDraft(dar, index)} className="rounded-lg bg-indigo-600 px-3 py-2 font-semibold text-white disabled:opacity-50">{downloadingDarId === dar.id ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลด'}</button>
+      </div>
+    </div>)}
+    {!getDarAttachments(dar).length && <p className="text-sm text-slate-600">ไม่มีไฟล์แนบในระบบ</p>}
+  </div>;
 
   // Real-time Revision Sequence Analysis
   const revAnalysis = analyzeRevisionSequence(
@@ -290,13 +275,15 @@ export const DarManagement: React.FC = () => {
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitInFlight.current) return;
+    if (submitInFlight.current || readingPdfs.current) return;
     setFormError('');
 
     if (!docNo.trim() || !docNameTh.trim()) {
       setFormError('กรุณากรอกรหัสเอกสารและชื่อภาษาไทย');
       return;
     }
+
+    if (!attachedFiles.length) { setFormError('กรุณาแนบไฟล์ PDF อย่างน้อย 1 ไฟล์'); return; }
 
     if (!reasonForChange.trim()) {
       setFormError('กรุณาระบุเหตุผลความจำเป็นในการขอดำเนินการ');
@@ -331,6 +318,7 @@ export const DarManagement: React.FC = () => {
 
     submitInFlight.current = true;
     setIsSubmittingDar(true);
+    setDarUploadProgress({ message: 'กำลังตรวจสอบไฟล์ PDF', percent: 0 });
     try {
       validateDarEffectiveDates({ requestType: reqType, targetEffectiveDate, previousEffectiveDate, additionalDocuments: filledAdditionalDocuments });
       await createDar({
@@ -353,17 +341,14 @@ export const DarManagement: React.FC = () => {
       skippedRevisionReason: revAnalysis.isSkipped ? skippedRevisionReason.trim() : undefined,
       systemCurrentRevision: revAnalysis.systemCurrentRev || undefined,
       isoClause: isoClause.trim(),
-      attachmentFileName: attachedFile?.name,
-      attachmentFileSize: attachedFile?.size,
-      attachmentFileType: attachedFile?.type,
-      attachmentFileDataUrl: attachedFile?.dataUrl,
+      attachments: attachedFiles.map(file => ({ name: file.name, size: formatPdfSize(file.size), type: 'application/pdf', file })),
       requesterSignature: requesterSignature,
       deptApproverName: deptApproverName.trim(),
       deptApproverTitle: deptApproverTitle.trim(),
       deptApproverDate,
       deptApproverSignature,
       distributionHolders: darDistributionHolders,
-      });
+      }, (message, percent) => setDarUploadProgress({ message, percent }));
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'ส่งใบ DAR ไม่สำเร็จ');
       return;
@@ -379,6 +364,7 @@ export const DarManagement: React.FC = () => {
     });
 
     setIsCreateModalOpen(false);
+    setAttachedFiles([]);
   };
 
   const handleRegisterToMasterList = async (darId: string) => {
@@ -558,7 +544,7 @@ export const DarManagement: React.FC = () => {
                       <button type="button" title="ดาวน์โหลดไฟล์แนบ" aria-label={`ดาวน์โหลด ${dar.id}`} onClick={() => handleDownloadDarDraft(dar)} disabled={downloadingDarId !== null} className="border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100">
                         {downloadingDarId === dar.id ? <RefreshCw className="animate-spin" /> : <Download />}
                       </button>
-                      <button type="button" title="เปิดดูเอกสาร" aria-label={`เปิดดู ${dar.id}`} onClick={() => openDocumentViewer({title: dar.docNameTh, docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn, docType: dar.docType, revision: dar.proposedRevision, dept: dar.requestDept, fileName: dar.attachmentFileName, fileSize: dar.attachmentFileSize, fileType: dar.attachmentFileType, fileDataUrl: dar.attachmentFileDataUrl, fileStoragePath: dar.attachmentStoragePath, darId: dar.id, reasonForChange: dar.reasonForChange, changeDetails: dar.changeDetails, isoClause: dar.isoClause})} className="border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"><Eye /></button>
+                      <button type="button" title="เปิดดูเอกสาร" aria-label={`เปิดดู ${dar.id}`} onClick={() => openDarAttachment(dar)} className="border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"><Eye /></button>
                       <button type="button" title="พิมพ์ A4" aria-label={`พิมพ์ ${dar.id}`} onClick={() => setSelectedDarForPrint(dar)} className="border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"><Printer /></button>
                       <button type="button" title="รายละเอียด / พิจารณา" aria-label={`รายละเอียด / พิจารณา ${dar.id}`} onClick={() => { setSelectedDarForReview(dar); setReviewRemarks(dar.dccRemarks || ''); }} className="border-slate-900 bg-slate-900 text-white hover:bg-slate-800"><FileText /></button>
                       {isDcc && <button type="button" title="DCC แก้ไขข้อมูล" aria-label={`DCC แก้ไขข้อมูล ${dar.id}`} onClick={() => openDarCorrection(dar)} className="border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50"><PenLine /></button>}
@@ -581,6 +567,13 @@ export const DarManagement: React.FC = () => {
           </div>
         </nav>
       </section>
+
+      {attachmentDar && <div className="fixed inset-0 z-[65] flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-label={`ไฟล์แนบ ${attachmentDar.id}`}>
+        <div className="max-h-[85vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-5 shadow-xl">
+          <div className="mb-4 flex items-center justify-between gap-3"><h3 className="text-lg font-bold">ไฟล์แนบ {attachmentDar.id}</h3><button type="button" onClick={() => setAttachmentDar(null)} aria-label="ปิดรายการไฟล์แนบ" className="rounded-lg p-2 hover:bg-slate-100"><X /></button></div>
+          {renderDarAttachments(attachmentDar)}
+        </div>
+      </div>}
 
       {editingDar && isDcc && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4">
@@ -785,59 +778,7 @@ export const DarManagement: React.FC = () => {
 
               {selectedDarForReview.status === 'CANCELLED' && <div className="p-4 rounded-xl border-2 border-rose-300 bg-rose-50 text-rose-900"><div className="font-black">คำขอนี้ถูกยกเลิกแล้ว</div><div className="mt-1">เหตุผล: {selectedDarForReview.cancellationReason || '-'}</div><div className="text-[11px] mt-1">โดย {selectedDarForReview.cancelledBy || '-'} เมื่อ {selectedDarForReview.cancelledAt ? new Date(selectedDarForReview.cancelledAt).toLocaleString('th-TH') : '-'}</div></div>}
 
-              {/* Draft File Attachment card */}
-              <div className="p-4 bg-indigo-50/70 border-2 border-indigo-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
-                    <FileCheck2 className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <span className="font-bold text-indigo-950 block text-xs truncate">
-                      {selectedDarForReview.attachmentFileName || `${selectedDarForReview.docNo}_Rev${selectedDarForReview.proposedRevision}_DRAFT.docx`}
-                    </span>
-                    <span className="text-[11px] text-indigo-700 block">
-                      ขนาด: {selectedDarForReview.attachmentFileSize || '1.2 MB'} • ชนิด: {selectedDarForReview.attachmentFileType || 'Document'} • แนบโดยผู้ออก DAR
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadDarDraft(selectedDarForReview)}
-                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-all"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    ดาวน์โหลดไฟล์ร่าง
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => openDocumentViewer({
-                      title: selectedDarForReview.docNameTh,
-                      docNo: selectedDarForReview.docNo,
-                      docNameTh: selectedDarForReview.docNameTh,
-                      docNameEn: selectedDarForReview.docNameEn,
-                      docType: selectedDarForReview.docType,
-                      revision: selectedDarForReview.proposedRevision,
-                      dept: selectedDarForReview.requestDept,
-                      fileName: selectedDarForReview.attachmentFileName,
-                      fileSize: selectedDarForReview.attachmentFileSize,
-                      fileType: selectedDarForReview.attachmentFileType,
-                      fileDataUrl: selectedDarForReview.attachmentFileDataUrl,
-                      fileStoragePath: selectedDarForReview.attachmentStoragePath,
-                      darId: selectedDarForReview.id,
-                      reasonForChange: selectedDarForReview.reasonForChange,
-                      changeDetails: selectedDarForReview.changeDetails,
-                      isoClause: selectedDarForReview.isoClause,
-                    })}
-                    className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl font-bold text-xs flex items-center gap-1 cursor-pointer transition-colors"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    เปิดดู
-                  </button>
-                </div>
-              </div>
+              {renderDarAttachments(selectedDarForReview)}
 
               {/* ISO Clause */}
               <div className="text-[11px] text-slate-500">
@@ -989,7 +930,7 @@ export const DarManagement: React.FC = () => {
                 <button
                   type="button"
                   id="btn-close-dar-create-header"
-                  disabled={isSubmittingDar}
+                  disabled={isSubmittingDar || isReadingPdfs}
                   onClick={() => setIsCreateModalOpen(false)}
                   aria-label="ปิดหน้าต่าง"
                   className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1 text-xs"
@@ -1301,85 +1242,25 @@ export const DarManagement: React.FC = () => {
                 )}
               </div>
 
-              {/* File Attachment & Upload Zone (New Feature) */}
-              <div className="space-y-2">
-                <label className="block text-[11px] font-bold text-slate-800 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Paperclip className="w-3.5 h-3.5 text-indigo-600" />
-                    อัปโหลดไฟล์ร่างเอกสาร / เอกสารแนบ (Draft Document Attachment)
-                  </span>
-                  <span className="text-[10px] text-slate-500 font-normal">
-                    (รองรับไฟล์ PDF เท่านั้น ขนาดไม่เกิน 25 MB)
-                  </span>
-                </label>
-
-                {attachedFile ? (
-                  <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
-                        <FileCheck2 className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="font-bold text-xs text-indigo-950 block">{attachedFile.name}</span>
-                        <span className="text-[10px] text-indigo-700 font-mono">
-                          ขนาด {attachedFile.size} • ชนิดไฟล์: {attachedFile.type || 'Document'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setAttachedFile(null)}
-                      className="p-1.5 text-rose-600 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer"
-                      title="ลบไฟล์แนบ"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <div
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setIsDraggingFile(true);
-                    }}
-                    onDragLeave={() => setIsDraggingFile(false)}
-                    onDrop={async (e) => {
-                      e.preventDefault();
-                      setIsDraggingFile(false);
-                      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                        await handleDarAttachment(e.dataTransfer.files[0]);
-                      }
-                    }}
-                    className={`border-2 border-dashed rounded-xl p-4 text-center transition-all ${
-                      isDraggingFile
-                        ? 'border-indigo-500 bg-indigo-50'
-                        : 'border-slate-300 hover:border-indigo-400 bg-slate-50/50'
-                    }`}
-                  >
-                    <Upload className="w-6 h-6 mx-auto text-indigo-500 mb-1" />
-                    <p className="text-xs font-semibold text-slate-700">
-                      ลากและวางไฟล์เอกสารร่างลงที่นี่ หรือ{' '}
-                      <label className="text-indigo-600 hover:underline cursor-pointer font-bold">
-                        เลือกไฟล์จากเครื่อง
-                        <input
-                          type="file"
-                          accept="application/pdf,.pdf"
-                          className="hidden"
-                          onChange={async (e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              await handleDarAttachment(e.target.files[0]);
-                            }
-                            e.currentTarget.value = '';
-                          }}
-                        />
-                      </label>
-                    </p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      เฉพาะไฟล์ .pdf จริงเท่านั้น ระบบจะตรวจสอบชนิดและเนื้อหาไฟล์ก่อนส่ง
-                    </p>
-                  </div>
-                )}
-              </div>
+              <section className="space-y-3" aria-label="ไฟล์ PDF แนบใบ DAR">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <h4 className="font-bold text-slate-800">ไฟล์แนบ PDF <span className="text-rose-600">*</span></h4>
+                  <span className="text-slate-600">{attachedFiles.length}/{MAX_DAR_PDFS} ไฟล์ · ไฟล์ละน้อยกว่า 25 MB</span>
+                </div>
+                <div onDragOver={e => { e.preventDefault(); setIsDraggingFile(true); }} onDragLeave={() => setIsDraggingFile(false)}
+                  onDrop={e => { e.preventDefault(); setIsDraggingFile(false); void handleDarAttachments(Array.from(e.dataTransfer.files)); }}
+                  className={`rounded-xl border-2 border-dashed p-4 text-center ${isDraggingFile ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 bg-slate-50'}`}>
+                  <p className="mb-2 text-sm text-slate-700">เลือกหรือลาก PDF หลายไฟล์มาวางพร้อมกัน และเพิ่มไฟล์ภายหลังได้</p>
+                  <input id="dar-pdf-files" aria-label="เลือกไฟล์ PDF แนบใบ DAR" type="file" multiple accept="application/pdf,.pdf"
+                    disabled={isReadingPdfs || isSubmittingDar} className="max-w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-3 file:py-2 file:text-white"
+                    onChange={e => { const files = Array.from(e.currentTarget.files || []) as File[]; e.currentTarget.value = ''; void handleDarAttachments(files); }} />
+                  {isReadingPdfs && <p role="status" className="mt-2 text-sm text-indigo-700">กำลังตรวจสอบไฟล์ PDF...</p>}
+                </div>
+                {attachedFiles.map((file, index) => <div key={`${index}-${file.name}`} data-selected-pdf className="flex items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm">
+                  <div className="min-w-0"><p className="break-all font-semibold text-indigo-950">{index + 1}. {file.name}</p><p className="text-slate-600">{formatPdfSize(file.size)}</p></div>
+                  <button type="button" disabled={isReadingPdfs || isSubmittingDar} aria-label={`ลบไฟล์แนบ ${index + 1}: ${file.name}`} onClick={() => setAttachedFiles(files => files.filter((_, i) => i !== index))} className="shrink-0 rounded-lg p-2 text-rose-700 hover:bg-rose-100 disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>
+                </div>)}
+              </section>
 
               {/* Requester Signature Box (Drag and drop signature) */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
@@ -1613,6 +1494,10 @@ export const DarManagement: React.FC = () => {
                 />
               </div>
 
+              {isSubmittingDar && <div role="status" className="space-y-2 rounded-xl bg-indigo-50 p-3 text-sm text-indigo-900">
+                <p className="break-words">{darUploadProgress.message} — {darUploadProgress.percent}%</p>
+                <progress aria-label="ความคืบหน้าการส่ง DAR" max={100} value={darUploadProgress.percent} className="w-full" />
+              </div>}
               {formError && (
                 <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-xs">
                   {formError}
@@ -1623,7 +1508,7 @@ export const DarManagement: React.FC = () => {
                 <button
                   type="button"
                   id="btn-close-dar-create-footer"
-                  disabled={isSubmittingDar}
+                  disabled={isSubmittingDar || isReadingPdfs}
                   onClick={() => setIsCreateModalOpen(false)}
                   className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
                 >
@@ -1632,12 +1517,12 @@ export const DarManagement: React.FC = () => {
                 <button
                   type="submit"
                   id="btn-submit-dar"
-                  disabled={isSubmittingDar}
+                  disabled={isSubmittingDar || isReadingPdfs}
                   aria-busy={isSubmittingDar}
                   className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm flex items-center gap-1.5 cursor-pointer transition-all"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  {isSubmittingDar ? 'กำลังตรวจสิทธิ์และส่งใบ DAR...' : 'ยื่นใบขอดำเนินการ (Submit DAR)'}
+                  {isSubmittingDar ? `กำลังส่งใบ DAR (${darUploadProgress.percent}%)` : 'ยื่นใบขอดำเนินการ (Submit DAR)'}
                 </button>
               </div>
 
@@ -1711,4 +1596,5 @@ export const DarManagement: React.FC = () => {
     </div>
   );
 };
+
 

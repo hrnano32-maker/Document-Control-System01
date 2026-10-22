@@ -15,14 +15,16 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { deleteObject, getDownloadURL, ref, uploadBytes, uploadBytesResumable } from 'firebase/storage';
 import { auth, db, firebaseFunctions, storage } from '../lib/firebase';
-import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarRecord, DcsAnnouncement, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
+import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarCreateInput, DarRecord, DcsAnnouncement, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
 
 import { DEPARTMENTS } from '../types';
 import { hasDistributionAllocation, getDistributionDownloadAccess } from '../utils/distributionAccess';
 import { findExistingDistribution, canonicalDistributionDepartment } from '../utils/distributionReopen';
 import { getMasterRevisionHistory, revisionKey } from '../utils/masterRevisions';
+
+import { MAX_DAR_PDFS, formatPdfSize, validateDarPdf, getDarAttachments } from '../utils/darAttachments';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -332,24 +334,26 @@ const darSubmissionStep = async <T,>(stage: string, operation: () => Promise<T>)
   }
 };
 
-export const createDarRecord = async (user: CurrentUserSession, input: Omit<DarRecord, 'id' | 'requestDate' | 'status'>) => {
+export const createDarRecord = async (user: CurrentUserSession, input: DarCreateInput, onProgress?: (message: string, percent: number) => void) => {
   validateDarEffectiveDates(input);
   if (input.requestDept !== user.currentDept && user.userRole !== 'DCC_ADMIN') throw new Error('ไม่มีสิทธิ์สร้าง DAR แทนหน่วยงานอื่น');
   if (!input.requesterName?.trim() || !input.requesterSignature) throw new Error('ต้องระบุผู้ยื่นคำขอและลงลายเซ็นให้ครบก่อนส่ง DAR');
   if (!input.deptApproverName?.trim() || !input.deptApproverTitle?.trim() || !input.deptApproverDate || !input.deptApproverSignature) throw new Error('ต้องระบุชื่อ ตำแหน่ง วันที่ และลายเซ็นผู้อนุมัติในหน่วยงานให้ครบก่อนส่ง DAR');
   if (user.userRole !== 'DCC_ADMIN' && input.distributionHolders?.some(item => item.checked && ['QMR', 'Customer Rep'].includes(item.dept))) throw new Error('เฉพาะ DCC เท่านั้นที่เลือกแจกจ่ายให้ QMR และ Customer Rep ได้');
   if (!input.distributionHolders?.some(item => item.checked)) throw new Error('ต้องระบุหน่วยงานผู้รับเอกสารอย่างน้อย 1 หน่วยงาน');
-  if (!input.attachmentFileDataUrl || !input.attachmentFileName) throw new Error('ต้องแนบไฟล์ร่างเอกสารจริงก่อนส่ง DAR');
-  if (!input.attachmentFileName.toLowerCase().endsWith('.pdf') || input.attachmentFileType !== 'application/pdf' || !input.attachmentFileDataUrl.startsWith('data:application/pdf;base64,')) {
-    throw new Error('ใบ DAR แนบได้เฉพาะไฟล์ PDF จริงเท่านั้น');
+  const inputFiles = input.attachments ?? (input.attachmentFileDataUrl && input.attachmentFileName ? [{
+    name: input.attachmentFileName, size: input.attachmentFileSize || '', type: input.attachmentFileType || '', dataUrl: input.attachmentFileDataUrl,
+  }] : []);
+  if (!inputFiles.length || inputFiles.length > MAX_DAR_PDFS) throw new Error(`กรุณาแนบ PDF 1–${MAX_DAR_PDFS} ไฟล์ก่อนส่ง DAR`);
+  // Validate the entire selection before allocating a DAR number or uploading any file.
+  const files: Array<{ name: string; blob: Blob }> = [];
+  for (const file of inputFiles) {
+    const blob = 'file' in file && file.file ? file.file : file.dataUrl ? await dataUrlBlob(file.dataUrl) : null;
+    if (!blob) throw new Error(`${file.name}: ไม่พบเนื้อหาไฟล์ PDF`);
+    await validateDarPdf(blob, file.name, file.type);
+    files.push({ name: file.name, blob });
   }
-  const attachmentBlob = await dataUrlBlob(input.attachmentFileDataUrl);
-  const attachmentHeader = new Uint8Array(await attachmentBlob.slice(0, 5).arrayBuffer());
-  if (attachmentBlob.size >= 25 * 1024 * 1024 || attachmentHeader.length !== 5
-    || attachmentHeader[0] !== 0x25 || attachmentHeader[1] !== 0x50 || attachmentHeader[2] !== 0x44
-    || attachmentHeader[3] !== 0x46 || attachmentHeader[4] !== 0x2d) {
-    throw new Error('ไฟล์แนบไม่ใช่ PDF ที่ถูกต้อง หรือมีขนาดตั้งแต่ 25 MB ขึ้นไป');
-  }
+  onProgress?.('กำลังตรวจสิทธิ์ผู้ยื่นและออกเลขที่ DAR', 0);
   if (!auth.currentUser || auth.currentUser.uid !== user.uid) throw new Error('บัญชีเข้าสู่ระบบไม่ตรงกับหน้าฟอร์ม กรุณาเข้าสู่ระบบใหม่');
   const profileSnapshot = await darSubmissionStep('ตรวจสิทธิ์บัญชีผู้ยื่น', () => getDocFromServer(doc(db, 'users', user.uid)));
   if (!profileSnapshot.exists() || profileSnapshot.data().active !== true) throw new Error('บัญชียังไม่ได้รับอนุมัติหรือถูกปิดใช้งาน กรุณาติดต่อ DCC');
@@ -361,20 +365,35 @@ export const createDarRecord = async (user: CurrentUserSession, input: Omit<DarR
   const year = new Date().getFullYear();
   const id = `DAR-${year}-${String(seq).padStart(4, '0')}`;
   const createdAt = new Date().toISOString();
-  const record: DarRecord & { createdAt: string; attachmentStoragePath?: string } = clean({
-    ...input,
+  const { attachments: uploadInputs, attachmentFileDataUrl: legacyDataUrl, ...fields } = input;
+  const record: DarRecord & { createdAt: string; createdByUid: string } = clean({
+    ...fields,
+    attachments: [],
+    createdByUid: user.uid,
     id,
     requestDate: createdAt.slice(0, 10),
     status: 'PENDING_REVIEW',
     createdAt,
   });
-  const dataUrl = record.attachmentFileDataUrl;
-  delete record.attachmentFileDataUrl;
-  if (dataUrl && record.attachmentFileName) {
-    const path = `dcs/dar-attachments/${user.uid}/${id}/${safeName(record.attachmentFileName)}`;
-    await darSubmissionStep('อัปโหลดไฟล์ PDF', () => uploadBytes(ref(storage, path), attachmentBlob, { contentType: 'application/pdf' }));
-    record.attachmentStoragePath = path;
+  const totalBytes = files.reduce((sum, file) => sum + file.blob.size, 0);
+  let uploadedBytes = 0;
+  for (let index = 0; index < files.length; index++) {
+    const file = files[index];
+    // Index prefixes preserve same-named PDFs instead of overwriting an earlier file.
+    const path = `dcs/dar-attachments/${user.uid}/${id}/${String(index + 1).padStart(2, '0')}-${safeName(file.name)}`;
+    await darSubmissionStep(`อัปโหลด PDF ${index + 1}/${files.length}: ${file.name}`, () => new Promise<void>((resolve, reject) => {
+      const task = uploadBytesResumable(ref(storage, path), file.blob, { contentType: 'application/pdf' });
+      task.on('state_changed', snapshot => {
+        const percent = Math.min(95, Math.round((uploadedBytes + snapshot.bytesTransferred) / totalBytes * 95));
+        onProgress?.(`กำลังอัปโหลดไฟล์ ${index + 1}/${files.length}: ${file.name}`, percent);
+      }, reject, () => resolve());
+    }));
+    uploadedBytes += file.blob.size;
+    record.attachments!.push({ name: file.name, size: formatPdfSize(file.blob.size), type: 'application/pdf', storagePath: path });
   }
+  const first = record.attachments![0];
+  Object.assign(record, { attachmentFileName: first.name, attachmentFileSize: first.size, attachmentFileType: first.type, attachmentStoragePath: first.storagePath });
+  onProgress?.('อัปโหลดครบแล้ว กำลังบันทึกใบ DAR', 97);
   const auditRef = doc(collection(db, 'dcs_audit_logs'));
   const batch = writeBatch(db);
   batch.set(doc(db, 'dcs_dars', id), record);
@@ -384,6 +403,7 @@ export const createDarRecord = async (user: CurrentUserSession, input: Omit<DarR
     description: `สร้างคำขอ ${id} และส่งถึง DCC`, details: { darId: id },
   }));
   await darSubmissionStep('บันทึกใบ DAR และประวัติ', () => batch.commit());
+  onProgress?.('บันทึกใบ DAR และไฟล์แนบครบแล้ว', 100);
   return id;
 };
 
@@ -524,6 +544,9 @@ export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord
       fileName: currentDar.attachmentFileName,
       fileSize: currentDar.attachmentFileSize,
       fileType: currentDar.attachmentFileType,
+      fileNames: getDarAttachments(currentDar).map(file => file.name),
+      fileSizes: getDarAttachments(currentDar).map(file => file.size),
+      fileTypes: getDarAttachments(currentDar).map(file => file.type),
       revisionHistory: [
         ...history.filter(item => revisionKey(item.rev) !== revisionKey(revision)).map(item => ({ ...item, status: 'SUPERSEDED' as const })),
         { rev: revision, effectiveDate: currentDar.targetEffectiveDate || today, darNo: currentDar.id, reason: currentDar.reasonForChange, registeredBy: user.userName, registeredDate: today, status: currentDar.requestType === 'OBSOLETE' ? 'OBSOLETE' as const : 'ACTIVE' as const, controlledDriveLink: '' },
@@ -543,7 +566,7 @@ export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord
     const automatic = await httpsCallable<{ darId: string }, { distributionId?: string; existing?: boolean; skipped?: boolean }>(
       firebaseFunctions,
       'createAutomaticDistributionFromDar',
-      { timeout: 120000 },
+      { timeout: 540000 },
     )({ darId: dar.id });
     const distributionId = automatic.data.distributionId;
     if (distributionId) {
@@ -898,3 +921,19 @@ export const reviseMasterDocument = async (user: CurrentUserSession, master: Mas
   }
 };
 
+
+
+export const downloadDarAttachmentFromServer = async (darId: string, index: number): Promise<Blob> => {
+  if (!auth.currentUser) throw new Error('กรุณาเข้าสู่ระบบใหม่');
+  const token = await auth.currentUser.getIdToken();
+  const query = new URLSearchParams({ darId, index: String(index) });
+  const response = await fetch(`https://asia-southeast1-dar-online-form.cloudfunctions.net/downloadDarAttachmentFile?${query}`, {
+    headers: { Authorization: `Bearer ${token}` }, cache: 'no-store',
+  });
+  if (!response.ok) {
+    const error = await response.json().then(data => data.error).catch(() => 'DOWNLOAD_FAILED');
+    const messages: Record<string, string> = { FORBIDDEN: 'ไม่มีสิทธิ์เปิดไฟล์แนบของ DAR นี้', FILE_NOT_FOUND: 'ไม่พบไฟล์แนบในระบบ กรุณาติดต่อ DCC', DAR_NOT_FOUND: 'ไม่พบใบ DAR นี้', INACTIVE_USER: 'บัญชีไม่มีสิทธิ์ใช้งาน กรุณาติดต่อ DCC' };
+    throw new Error(messages[error] || 'ดาวน์โหลดไฟล์แนบ DAR ไม่สำเร็จ กรุณาลองใหม่');
+  }
+  return response.blob();
+};
