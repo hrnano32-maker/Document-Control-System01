@@ -85,6 +85,8 @@ export const DarManagement: React.FC = () => {
   const [correctionError, setCorrectionError] = useState('');
   const [savingCorrection, setSavingCorrection] = useState(false);
   const openDarCorrection = (dar: DarRecord) => {
+    // The details dialog may have been open while the live DAR list refreshed.
+    dar = dars.find(item => item.id === dar.id) || dar;
     if (!isDcc || dar.status === 'CANCELLED') return;
     setSelectedDarForPrint(null);
     setCorrectionRows((dar.additionalDocuments || []).map(row => ({ ...row })));
@@ -576,7 +578,7 @@ export const DarManagement: React.FC = () => {
       </div>}
 
       {editingDar && isDcc && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4">
+        <div role="dialog" aria-modal="true" aria-label={`DCC แก้ไขใบ DAR ${editingDar.id}`} className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4">
           <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-bold mb-2">DCC แก้ไขใบ DAR {editingDar.id}</h3>
             <p className="mb-4 text-sm text-amber-800">DCC สามารถแก้ไขวันที่และเหตุผลได้แม้อนุมัติแล้ว โดยระบบตรวจสอบวันที่และเก็บประวัติ</p>
@@ -588,7 +590,7 @@ export const DarManagement: React.FC = () => {
               ] as [keyof typeof correction, string][]).map(([key, label]) => (
                 <label key={key} className="block text-sm font-semibold">{label}
                   <input className="mt-1 w-full rounded-lg border p-2" type={String(key).toLowerCase().includes('date') ? 'date' : 'text'}
-                    disabled={savingCorrection || (correctionDetailsOnly && !['targetEffectiveDate', 'previousEffectiveDate'].includes(key))}
+                    disabled={savingCorrection || (correctionDetailsOnly && !['targetEffectiveDate', 'previousEffectiveDate'].includes(String(key)))}
                     value={correction[key]} onChange={e => setCorrection(prev => ({ ...prev, [key]: e.target.value }))} />
                 </label>
               ))}

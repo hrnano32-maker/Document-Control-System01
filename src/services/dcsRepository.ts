@@ -25,6 +25,7 @@ import { findExistingDistribution, canonicalDistributionDepartment } from '../ut
 import { getMasterRevisionHistory, revisionKey } from '../utils/masterRevisions';
 
 import { MAX_DAR_PDFS, formatPdfSize, validateDarPdf, getDarAttachments } from '../utils/darAttachments';
+import { DAR_CORRECTION_LABELS, sameDarCorrectionValue } from '../utils/darCorrection';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -436,7 +437,7 @@ export const correctDarRecord = async (
   if (detailsOnly) {
     // Keep identity fields byte-for-byte; legacy names may contain spaces or lowercase.
     for (const key of ['docNo', 'docNameTh', 'docNameEn', 'currentRevision', 'proposedRevision', 'additionalDocuments'] as const) {
-      if (JSON.stringify(updates[key] ?? (key === 'additionalDocuments' ? [] : '')) !== JSON.stringify(dar[key] ?? (key === 'additionalDocuments' ? [] : ''))) {
+      if (!sameDarCorrectionValue(key, updates[key], dar[key])) {
         throw new Error('DAR ที่อนุมัติแล้วแก้ไขได้เฉพาะวันที่และเหตุผล');
       }
     }
@@ -445,13 +446,14 @@ export const correctDarRecord = async (
       currentRevision: dar.currentRevision, proposedRevision: dar.proposedRevision,
       additionalDocuments: dar.additionalDocuments || [],
     });
-  } else {
-    if (!corrected.docNo || !corrected.docNameTh) throw new Error('กรุณาระบุรหัสและชื่อเอกสาร');
-    if (!corrected.currentRevision || !corrected.proposedRevision) throw new Error('กรุณาระบุ Revision ให้ครบ');
-    if (corrected.additionalDocuments.length > 5 || corrected.additionalDocuments.some(row => !row.docNo || !row.docNameTh || !row.revision || !row.reason)) throw new Error('กรุณากรอกข้อมูลรายการเพิ่มเติมให้ครบ และไม่เกิน 5 รายการ');
   }
-  if (!corrected.reasonForChange) throw new Error('กรุณาระบุเหตุผลการดำเนินการ');
-  validateDarEffectiveDates({ ...dar, ...corrected });
+  // Only fields the editor changed belong in this correction. Unrelated live
+  // updates must neither block the save nor be overwritten by the older form.
+  const editedKeys = (Object.keys(corrected) as (keyof typeof corrected)[]).filter(key =>
+    !sameDarCorrectionValue(key, updates[key], dar[key])
+    && !sameDarCorrectionValue(key, corrected[key], dar[key]),
+  );
+  if (!editedKeys.length) throw new Error('ไม่มีข้อมูลที่เปลี่ยนแปลง');
   const darRef = doc(db, 'dcs_dars', dar.id);
   const auditRef = doc(collection(db, 'dcs_audit_logs'));
   await runTransaction(db, async tx => {
@@ -461,22 +463,36 @@ export const correctDarRecord = async (
     if (latest.status !== dar.status || latest.status === 'CANCELLED') {
       throw new Error('สถานะ DAR เปลี่ยนแล้ว กรุณารีเฟรช');
     }
-    for (const key of [...Object.keys(corrected), 'requestType'] as (keyof DarRecord)[]) {
-      if (JSON.stringify(latest[key] ?? '') !== JSON.stringify(dar[key] ?? '')) throw new Error('ใบ DAR ถูกแก้ไขจากหน้าจออื่นแล้ว กรุณาปิดและเปิดใหม่ก่อนบันทึก');
+    if (latest.requestType !== dar.requestType) throw new Error('ประเภทคำขอ DAR เปลี่ยนแล้ว กรุณาปิดและเปิดใหม่ก่อนบันทึก');
+    const conflicts = editedKeys.filter(key =>
+      !sameDarCorrectionValue(key, latest[key], dar[key])
+      && !sameDarCorrectionValue(key, latest[key], corrected[key]),
+    );
+    if (conflicts.length) {
+      throw new Error(`ข้อมูลที่กำลังแก้ไขถูกเปลี่ยนจากหน้าจออื่น: ${conflicts.map(key => DAR_CORRECTION_LABELS[key]).join(', ')} กรุณาปิดและเปิดใบ DAR ใหม่เพื่อตรวจสอบก่อนบันทึก`);
     }
-    validateDarEffectiveDates({ ...latest, ...corrected });
     const changes: Record<string, { before: unknown; after: unknown }> = {};
-    for (const key of Object.keys(corrected) as (keyof typeof corrected)[]) {
-      if (JSON.stringify(latest[key] ?? '') !== JSON.stringify(corrected[key])) changes[key] = { before: latest[key] ?? '', after: corrected[key] };
+    for (const key of editedKeys) {
+      if (!sameDarCorrectionValue(key, latest[key], corrected[key])) changes[key] = { before: latest[key] ?? (key === 'additionalDocuments' ? [] : ''), after: corrected[key] };
     }
-    if (!Object.keys(changes).length) throw new Error('ไม่มีข้อมูลที่เปลี่ยนแปลง');
-    const now = new Date().toISOString();
+    // A transaction retry may observe that the same correction is already saved.
+    if (!Object.keys(changes).length) return;
     const changedFields = Object.fromEntries(Object.entries(changes).map(([key, value]) => [key, value.after]));
+    const merged = { ...latest, ...changedFields } as DarRecord;
+    if (!detailsOnly) {
+      if (!merged.docNo || !merged.docNameTh) throw new Error('กรุณาระบุรหัสและชื่อเอกสาร');
+      if (!merged.currentRevision || !merged.proposedRevision) throw new Error('กรุณาระบุ Revision ให้ครบ');
+      const rows = merged.additionalDocuments || [];
+      if (rows.length > 5 || rows.some(row => !row.docNo || !row.docNameTh || !row.revision || !row.reason)) throw new Error('กรุณากรอกข้อมูลรายการเพิ่มเติมให้ครบ และไม่เกิน 5 รายการ');
+    }
+    if (!merged.reasonForChange) throw new Error('กรุณาระบุเหตุผลการดำเนินการ');
+    validateDarEffectiveDates(merged);
+    const now = new Date().toISOString();
     tx.update(darRef, clean({ ...changedFields, updatedAt: now }));
     tx.set(auditRef, clean({
       id: auditRef.id, timestamp: now, createdAt: now, ...actorFields(user),
-      actionType: 'DAR_REVIEWED', docNo: corrected.docNo,
-      revision: latest.proposedRevision,
+      actionType: 'DAR_REVIEWED', docNo: merged.docNo,
+      revision: merged.proposedRevision,
       description: `DCC แก้ไขข้อมูลใบ DAR ${dar.id}: ${correctionReason.trim()}`,
       details: { darId: dar.id, correctionReason: correctionReason.trim(), changes },
     }));
