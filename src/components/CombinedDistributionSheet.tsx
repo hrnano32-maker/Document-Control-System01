@@ -15,8 +15,9 @@ interface Props {
   onClose: () => void;
   onEdit?: (record: DistributionRecord) => void;
 }
-const dateText = (date?: string) => {
+const dateText = (date?: string, localTime = false) => {
   if (!date) return '';
+  if (localTime && date.includes('T') && Number.isFinite(Date.parse(date))) return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok' }).format(new Date(date));
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
   return match ? `${match[3]}/${match[2]}/${match[1]}` : date;
 };
@@ -81,8 +82,8 @@ export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit
           </div>
         </div>
         <div className="print:hidden border-b bg-indigo-50 px-4 py-3 text-sm text-indigo-950">
-          แสดงเฉพาะหน่วยงานที่เซ็นรับแล้ว {departments.length} หน่วยงาน · ใช้หลักฐานการรับครั้งแรกของแต่ละหน่วยงานใน DAR นี้
-          {rows.length === 0 && <p className="mt-1 font-bold text-amber-800">ยังไม่มีรายการเซ็นรับเอกสารสำหรับ DAR นี้</p>}
+          แสดงเฉพาะหน่วยงานที่มีลายเซ็นรับหรือคืน {departments.length} หน่วยงาน · ใช้หลักฐานการรับครั้งแรกของแต่ละหน่วยงานใน DAR นี้
+          {rows.length === 0 && <p className="mt-1 font-bold text-amber-800">ยังไม่มีรายการเซ็นรับหรือคืนเอกสารสำหรับ DAR นี้</p>}
           {loading && <p role="status" className="mt-1">กำลังเตรียมลายเซ็นสำหรับพิมพ์…</p>}
           {error && <p role="alert" className="mt-1 text-red-700">{error} <button onClick={() => setAttempt(value => value + 1)} className="font-bold underline">ลองใหม่</button></p>}
           {onEdit && <div className="mt-2 flex flex-wrap gap-2">{records.map(record => <button key={record.id} onClick={() => onEdit(record)} className="rounded border border-indigo-300 bg-white px-2 py-1">แก้ไขข้อมูล {record.docNo}</button>)}</div>}
@@ -138,15 +139,15 @@ export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit
                   <td className="border-r border-black p-1 text-center font-medium text-[12px] align-middle">{index + 1}</td>
                   <td className="border-r border-black p-1 text-left align-middle"><span className="px-1 text-[12px] font-medium text-black">{department}</span></td>
                   <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} className="receipt-evidence flex min-h-[28px] items-center justify-center text-[12px] font-mono font-bold">{row.copies}</div>)}</td>
-                  <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} data-receipt-signature="true" className="receipt-evidence flex min-h-[28px] items-center justify-center">{signature(row.receipt?.signatureStoragePath) || <span className="text-[11px] text-slate-400">{loading ? 'กำลังโหลดลายเซ็น…' : 'โหลดลายเซ็นไม่สำเร็จ'}</span>}</div>)}</td>
+                  <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} data-receipt-signature="true" className="receipt-evidence flex min-h-[28px] items-center justify-center">{signature(row.receipt?.signatureStoragePath) || (row.receipt && <span className="text-[11px] text-slate-400">{loading ? 'กำลังโหลดลายเซ็น…' : 'โหลดลายเซ็นไม่สำเร็จ'}</span>)}</div>)}</td>
                   <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} data-receipt-date="true" className="receipt-evidence flex min-h-[28px] items-center justify-center text-[11px] font-mono">{dateText(row.receipt?.downloadedAt)}</div>)}</td>
                   <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} className="receipt-evidence flex min-h-[28px] items-center justify-center">{signature(row.returnSignatureStoragePath)}</div>)}</td>
-                  <td className="p-1 text-center align-middle">{evidence.map(row => <div key={row.key} className="receipt-evidence flex min-h-[28px] items-center justify-center text-[11px] font-mono">{dateText(row.returnDate)}</div>)}</td>
+                  <td className="p-1 text-center align-middle">{evidence.map(row => <div key={row.key} className="receipt-evidence flex min-h-[28px] items-center justify-center text-[11px] font-mono">{dateText(row.returnDate, true)}</div>)}</td>
                 </tr>)}</tbody>
               </table>
             </div>
             <div className="flex justify-between items-center text-[11px] font-mono text-black font-semibold pt-1">
-              <span className="text-slate-500 font-normal">* แสดงเฉพาะหน่วยงานที่เซ็นรับแล้ว ตามใบ DAR ({darId})</span>
+              <span className="text-slate-500 font-normal">* แสดงเฉพาะหน่วยงานที่มีลายเซ็นรับหรือคืน ตามใบ DAR ({darId})</span>
               <span>{COMPANY.distributionFormCode}</span>
             </div>
           </div>

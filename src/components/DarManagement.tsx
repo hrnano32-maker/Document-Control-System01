@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { MAX_DAR_PDFS, formatPdfSize, validateDarPdf, getDarAttachments, saveDownloadedBlob } from '../utils/darAttachments';
+import { revisionKey } from '../utils/masterRevisions';
 import { DarPrintModal } from './DarPrintModal';
 import { DarLivePreview } from './DarLivePreview';
 import { analyzeRevisionSequence, getNextRevision, formatRevision } from '../utils/revisionHelper';
@@ -147,6 +148,12 @@ export const DarManagement: React.FC = () => {
 
   // File Upload State in DAR Creation
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [previousFiles, setPreviousFiles] = useState<File[]>([]);
+  const [useMasterPrevious, setUseMasterPrevious] = useState(true);
+  const previousMaster = documents.find(item => item.docNo.trim().toUpperCase() === docNo.trim().toUpperCase() && revisionKey(item.currentRevision) === revisionKey(currentRevision));
+  const masterPreviousPaths = previousMaster?.currentFileStoragePaths?.length ? previousMaster.currentFileStoragePaths : [previousMaster?.currentFileStoragePath].filter(Boolean);
+  const previousCount = previousFiles.length + (useMasterPrevious ? masterPreviousPaths.length : 0);
+  useEffect(() => { setPreviousFiles([]); setUseMasterPrevious(true); }, [docNo, currentRevision, reqType]);
   const [isReadingPdfs, setIsReadingPdfs] = useState(false);
   const readingPdfs = useRef(false);
   const [requesterSignature, setRequesterSignature] = useState<string | undefined>(undefined);
@@ -156,16 +163,17 @@ export const DarManagement: React.FC = () => {
   const [deptApproverSignature, setDeptApproverSignature] = useState<string | undefined>(undefined);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
-  const handleDarAttachments = async (files: File[]) => {
+  const handleDarAttachments = async (files: File[], previous = false) => {
     if (!files.length || readingPdfs.current || submitInFlight.current) return;
     setFormError('');
-    if (attachedFiles.length + files.length > MAX_DAR_PDFS) {
+    if ((previous ? previousCount : attachedFiles.length) + files.length > MAX_DAR_PDFS) {
       setFormError(`แนบได้สูงสุด ${MAX_DAR_PDFS} ไฟล์ต่อใบ DAR`); return;
     }
     readingPdfs.current = true; setIsReadingPdfs(true);
     try {
       for (const file of files) await validateDarPdf(file, file.name);
-      setAttachedFiles(previous => [...previous, ...files]);
+      if (previous) setPreviousFiles(current => [...current, ...files]);
+      else setAttachedFiles(current => [...current, ...files]);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'อ่านไฟล์ PDF ไม่สำเร็จ');
     } finally { readingPdfs.current = false; setIsReadingPdfs(false); }
@@ -187,26 +195,26 @@ export const DarManagement: React.FC = () => {
   const isDcc = currentUser.userRole === 'DCC_ADMIN';
   const isDccOnlyRecipient = (dept: Department) => dept === 'QMR' || dept === 'Customer Rep';
 
-  const handleDownloadDarDraft = async (dar: DarRecord, index?: number) => {
-    const files = getDarAttachments(dar);
+  const handleDownloadDarDraft = async (dar: DarRecord, index?: number, group: 'new' | 'previous' = 'new') => {
+    const files = group === 'previous' ? dar.previousRevision?.attachments || [] : getDarAttachments(dar);
     if (index === undefined && files.length > 1) { setAttachmentDar(dar); return; }
     if (downloadingDarId) return;
     const file = files[index ?? 0];
     if (!file) { alert('DAR นี้ไม่มีไฟล์แนบในระบบ'); return; }
     setDownloadingDarId(dar.id);
-    try { saveDownloadedBlob(await downloadDarAttachmentFromServer(dar.id, index ?? 0), file.name); }
+    try { saveDownloadedBlob(await downloadDarAttachmentFromServer(dar.id, index ?? 0, group), file.name); }
     catch (error) { alert(error instanceof Error ? error.message : 'ดาวน์โหลดไฟล์แนบไม่สำเร็จ'); }
     finally { setDownloadingDarId(null); }
   };
 
-  const openDarAttachment = (dar: DarRecord, index?: number) => {
-    const files = getDarAttachments(dar);
+  const openDarAttachment = (dar: DarRecord, index?: number, group: 'new' | 'previous' = 'new') => {
+    const files = group === 'previous' ? dar.previousRevision?.attachments || [] : getDarAttachments(dar);
     if (index === undefined && files.length > 1) { setAttachmentDar(dar); return; }
     const file = files[index ?? 0];
     if (!file) { alert('DAR นี้ไม่มีไฟล์แนบในระบบ'); return; }
     setAttachmentDar(null);
-    openDocumentViewer({ title: dar.docNameTh, docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn, docType: dar.docType, revision: dar.proposedRevision, dept: dar.requestDept,
-      fileName: file.name, fileSize: file.size, fileType: file.type, fileStoragePath: file.storagePath, darId: dar.id, darAttachmentIndex: index ?? 0,
+    openDocumentViewer({ title: dar.docNameTh, docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn, docType: dar.docType, revision: group === 'previous' ? dar.previousRevision!.revision : dar.proposedRevision, dept: dar.requestDept,
+      fileName: file.name, fileSize: file.size, fileType: file.type, fileStoragePath: file.storagePath, darId: dar.id, darAttachmentIndex: index ?? 0, darAttachmentGroup: group,
       reasonForChange: dar.reasonForChange, changeDetails: dar.changeDetails, isoClause: dar.isoClause });
   };
 
@@ -219,6 +227,15 @@ export const DarManagement: React.FC = () => {
         <button type="button" disabled={downloadingDarId !== null} onClick={() => handleDownloadDarDraft(dar, index)} className="rounded-lg bg-indigo-600 px-3 py-2 font-semibold text-white disabled:opacity-50">{downloadingDarId === dar.id ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลด'}</button>
       </div>
     </div>)}
+    {dar.previousRevision && <div className="mt-4 space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm" data-previous-pdfs>
+      <h4 className="font-bold text-amber-950">ฉบับเดิมสำหรับคืน/เลิกใช้ — Rev.{dar.previousRevision.revision}</h4>
+      <p>เก็บไว้เพื่อตรวจสอบประวัติ ไม่ใช่ไฟล์สำหรับแจกจ่ายฉบับใหม่</p>
+      {dar.previousRevision.attachments.map((file, index) => <div key={file.storagePath} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white p-2">
+        <span className="min-w-0 flex-1 break-all">{index + 1}. {file.name} ({file.size})</span>
+        <button type="button" onClick={() => openDarAttachment(dar, index, 'previous')} className="rounded-lg border px-3 py-2">เปิดดูฉบับเดิม</button>
+        <button type="button" disabled={downloadingDarId !== null} onClick={() => handleDownloadDarDraft(dar, index, 'previous')} className="rounded-lg border px-3 py-2 disabled:opacity-50">ดาวน์โหลดฉบับเดิม</button>
+      </div>)}
+    </div>}
     {!getDarAttachments(dar).length && <p className="text-sm text-slate-600">ไม่มีไฟล์แนบในระบบ</p>}
   </div>;
 
@@ -318,6 +335,7 @@ export const DarManagement: React.FC = () => {
       return;
     }
 
+    if (reqType === 'REVISION' && (!previousCount || previousCount > MAX_DAR_PDFS)) { setFormError('กรุณาเลือกหรือแนบ PDF ฉบับเดิม 1–20 ไฟล์'); return; }
     submitInFlight.current = true;
     setIsSubmittingDar(true);
     setDarUploadProgress({ message: 'กำลังตรวจสอบไฟล์ PDF', percent: 0 });
@@ -344,6 +362,8 @@ export const DarManagement: React.FC = () => {
       systemCurrentRevision: revAnalysis.systemCurrentRev || undefined,
       isoClause: isoClause.trim(),
       attachments: attachedFiles.map(file => ({ name: file.name, size: formatPdfSize(file.size), type: 'application/pdf', file })),
+      previousAttachments: reqType === 'REVISION' ? previousFiles.map(file => ({ name: file.name, size: formatPdfSize(file.size), type: 'application/pdf', file })) : undefined,
+      useMasterPrevious: useMasterPrevious && masterPreviousPaths.length > 0,
       requesterSignature: requesterSignature,
       deptApproverName: deptApproverName.trim(),
       deptApproverTitle: deptApproverTitle.trim(),
@@ -367,6 +387,7 @@ export const DarManagement: React.FC = () => {
 
     setIsCreateModalOpen(false);
     setAttachedFiles([]);
+    setPreviousFiles([]);
   };
 
   const handleRegisterToMasterList = async (darId: string) => {
@@ -1246,7 +1267,7 @@ export const DarManagement: React.FC = () => {
 
               <section className="space-y-3" aria-label="ไฟล์ PDF แนบใบ DAR">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <h4 className="font-bold text-slate-800">ไฟล์แนบ PDF <span className="text-rose-600">*</span></h4>
+                  <h4 className="font-bold text-slate-800">ไฟล์ฉบับใหม่ PDF <span className="text-rose-600">*</span></h4>
                   <span className="text-slate-600">{attachedFiles.length}/{MAX_DAR_PDFS} ไฟล์ · ไฟล์ละน้อยกว่า 25 MB</span>
                 </div>
                 <div onDragOver={e => { e.preventDefault(); setIsDraggingFile(true); }} onDragLeave={() => setIsDraggingFile(false)}
@@ -1263,6 +1284,20 @@ export const DarManagement: React.FC = () => {
                   <button type="button" disabled={isReadingPdfs || isSubmittingDar} aria-label={`ลบไฟล์แนบ ${index + 1}: ${file.name}`} onClick={() => setAttachedFiles(files => files.filter((_, i) => i !== index))} className="shrink-0 rounded-lg p-2 text-rose-700 hover:bg-rose-100 disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>
                 </div>)}
               </section>
+
+              {reqType === 'REVISION' && <section className="space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm" aria-label="เอกสาร Rev. ก่อนหน้า">
+                <h4 className="font-bold text-amber-950">เอกสาร Rev. ก่อนหน้า สำหรับคืน/เลิกใช้ <span className="text-rose-600">*</span></h4>
+                <p>{docNo || 'กรอกรหัสเอกสารก่อน'} · Rev.{currentRevision || '—'} · {previousCount}/{MAX_DAR_PDFS} ไฟล์</p>
+                {masterPreviousPaths.length > 0 ? <div className="space-y-2">
+                  <label className="flex items-start gap-2"><input type="checkbox" checked={useMasterPrevious} disabled={isSubmittingDar || isReadingPdfs} onChange={e => setUseMasterPrevious(e.target.checked)} className="mt-1"/>ใช้ไฟล์ฉบับเดิมจาก Master List อัตโนมัติ</label>
+                  {useMasterPrevious && <ul className="list-disc space-y-1 pl-5">{masterPreviousPaths.map((path, index) => <li key={path} className="break-all">{previousMaster?.fileNames?.[index] || (index === 0 && previousMaster?.fileName) || `ฉบับเดิม ไฟล์ที่ ${index + 1}`}</li>)}</ul>}
+                </div> : <p>ไม่พบไฟล์ฉบับเดิมของ Rev. นี้ใน Master List กรุณาแนบ PDF ฉบับเดิมจากเครื่อง</p>}
+                <label className="block space-y-2"><span>แนบ PDF ฉบับเดิมเพิ่มเติม (เลือกหลายไฟล์ได้ · ไฟล์ละน้อยกว่า 25 MB)</span>
+                  <input aria-label="เลือกไฟล์ PDF ฉบับเดิม" type="file" multiple accept="application/pdf,.pdf" disabled={isReadingPdfs || isSubmittingDar} className="block max-w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-amber-700 file:px-3 file:py-2 file:text-white" onChange={e => { const files = Array.from(e.currentTarget.files || []) as File[]; e.currentTarget.value = ''; void handleDarAttachments(files, true); }}/>
+                </label>
+                {previousFiles.map((file, index) => <div key={`${index}-${file.name}`} className="flex items-center justify-between gap-3 rounded-lg bg-white p-3"><span className="min-w-0 break-all">{file.name} ({formatPdfSize(file.size)})</span><button type="button" aria-label={`ลบไฟล์ฉบับเดิม ${index + 1}`} disabled={isReadingPdfs || isSubmittingDar} onClick={() => setPreviousFiles(files => files.filter((_, i) => i !== index))} className="shrink-0 rounded-lg px-3 py-2 text-rose-700">ลบ</button></div>)}
+                <p className="text-amber-900">ระบบเก็บฉบับเดิมแยกจากฉบับใหม่ เมื่อแจกจ่ายฉบับใหม่ ผู้ที่เคยรับฉบับเดิมจะมีรายการยืนยันคืน/เลิกใช้ในหน้าการแจกจ่าย</p>
+              </section>}
 
               {/* Requester Signature Box (Drag and drop signature) */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">

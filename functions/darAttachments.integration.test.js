@@ -36,20 +36,22 @@ async function setup(count = 2, legacy = false) {
     loadPdf: async path => PDFDocument.load(files.get(path)), savePdf: async (pdf, path) => bucket.file(path).save(await pdf.save()), notifyDistributionReady: async () => {},
     HttpsError: class extends Error { constructor(code, message) { super(message); this.code = code; } }, console,
   };
+  context.revisionWorkflow = { ensureReturnsForDistribution: async () => {}, cancelReturns: async () => {} };
+  context.isPreviousPath = require('./darRevisionWorkflow').isPreviousPath;
   vm.createContext(context);
   for (const [startText, endText] of [['exports.createAutomaticDistributionFromDar =', '\n// Re-issuing'], ['exports.stampControlledCopies =', '\nexports.createAutomaticDistributionFromDar'], ['exports.deleteDarDraft =', '\nasync function requireDcc'], ['exports.downloadDarAttachmentFile =', null]]) {
     const start = source.indexOf(startText), end = endText ? source.indexOf(endText, start) : source.length;
     vm.runInContext(source.slice(start, end), context);
   }
   const invoke = () => context.exports.createAutomaticDistributionFromDar({ auth: { uid: 'dcc' }, data: { darId } });
-  const download = async (uid, index) => {
+  const download = async (uid, index, group = 'new') => {
     let bytes = Buffer.alloc(0), code = 200, payload; const headers = {};
     const response = new Writable({ write(chunk, _, done) { bytes = Buffer.concat([bytes, chunk]); done(); } });
     response.set = (key, value) => { headers[key] = value; return response; }; response.status = value => { code = value; return response; }; response.json = value => { payload = value; return response; };
-    await context.exports.downloadDarAttachmentFile({ method: 'GET', query: { darId, index: String(index) }, get: () => 'Bearer ' + uid }, response);
+    await context.exports.downloadDarAttachmentFile({ method: 'GET', query: { darId, index: String(index), group }, get: () => 'Bearer ' + uid }, response);
     return { bytes, code, payload, headers };
   };
-  return { dar, attachments, records, files, copied, invoke, download, handlers: context.exports };
+  return { dar, attachments, records, files, copied, invoke, download, workflow: context.revisionWorkflow, handlers: context.exports };
 }
 test('multiple PDF sources produce one distribution, all stamped department files and all clean originals', async () => {
   const h = await setup(); const result = await h.invoke();
@@ -101,4 +103,27 @@ test('deleting an unapproved DAR deletes all its attachments and retains unrelat
   await h.handlers.deleteDarDraft({ auth: { uid: 'hr' }, data: { darId: h.dar.id } });
   for (const file of h.attachments) assert.equal(h.files.has(file.storagePath), false);
   assert.equal(h.files.has('unrelated.pdf'), true); assert.equal(h.records.has('dcs_dars/' + h.dar.id), false);
+});
+
+test('previous PDFs download exact snapshot bytes for authorized DAR readers and are removed with an unapproved DAR', async () => {
+  const h = await setup(), darId = h.dar.id;
+  const path = `dcs/dar-previous/hr/${darId}/previous.pdf`;
+  const bytes = Buffer.from(h.files.get(h.attachments[0].storagePath)); h.files.set(path, bytes);
+  h.dar.previousRevision = { revision: '00', attachments: [{ name: 'previous.pdf', type: 'application/pdf', storagePath: path }] };
+  assert.deepEqual((await h.download('hr', 0, 'previous')).bytes, bytes);
+  assert.deepEqual((await h.download('dcc', 0, 'previous')).bytes, bytes);
+  assert.equal((await h.download('qa', 0, 'previous')).code, 403);
+  const goodPath = path; h.dar.previousRevision.attachments[0].storagePath = 'dcs/dar-previous/hr/OTHER/previous.pdf';
+  assert.equal((await h.download('hr', 0, 'previous')).code, 404);
+  h.dar.previousRevision.attachments[0].storagePath = goodPath; h.dar.status = 'PENDING_REVIEW';
+  await h.handlers.deleteDarDraft({ auth: { uid: 'hr' }, data: { darId } });
+  assert.ok(!h.files.has(path));
+});
+
+test('recall reconciliation failure cannot invalidate completed PDF distribution', async () => {
+  const h=await setup();const result=await h.invoke();
+  h.workflow.ensureReturnsForDistribution=async()=>{throw Error('temporary recall query failure')};
+  await h.handlers.stampControlledCopies({auth:{uid:'dcc'},data:{distributionId:result.distributionId}});
+  const data=h.records.get('dcs_distributions/'+result.distributionId);
+  assert.equal(data.stampStatus,'COMPLETED');assert.equal(data.storageStatus,'AVAILABLE');assert.ok(h.files.has(data.departmentFileLists.HR[0]));
 });

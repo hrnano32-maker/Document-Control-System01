@@ -89,12 +89,34 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Server manifest: uid string and previous immutable PDF metadata.
+    // Returns: department, parent DAR/distribution, revisions and server-confirmed evidence.
+    function previousFilesPrepared(id, data) {
+      let prepared = get(/databases/$(database)/documents/dcs_dar_previous_files/$(id)).data;
+      return prepared.uid == request.auth.uid
+        && data.previousRevision == prepared.previous
+        && data.docNo == prepared.previous.docNo
+        && data.currentRevision == prepared.previous.revision;
+    }
+    function previousFilesUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['previousRevision'])
+        && (!('previousRevision' in resource.data) || (request.resource.data.docNo == resource.data.docNo && request.resource.data.currentRevision == resource.data.currentRevision));
+    }
+    match /dcs_dar_previous_files/{id} {
+      allow read, write: if false;
+    }
+    match /dcs_document_returns/{id} {
+      allow read: if isDcc() || sameDepartment(resource.data.dept) || (activeUser() && resource.data.dept == 'QA/QC' && profile().department in ['QA', 'QC']);
+      allow write: if false;
+    }
+
     match /dcs_dars/{id} {
       allow read: if isDcc() || sameDepartment(resource.data.requestDept);
       allow create: if activeUser()
         && (isDcc() || sameDepartment(request.resource.data.requestDept))
         && (isDcc() || departmentHoldersAllowed(request.resource.data.distributionHolders))
         && request.resource.data.status == 'PENDING_REVIEW'
+        && (request.resource.data.requestType == 'REVISION' ? previousFilesPrepared(id, request.resource.data) : !('previousRevision' in request.resource.data))
         && darEffectiveDatesAllowed(request.resource.data)
         && request.resource.data.requesterName is string
         && request.resource.data.requesterName.size() > 0
@@ -107,7 +129,7 @@ service cloud.firestore {
         && request.resource.data.deptApproverDate is string
         && request.resource.data.deptApproverSignature is string
         && request.resource.data.deptApproverSignature.size() > 0;
-      allow update: if (isDcc() && (
+      allow update: if previousFilesUnchanged() && ((isDcc() && (
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'requestType', 'targetEffectiveDate', 'previousEffectiveDate', 'additionalDocuments'
         ]) || darEffectiveDatesAllowed(request.resource.data)
@@ -122,7 +144,7 @@ service cloud.firestore {
           'requesterSignature', 'deptApproverName', 'deptApproverTitle', 'deptApproverDate',
           'deptApproverSignature', 'reviewItems', 'distributionHolders', 'updatedAt'
         ])
-      );
+      ));
       allow delete: if false;
     }
 

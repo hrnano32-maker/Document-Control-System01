@@ -55,6 +55,15 @@ export const DocumentViewerModal: React.FC = () => {
   useEffect(() => {
     setResolvedFileUrl('');
     setFileError('');
+    if (selectedDocumentForView?.darAttachmentGroup === 'previous' && selectedDocumentForView.darId) {
+      let disposed = false, objectUrl = '';
+      setFileLoading(true);
+      void downloadDarAttachmentFromServer(selectedDocumentForView.darId, selectedDocumentForView.darAttachmentIndex ?? 0, 'previous').then(blob => {
+        if (disposed) return;
+        objectUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' })); setResolvedFileUrl(objectUrl);
+      }).catch(error => { if (!disposed) setFileError(error.message); }).finally(() => { if (!disposed) setFileLoading(false); });
+      return () => { disposed = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+    }
     if (selectedDocumentForView?.fileStoragePath) {
       setFileLoading(true);
       void getStorageFileUrl(selectedDocumentForView.fileStoragePath)
@@ -83,7 +92,7 @@ export const DocumentViewerModal: React.FC = () => {
     if (doc.darId) {
       if (fileLoading) return;
       setFileLoading(true); setFileError('');
-      try { saveDownloadedBlob(await downloadDarAttachmentFromServer(doc.darId, doc.darAttachmentIndex ?? 0), doc.fileName || 'document.pdf'); }
+      try { saveDownloadedBlob(await downloadDarAttachmentFromServer(doc.darId, doc.darAttachmentIndex ?? 0, doc.darAttachmentGroup), doc.fileName || 'document.pdf'); }
       catch (error) { setFileError(error instanceof Error ? error.message : 'ดาวน์โหลดไฟล์แนบ DAR ไม่สำเร็จ'); }
       finally { setFileLoading(false); }
       return;

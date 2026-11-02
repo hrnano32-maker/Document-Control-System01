@@ -20,12 +20,12 @@ test('saved arrays win over compatibility fields and old single-file DARs still 
 });
 
 async function repository() {
-  const h = { records: {} as Record<string, any>, uploads: [] as any[], failAt: 0, profile: { active: true, department: 'HR', role: 'STAFF' } };
+  const h = { records: {} as Record<string, any>, uploads: [] as any[], calls: [] as any[], failPrepare: false, failAt: 0, profile: { active: true, department: 'HR', role: 'STAFF' } };
   const firestore = `const h=globalThis.__h; export const collection=(_,name)=>({name}); export const doc=(db,name,id)=>({name:id?name:db.name,id:id||name||'audit'}); const snap=r=>({exists:()=>true,data:()=>r.name==='users'?h.profile:h.records[r.name+'/'+r.id]}); export const getDocFromServer=async r=>snap(r); export const runTransaction=async(_,cb)=>cb({get:async r=>snap(r),set:(r,v)=>h.records[r.name+'/'+r.id]=v}); export const writeBatch=()=>{const rows=[];return {set:(r,v)=>rows.push([r,v]),commit:async()=>{for(const[r,v]of rows)h.records[r.name+'/'+r.id]=v;}}}; export const getDoc=async()=>{};export const getDocs=async()=>{};export const onSnapshot=()=>()=>{};export const orderBy=()=>{};export const query=()=>{};export const where=()=>{};export const setDoc=()=>{};export const Timestamp={};export const updateDoc=()=>{};`;
   const mocks: Record<string, string> = {
     firestore,
     storage: `const h=globalThis.__h;export const ref=(_,path)=>path;export const uploadBytesResumable=(path,blob,metadata)=>({on:(_,progress,error,done)=>{if(h.failAt===h.uploads.length+1){error(new Error('Upload failed'));return;}h.uploads.push({path,blob,metadata});progress({bytesTransferred:blob.size});done();}});export const deleteObject=()=>{};export const getDownloadURL=()=>{};export const uploadBytes=()=>{};export const getBlob=()=>{};`,
-    functions: `export const httpsCallable=()=>()=>{};`,
+    functions: `const h=globalThis.__h; export const httpsCallable=(_,name)=>async data=>{h.calls.push({name,data});if(h.failPrepare)throw new Error('Previous PDF unavailable');return {data:{docNo:data.docNo,revision:data.revision,sourceDocumentId:data.docNo,capturedAt:new Date().toISOString(),docNameTh:'',attachments:data.uploadedAttachments.map((file,i)=>({...file,storagePath:'dcs/dar-previous/hr/'+data.darId+'/'+i+'.pdf',source:'UPLOAD'}))}};};`,
     firebase: `export const db={};export const storage={};export const firebaseFunctions={};export const auth={currentUser:{uid:'hr',getIdToken:async()=> 'test-token'}};`,
   };
   const bundle = await build({ entryPoints: ['src/services/dcsRepository.ts'], bundle: true, platform: 'node', format: 'cjs', write: false, plugins: [{ name: 'firebase-boundary', setup(b) {
@@ -63,4 +63,25 @@ test('upload failure does not publish a partial DAR or its audit; valid 20-file 
 test('legacy single-PDF submission remains compatible', async () => {
   const { h, repo } = await repository(); const id = await repo.createDarRecord(user, { ...input(), attachmentFileName: 'legacy.pdf', attachmentFileType: 'application/pdf', attachmentFileDataUrl: 'data:application/pdf;base64,' + Buffer.from('%PDF-1.7').toString('base64') });
   assert.equal(h.records['dcs_dars/' + id].attachments.length, 1);
+});
+
+test('revision DAR keeps previous PDFs separate and persists only server-prepared snapshot metadata', async () => {
+  const {h,repo}=await repository();
+  const id=await repo.createDarRecord(user,{...input(),requestType:'REVISION',currentRevision:'04',proposedRevision:'05',previousEffectiveDate:'2026-01-01',useMasterPrevious:false,attachments:[attachment('new-one.pdf'),attachment('new-two.pdf')],previousAttachments:[attachment('old-one.pdf'),attachment('old-two.pdf')]});
+  const dar=h.records['dcs_dars/'+id];
+  assert.deepEqual(Array.from(dar.attachments,(f:any)=>f.name),['new-one.pdf','new-two.pdf']);
+  assert.deepEqual(Array.from(dar.previousRevision.attachments,(f:any)=>f.name),['old-one.pdf','old-two.pdf']);
+  assert.equal(h.calls.length,1);assert.equal(h.calls[0].name,'prepareDarPreviousRevision');assert.equal(h.calls[0].data.useMaster,false);
+  assert.ok(h.calls[0].data.uploadedAttachments.every((f:any)=>f.storagePath.includes('/previous-upload-')));
+  assert.equal(dar.previousRevision.revision,'04');assert.ok(!('previousAttachments' in dar));assert.ok(!('useMasterPrevious' in dar));
+});
+test('failed previous snapshot cannot publish a DAR as if the old files were preserved', async () => {
+  const {h,repo}=await repository();h.failPrepare=true;
+  await assert.rejects(repo.createDarRecord(user,{...input(),requestType:'REVISION',currentRevision:'04',proposedRevision:'05',previousEffectiveDate:'2026-01-01',attachments:[attachment('new.pdf')],previousAttachments:[attachment('old.pdf')]}),/Previous PDF unavailable/);
+  assert.ok(!Object.keys(h.records).some(path=>path.startsWith('dcs_dars/')));
+});
+test('invalid previous PDF is rejected before uploading new files or allocating a DAR', async () => {
+  const {h,repo}=await repository();
+  await assert.rejects(repo.createDarRecord(user,{...input(),requestType:'REVISION',currentRevision:'04',previousEffectiveDate:'2026-01-01',attachments:[attachment('new.pdf')],previousAttachments:[attachment('old.pdf',new Blob(['not PDF']))]}));
+  assert.equal(h.uploads.length,0);assert.equal(Object.keys(h.records).length,0);
 });

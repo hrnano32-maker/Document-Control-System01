@@ -145,8 +145,15 @@ export interface DarAttachmentInput {
   dataUrl?: string;
 }
 
-export type DarCreateInput = Omit<DarRecord, 'id' | 'requestDate' | 'status' | 'attachments'> & {
+export interface DarPreviousRevision {
+  docNo: string; docNameTh: string; revision: string; sourceDocumentId: string; capturedAt: string;
+  attachments: Array<DarAttachment & { source: 'MASTER' | 'UPLOAD' }>;
+}
+
+export type DarCreateInput = Omit<DarRecord, 'id' | 'requestDate' | 'status' | 'attachments' | 'previousRevision'> & {
   attachments?: DarAttachmentInput[];
+  previousAttachments?: DarAttachmentInput[];
+  useMasterPrevious?: boolean;
 };
 
 export interface DarRecord {
@@ -180,6 +187,8 @@ export interface DarRecord {
   isSkippedRevision?: boolean;
   skippedRevisionReason?: string;
   systemCurrentRevision?: string;
+
+  previousRevision?: DarPreviousRevision;
 
   // Attached Draft Document / File
   attachments?: DarAttachment[];
@@ -240,6 +249,7 @@ export interface MasterDocument {
   retentionPeriodYears: number;
   distributionDepartments?: { dept: Department; copies: number; position: string }[];
   currentFileStoragePath?: string;
+  currentFileStoragePaths?: string[];
   cancelledFileStoragePaths?: Record<string, string>;
 
   // Attached File Data
@@ -283,7 +293,17 @@ export interface DistributionReceipt {
   downloaderUid?: string;
 }
 
+export interface DocumentReturnEvidence {
+  confirmedAt: string; signerName: string; confirmerUid: string; signatureStoragePath: string; previousRevision: string; copies: number;
+}
+export interface DocumentReturnRequest extends Partial<DocumentReturnEvidence> {
+  id: string; darId: string; distributionId: string; docId: string; docNo: string; docNameTh: string;
+  previousRevision: string; newRevision: string; dept: Department;
+  status: 'PENDING' | 'CONFIRMED' | 'CANCELLED'; createdAt: string; sourceDistributionIds: string[]; copies: number;
+}
+
 export interface DistributionRecord {
+  returnReceipts?: Record<string, DocumentReturnEvidence>;
   id: string;
   distributionNo: string; // e.g. DC-DIS-2026-0001
   docId: string;
@@ -477,6 +497,7 @@ export interface DcsAnnouncement {
 
 export interface DocumentViewPayload {
   darAttachmentIndex?: number;
+  darAttachmentGroup?: 'new' | 'previous';
   distributionId?: string;
   title: string;
   docNo?: string;

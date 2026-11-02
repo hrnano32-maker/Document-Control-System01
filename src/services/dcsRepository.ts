@@ -17,7 +17,7 @@ import {
 import { httpsCallable } from 'firebase/functions';
 import { deleteObject, getDownloadURL, ref, uploadBytes, uploadBytesResumable } from 'firebase/storage';
 import { auth, db, firebaseFunctions, storage } from '../lib/firebase';
-import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarCreateInput, DarRecord, DcsAnnouncement, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
+import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarCreateInput, DarPreviousRevision, DocumentReturnRequest, DarRecord, DcsAnnouncement, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
 
 import { DEPARTMENTS } from '../types';
 import { hasDistributionAllocation, getDistributionDownloadAccess } from '../utils/distributionAccess';
@@ -354,6 +354,16 @@ export const createDarRecord = async (user: CurrentUserSession, input: DarCreate
     await validateDarPdf(blob, file.name, file.type);
     files.push({ name: file.name, blob });
   }
+  const previousFiles: Array<{ name: string; blob: Blob }> = [];
+  if (input.requestType === 'REVISION') {
+    if ((input.previousAttachments || []).length > MAX_DAR_PDFS) throw new Error('แนบ PDF ฉบับเดิมได้ไม่เกิน 20 ไฟล์');
+    for (const file of input.previousAttachments || []) {
+      const blob = file.file || (file.dataUrl ? await dataUrlBlob(file.dataUrl) : null);
+      if (!blob) throw new Error(`${file.name}: ไม่พบไฟล์ PDF ฉบับเดิม`);
+      await validateDarPdf(blob, file.name, file.type);
+      previousFiles.push({ name: file.name, blob });
+    }
+  }
   onProgress?.('กำลังตรวจสิทธิ์ผู้ยื่นและออกเลขที่ DAR', 0);
   if (!auth.currentUser || auth.currentUser.uid !== user.uid) throw new Error('บัญชีเข้าสู่ระบบไม่ตรงกับหน้าฟอร์ม กรุณาเข้าสู่ระบบใหม่');
   const profileSnapshot = await darSubmissionStep('ตรวจสิทธิ์บัญชีผู้ยื่น', () => getDocFromServer(doc(db, 'users', user.uid)));
@@ -366,7 +376,7 @@ export const createDarRecord = async (user: CurrentUserSession, input: DarCreate
   const year = new Date().getFullYear();
   const id = `DAR-${year}-${String(seq).padStart(4, '0')}`;
   const createdAt = new Date().toISOString();
-  const { attachments: uploadInputs, attachmentFileDataUrl: legacyDataUrl, ...fields } = input;
+  const { attachments: uploadInputs, previousAttachments, useMasterPrevious, attachmentFileDataUrl: legacyDataUrl, ...fields } = input;
   const record: DarRecord & { createdAt: string; createdByUid: string } = clean({
     ...fields,
     attachments: [],
@@ -376,21 +386,32 @@ export const createDarRecord = async (user: CurrentUserSession, input: DarCreate
     status: 'PENDING_REVIEW',
     createdAt,
   });
-  const totalBytes = files.reduce((sum, file) => sum + file.blob.size, 0);
+  const uploadFiles = [...files.map(file => ({ ...file, previous: false })), ...previousFiles.map(file => ({ ...file, previous: true }))];
+  const previousUploaded: DarPreviousRevision['attachments'] = [];
+  const totalBytes = uploadFiles.reduce((sum, file) => sum + file.blob.size, 0);
   let uploadedBytes = 0;
-  for (let index = 0; index < files.length; index++) {
-    const file = files[index];
+  for (let index = 0; index < uploadFiles.length; index++) {
+    const file = uploadFiles[index];
     // Index prefixes preserve same-named PDFs instead of overwriting an earlier file.
-    const path = `dcs/dar-attachments/${user.uid}/${id}/${String(index + 1).padStart(2, '0')}-${safeName(file.name)}`;
-    await darSubmissionStep(`อัปโหลด PDF ${index + 1}/${files.length}: ${file.name}`, () => new Promise<void>((resolve, reject) => {
+    const path = `dcs/dar-attachments/${user.uid}/${id}/${file.previous ? 'previous-upload-' : ''}${String(index + 1).padStart(2, '0')}-${safeName(file.name)}`;
+    await darSubmissionStep(`อัปโหลด PDF ${index + 1}/${uploadFiles.length}: ${file.name}`, () => new Promise<void>((resolve, reject) => {
       const task = uploadBytesResumable(ref(storage, path), file.blob, { contentType: 'application/pdf' });
       task.on('state_changed', snapshot => {
         const percent = Math.min(95, Math.round((uploadedBytes + snapshot.bytesTransferred) / totalBytes * 95));
-        onProgress?.(`กำลังอัปโหลดไฟล์ ${index + 1}/${files.length}: ${file.name}`, percent);
+        onProgress?.(`กำลังอัปโหลด${file.previous ? "ฉบับเดิม" : "ฉบับใหม่"} ${index + 1}/${uploadFiles.length}: ${file.name}`, percent);
       }, reject, () => resolve());
     }));
     uploadedBytes += file.blob.size;
-    record.attachments!.push({ name: file.name, size: formatPdfSize(file.blob.size), type: 'application/pdf', storagePath: path });
+    const attachment = { name: file.name, size: formatPdfSize(file.blob.size), type: 'application/pdf', storagePath: path };
+    if (file.previous) previousUploaded.push({ ...attachment, source: 'UPLOAD' });
+    else record.attachments!.push(attachment);
+  }
+  if (input.requestType === 'REVISION') {
+    onProgress?.('กำลังตรวจและเก็บเอกสาร Rev. ก่อนหน้า อาจใช้เวลาตามจำนวนไฟล์', 96);
+    const prepared = await darSubmissionStep('จัดเก็บ PDF ฉบับเดิม', () => httpsCallable<unknown, DarPreviousRevision>(firebaseFunctions, 'prepareDarPreviousRevision', { timeout: 540000 })({
+      darId: id, docNo: input.docNo, revision: input.currentRevision, useMaster: useMasterPrevious !== false, uploadedAttachments: previousUploaded,
+    }));
+    record.previousRevision = prepared.data;
   }
   const first = record.attachments![0];
   Object.assign(record, { attachmentFileName: first.name, attachmentFileSize: first.size, attachmentFileType: first.type, attachmentStoragePath: first.storagePath });
@@ -485,6 +506,7 @@ export const correctDarRecord = async (
       const rows = merged.additionalDocuments || [];
       if (rows.length > 5 || rows.some(row => !row.docNo || !row.docNameTh || !row.revision || !row.reason)) throw new Error('กรุณากรอกข้อมูลรายการเพิ่มเติมให้ครบ และไม่เกิน 5 รายการ');
     }
+    if (latest.previousRevision && (merged.docNo !== latest.docNo || merged.currentRevision !== latest.currentRevision)) throw new Error('รหัสเอกสารหรือ Rev. เดิมอ้างอิงไฟล์ฉบับเดิมที่เก็บไว้แล้ว ไม่สามารถเปลี่ยนให้ไม่ตรงกับไฟล์ได้');
     if (!merged.reasonForChange) throw new Error('กรุณาระบุเหตุผลการดำเนินการ');
     validateDarEffectiveDates(merged);
     const now = new Date().toISOString();
@@ -690,8 +712,8 @@ export const createDistributionRecord = async (user: CurrentUserSession, master:
 
 export const manageDistributionRecord = async (user: CurrentUserSession, distribution: DistributionRecord, action: 'CANCEL' | 'DELETE', reason = '') => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่จัดการรายการแจกจ่ายได้');
-  if (action === 'DELETE' && Object.keys({ ...(distribution.firstReceipts || {}), ...(distribution.receipts || {}) }).length > 0) {
-    throw new Error('ลบไม่ได้ เนื่องจากมีหน่วยงานรับเอกสารแล้ว กรุณาใช้ปุ่มยกเลิก');
+  if (action === 'DELETE' && Object.keys({ ...(distribution.firstReceipts || {}), ...(distribution.receipts || {}), ...(distribution.returnReceipts || {}) }).length > 0) {
+    throw new Error('ลบไม่ได้ เนื่องจากมีหลักฐานรับหรือคืนเอกสารแล้ว กรุณาใช้ปุ่มยกเลิก');
   }
   await httpsCallable<{ distributionId: string; action: 'CANCEL' | 'DELETE'; reason: string }, unknown>(
     firebaseFunctions,
@@ -939,10 +961,10 @@ export const reviseMasterDocument = async (user: CurrentUserSession, master: Mas
 
 
 
-export const downloadDarAttachmentFromServer = async (darId: string, index: number): Promise<Blob> => {
+export const downloadDarAttachmentFromServer = async (darId: string, index: number, group: 'new' | 'previous' = 'new'): Promise<Blob> => {
   if (!auth.currentUser) throw new Error('กรุณาเข้าสู่ระบบใหม่');
   const token = await auth.currentUser.getIdToken();
-  const query = new URLSearchParams({ darId, index: String(index) });
+  const query = new URLSearchParams({ darId, index: String(index), group });
   const response = await fetch(`https://asia-southeast1-dar-online-form.cloudfunctions.net/downloadDarAttachmentFile?${query}`, {
     headers: { Authorization: `Bearer ${token}` }, cache: 'no-store',
   });
@@ -952,4 +974,18 @@ export const downloadDarAttachmentFromServer = async (darId: string, index: numb
     throw new Error(messages[error] || 'ดาวน์โหลดไฟล์แนบ DAR ไม่สำเร็จ กรุณาลองใหม่');
   }
   return response.blob();
+};
+
+
+export const subscribeDocumentReturns = (user: CurrentUserSession, callback: (rows: DocumentReturnRequest[]) => void, onError: (error: Error) => void) => {
+  const constraints = user.userRole === 'DCC_ADMIN' ? [] : [where('dept', '==', user.currentDept)];
+  return onSnapshot(query(collection(db, 'dcs_document_returns'), ...constraints), snap =>
+    callback(snap.docs.map(item => ({ ...item.data(), id: item.id } as DocumentReturnRequest)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))), onError);
+};
+export const confirmDocumentReturn = async (returnId: string) => {
+  await httpsCallable(firebaseFunctions, 'confirmDocumentReturn', { timeout: 120000 })({ returnId, consent: true });
+};
+
+export const syncDocumentReturnRequests = async (distributionId: string) => {
+  await httpsCallable(firebaseFunctions, 'syncDocumentReturnRequests', { timeout: 120000 })({ distributionId });
 };

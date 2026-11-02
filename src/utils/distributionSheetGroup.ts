@@ -71,6 +71,18 @@ export function buildCombinedDistributionRows(records: DistributionRecord[]): Co
       }
     });
   });
+  // Server return evidence follows this DAR even when the first receipt is in
+  // another distribution record, or a former recipient has no new allocation.
+  for (const record of records) {
+    if (record.status === 'CANCELLED') continue;
+    for (const [dept, evidence] of Object.entries(record.returnReceipts || {})) {
+      if (!evidence.confirmedAt || !evidence.signatureStoragePath || record.departmentCancellations?.[dept]) continue;
+      const department = departmentKey(dept);
+      const row = rows.get(department) || { key: `return-${department}`, department, copies: evidence.copies || 1, recordIds: [record.id], documentIndexes: [], returnDate: '', returnSignerName: '', returnSignatureStoragePath: '' };
+      row.returnDate = evidence.confirmedAt; row.returnSignerName = evidence.signerName; row.returnSignatureStoragePath = evidence.signatureStoragePath;
+      rows.set(department, row);
+    }
+  }
   return [...rows.values()];
 }
 

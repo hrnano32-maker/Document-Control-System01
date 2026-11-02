@@ -115,6 +115,15 @@ service firebase.storage {
       allow delete: if isDcc();
     }
 
+    match /dcs/dar-previous/{uid}/{darId}/{fileName} {
+      allow read: if isDcc() || (activeUser() && request.auth.uid == uid);
+      allow write: if false;
+    }
+    match /dcs/return-signatures/{returnId}/{fileName} {
+      allow read: if isDcc() || (activeUser() && firestore.get(/databases/(default)/documents/dcs_document_returns/$(returnId)).data.dept == profile().department);
+      allow write: if false;
+    }
+
     match /dcs/distribution-sheet-signatures/{uid}/{distributionId}/{fileName} {
       allow read: if isDcc();
       allow create, update: if isDcc() && request.resource.size < 2 * 1024 * 1024

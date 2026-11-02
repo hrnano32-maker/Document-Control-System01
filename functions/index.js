@@ -1,4 +1,5 @@
 const { MAX_PDF_BYTES, getDarAttachments, isDarAttachmentPath, validateDarPdfAttachments } = require('./darAttachments');
+const { createDarRevisionWorkflow, isPreviousPath } = require('./darRevisionWorkflow');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
@@ -277,9 +278,13 @@ exports.deleteDarDraft = onCall({ region: REGION, timeoutSeconds: 30, memory: '2
   const dar = darSnapshot.data();
   if (!['PENDING_REVIEW', 'UNDER_REVIEW', 'REJECTED'].includes(dar.status)) throw new HttpsError('failed-precondition', 'DAR สถานะนี้ไม่สามารถลบได้');
   if (profile.role !== 'DCC_ADMIN' && profile.department !== dar.requestDept) throw new HttpsError('permission-denied', 'ไม่มีสิทธิ์ลบ DAR ของแผนกอื่น');
+  const previousPaths = (dar.previousRevision?.attachments || []).map(file => file.storagePath);
+  if (previousPaths.some(path => !isPreviousPath(path, darId))) throw new HttpsError('failed-precondition', 'ตำแหน่งไฟล์ฉบับเดิมไม่ตรงกับ DAR');
   const paths = [...new Set(getDarAttachments(dar).map(file => file.storagePath))];
   if (paths.some(path => !isDarAttachmentPath(path, darId, !dar.attachments?.length))) throw new HttpsError('failed-precondition', 'ตำแหน่งไฟล์แนบไม่ตรงกับ DAR กรุณาติดต่อ DCC');
   await Promise.all(paths.map(path => getStorage().bucket().file(path).delete({ ignoreNotFound: true })));
+  await Promise.all(previousPaths.map(path => getStorage().bucket().file(path).delete({ ignoreNotFound: true })));
+  await db.collection('dcs_dar_previous_files').doc(darId).delete();
   await darSnapshot.ref.delete();
   return { deleted: true, darId };
 });
@@ -444,6 +449,17 @@ async function cancelStamp(pdf) {
   }
 }
 
+const revisionWorkflow = createDarRevisionWorkflow({ getFirestore, getStorage, HttpsError, loadPdf, normalizeSignature, safeSegment });
+exports.prepareDarPreviousRevision = onCall({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, revisionWorkflow.preparePreviousRevision);
+exports.confirmDocumentReturn = onCall({ region: REGION, timeoutSeconds: 120, memory: '512MiB' }, revisionWorkflow.confirmReturn);
+exports.syncDocumentReturnRequests = onCall({ region: REGION, timeoutSeconds: 120, memory: '256MiB' }, async request => {
+  await requireDcc(request);
+  const id = request.data?.distributionId;
+  if (typeof id !== 'string' || !id || id.length > 100 || id.includes('/')) throw new HttpsError('invalid-argument', 'ไม่พบรายการแจกจ่าย');
+  await revisionWorkflow.ensureReturnsForDistribution(id);
+  return { synced: true };
+});
+
 exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async request => {
   await requireDcc(request);
   const distributionId = String(request.data?.distributionId || '');
@@ -452,10 +468,19 @@ exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, me
   const snapshot = await distRef.get();
   if (!snapshot.exists) throw new HttpsError('not-found', 'ไม่พบรายการแจกจ่าย');
   const data = snapshot.data();
+  // Recall bookkeeping must never make successfully prepared PDFs fail or purge.
+  const syncReturns = async () => {
+    try { await revisionWorkflow.ensureReturnsForDistribution(distributionId); }
+    catch (error) { console.error('DOCUMENT_RETURN_SYNC_FAILED', distributionId, error); }
+  };
   const reportProgress = (processingStage, processingDetail, processingPercent) =>
     distRef.update({ processingStage, processingDetail, processingPercent, updatedAt: new Date().toISOString() });
   await reportProgress('VALIDATING', 'กำลังตรวจสอบข้อมูลเอกสารและ Revision ล่าสุด', 40);
-  if (data.departmentFiles && Object.keys(data.departmentFiles).length) return { departmentFiles: data.departmentFiles };
+  if (data.departmentFiles && Object.keys(data.departmentFiles).length) {
+    await syncReturns();
+    await reportProgress('COMPLETED', 'เตรียมไฟล์แจกจ่ายครบแล้ว', 100);
+    return { departmentFiles: data.departmentFiles };
+  }
   if (!data.sourceStoragePath || data.fileType !== 'application/pdf') throw new HttpsError('failed-precondition', 'ต้นฉบับแจกจ่ายต้องเป็น PDF');
   const masterRef = getFirestore().collection('dcs_documents').doc(data.docId);
   const master = await masterRef.get();
@@ -523,6 +548,7 @@ exports.stampControlledCopies = onCall({ region: REGION, timeoutSeconds: 540, me
     masterRef.update({ currentFileStoragePath: archivePaths[0], currentFileStoragePaths: archivePaths, updatedAt: new Date().toISOString() }),
     ...sourcePaths.map(sourcePath => getStorage().bucket().file(sourcePath).delete({ ignoreNotFound: true })),
   ]);
+  await syncReturns();
   try {
     await notifyDistributionReady(distributionId, data, distRef);
   } catch (error) {
@@ -677,7 +703,7 @@ exports.manageDistributionRecord = onCall({ region: REGION, timeoutSeconds: 540,
   if (!snapshot.exists) throw new HttpsError('not-found', 'ไม่พบรายการแจกจ่าย');
   const data = snapshot.data();
   if (data.reissueLock?.expiresAt > Date.now()) throw new HttpsError('aborted', 'กำลังเปิดสิทธิ์รับเอกสาร กรุณารอแล้วลองใหม่');
-  const receiptCount = Object.keys({ ...(data.firstReceipts || {}), ...(data.receipts || {}) }).length;
+  const receiptCount = Object.keys({ ...(data.firstReceipts || {}), ...(data.receipts || {}), ...(data.returnReceipts || {}) }).length;
   if (action === 'DELETE') {
     // A reissue can leave several PROCESSING records when a previous approval
     // failed after the record was created. Deleting any one of those records
@@ -687,9 +713,9 @@ exports.manageDistributionRecord = onCall({ region: REGION, timeoutSeconds: 540,
       ? await db.collection('dcs_distributions').where('reissueOf', '==', data.reissueOf).get()
       : null;
     const relatedDocs = relatedSnapshot?.docs || [snapshot];
-    const receivedRecord = relatedDocs.find(item => Object.keys({ ...(item.data().firstReceipts || {}), ...(item.data().receipts || {}) }).length > 0);
+    const receivedRecord = relatedDocs.find(item => Object.keys({ ...(item.data().firstReceipts || {}), ...(item.data().receipts || {}), ...(item.data().returnReceipts || {}) }).length > 0);
     if (receiptCount > 0 || receivedRecord) {
-      throw new HttpsError('failed-precondition', 'ลบไม่ได้ เนื่องจากมีหน่วยงานรับเอกสารแล้ว กรุณาใช้คำสั่งยกเลิกเพื่อเก็บประวัติ');
+      throw new HttpsError('failed-precondition', 'ลบไม่ได้ เนื่องจากมีหลักฐานรับหรือคืนเอกสารแล้ว กรุณาใช้คำสั่งยกเลิกเพื่อเก็บประวัติ');
     }
     await Promise.all(relatedDocs.map(item => getStorage().bucket().deleteFiles({ prefix: `dcs/distributions/${item.id}/` })));
 
@@ -730,6 +756,7 @@ exports.manageDistributionRecord = onCall({ region: REGION, timeoutSeconds: 540,
     });
     flush();
     await Promise.all(writes);
+    await Promise.all(relatedDocs.map(item => revisionWorkflow.cancelReturns(item.id)));
     return { action, deleted: true, distributionId, deletedCount: relatedDocs.length, requestReset: Boolean(data.reissueOf) };
   }
 
@@ -754,6 +781,7 @@ exports.manageDistributionRecord = onCall({ region: REGION, timeoutSeconds: 540,
     });
     return true;
   });
+  await revisionWorkflow.cancelReturns(distributionId);
   if (!needsCleanup) return { action, cancelled: true, distributionId };
   try {
     await getStorage().bucket().deleteFiles({ prefix: `dcs/distributions/${distributionId}/` });
@@ -1114,6 +1142,8 @@ exports.cancelDistributionDepartment = onCall({ region: REGION, timeoutSeconds: 
     tx.set(auditRef, { timestamp: now, createdAt: now, actor: 'DCC', actorDept: 'DCC', actorUid: request.auth.uid, actionType: 'DISTRIBUTION_DEPARTMENT_CANCELLED', docNo: data.docNo, revision: data.revision, description: 'ยกเลิกแจกจ่ายเฉพาะแผนก ' + department, details: { distributionId, department, reason } });
     return filePaths;
   });
+  const cancelled = await distRef.get();
+  await revisionWorkflow.cancelReturns(distributionId, cancelled.data()?.status === 'CANCELLED' ? undefined : department);
   // Revoke access first; retain receipts and recipient rows as historical evidence.
   await Promise.all(paths.map(path => {
     if (!path.startsWith('dcs/distributions/' + distributionId + '/controlled/')) throw new HttpsError('failed-precondition', 'เส้นทางไฟล์ไม่ถูกต้อง');
@@ -1188,8 +1218,10 @@ exports.downloadDarAttachmentFile = onRequest({ region: REGION, timeoutSeconds: 
     if (!darSnapshot.exists) return response.status(404).json({ error: 'DAR_NOT_FOUND' });
     const profile = profileSnapshot.data(), dar = darSnapshot.data();
     if (profile.role !== 'DCC_ADMIN' && profile.department !== dar.requestDept) return response.status(403).json({ error: 'FORBIDDEN' });
-    const attachment = getDarAttachments(dar)[index];
-    if (!attachment || !isDarAttachmentPath(attachment.storagePath, darId, !dar.attachments?.length)) return response.status(404).json({ error: 'FILE_NOT_FOUND' });
+    const previous = request.query.group === 'previous';
+    const attachment = (previous ? dar.previousRevision?.attachments || [] : getDarAttachments(dar))[index];
+    const pathAllowed = previous ? isPreviousPath(attachment?.storagePath, darId) : attachment && isDarAttachmentPath(attachment.storagePath, darId, !dar.attachments?.length);
+    if (!attachment || !pathAllowed) return response.status(404).json({ error: 'FILE_NOT_FOUND' });
     const file = getStorage().bucket().file(attachment.storagePath);
     const [exists] = await file.exists();
     if (!exists) return response.status(404).json({ error: 'FILE_NOT_FOUND' });

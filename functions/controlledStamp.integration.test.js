@@ -38,6 +38,8 @@ async function setup(version, missing = false) {
     HttpsError: class extends Error { constructor(code, message) { super(message); this.code = code; } },
     console,
   };
+  context.revisionWorkflow = { ensureReturnsForDistribution: async () => {}, cancelReturns: async () => {} };
+  context.isPreviousPath = require('./darRevisionWorkflow').isPreviousPath;
   for (const name of ['stampControlledCopies', 'reissueControlledCopies']) {
     const start = source.indexOf(`exports.${name} =`);
     const end = source.indexOf('\nexports.', start + 1);

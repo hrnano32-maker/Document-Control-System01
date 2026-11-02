@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DocumentReturnPanel } from './DocumentReturnPanel';
 import { useDcs } from '../context/DcsContext';
 import { getDistributionDownloadAccess } from '../utils/distributionAccess';
 import { useDistributionClock } from '../hooks/useDistributionClock';
@@ -128,7 +129,7 @@ export const DistributionManager: React.FC = () => {
   };
 
   const handleDeleteDistribution = async (dist: DistributionRecord) => {
-    const receiptCount = Object.keys(dist.receipts || {}).length;
+    const receiptCount = Object.keys({ ...(dist.firstReceipts || {}), ...(dist.receipts || {}), ...(dist.returnReceipts || {}) }).length;
     if (receiptCount > 0) { alert('ลบไม่ได้ เนื่องจากมีแผนกรับเอกสารแล้ว กรุณาใช้ปุ่มยกเลิก'); return; }
     const deleteMessage = dist.reissueOf
       ? `ยืนยันลบรายการออกไฟล์ใหม่ชุดนี้ทั้งหมด (รวมรายการซ้ำ) และเริ่มคำขอใหม่? รายการและไฟล์ที่ยังไม่มีผู้รับจะถูกลบถาวร`
@@ -142,6 +143,7 @@ export const DistributionManager: React.FC = () => {
 
   return (
     <div id="dcs-distribution-view" className="space-y-6 pb-12">
+      <DocumentReturnPanel />
       
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
@@ -365,8 +367,8 @@ export const DistributionManager: React.FC = () => {
                         </button>
                         <button
                           type="button"
-                          disabled={managingId === dist.id || Object.keys(dist.receipts || {}).length > 0}
-                          title={Object.keys(dist.receipts || {}).length > 0 ? 'มีผู้รับเอกสารแล้ว จึงลบไม่ได้ ให้ใช้ปุ่มยกเลิก' : 'ลบรายการทดลองที่ยังไม่มีผู้รับ'}
+                          disabled={managingId === dist.id || Object.keys({ ...(dist.firstReceipts || {}), ...(dist.receipts || {}), ...(dist.returnReceipts || {}) }).length > 0}
+                          title={Object.keys({ ...(dist.firstReceipts || {}), ...(dist.receipts || {}), ...(dist.returnReceipts || {}) }).length > 0 ? 'มีหลักฐานรับหรือคืนเอกสารแล้ว จึงลบไม่ได้ ให้ใช้ปุ่มยกเลิก' : 'ลบรายการทดลองที่ยังไม่มีผู้รับ'}
                           onClick={() => handleDeleteDistribution(dist)}
                           className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                         >

@@ -16,6 +16,8 @@ function harness(initial = base(), options = {}) {
   } };
   const remove = async () => { deletions++; options.onDelete?.(data); if (options.failDelete) throw Error('Storage unavailable'); };
   const context = { exports: {}, onCall: (_, fn) => fn, REGION: 'test', requireDcc: async request => { if (request.auth.uid !== 'dcc') throw Error('permission-denied'); }, cleanText: value => String(value || ''), HttpsError: class extends Error { constructor(code, msg) { super(msg); this.code = code; } }, getFirestore: () => db, getStorage: () => ({ bucket: () => ({ deleteFiles: remove, file: () => ({ delete: remove }) }) }), console: { error() {} }, Date };
+  context.revisionWorkflow = { ensureReturnsForDistribution: async () => {}, cancelReturns: async () => {} };
+  context.isPreviousPath = require('./darRevisionWorkflow').isPreviousPath;
   vm.createContext(context);
   for (const [begin, end] of [['exports.manageDistributionRecord =', '\nconst QA_QC_ALIASES'], ['exports.cancelDistributionDepartment =', '\n // Canonicalize']]) vm.runInContext(source.slice(source.indexOf(begin), source.indexOf(end, source.indexOf(begin))), context);
   return { call: (action = 'CANCEL', uid = 'dcc') => context.exports.manageDistributionRecord({ auth: { uid }, data: { distributionId: 'DC-1', action, reason: 'ยกเลิกแจกจ่าย' } }), department: department => context.exports.cancelDistributionDepartment({ auth: { uid: 'dcc' }, data: { distributionId: 'DC-1', department, reason: 'ยกเลิกแผนก' } }), data: () => data, deletions: () => deletions, audits };
@@ -58,6 +60,8 @@ async function download(distribution, department, all = false, missing = false) 
   const uid = department === 'HR' ? 'hr-user' : 'qa-user';
   let reads = 0, code, payload, bytes = Buffer.alloc(0);
   const context = { exports: {}, onRequest: (_, fn) => fn, REGION: 'test', setDownloadCors() {}, cleanText: value => String(value || ''), safeSegment: value => value || 'file', getAuth: () => ({ verifyIdToken: async () => ({ uid }) }), getFirestore: () => ({ collection: name => ({ doc: () => ({ get: async () => ({ exists: true, data: () => name === 'users' ? { active: true, role: 'STAFF', department } : distribution }) }) }) }), archiver: require('archiver'), getStorage: () => ({ bucket: () => ({ file: () => ({ exists: async () => [!missing], getMetadata: async () => [{ size: 8 }], createReadStream: () => { reads++; return Readable.from(Buffer.from('%PDF-1.7')); } }) }) }), console, Date };
+  context.revisionWorkflow = { ensureReturnsForDistribution: async () => {}, cancelReturns: async () => {} };
+  context.isPreviousPath = require('./darRevisionWorkflow').isPreviousPath;
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('exports.downloadControlledCopyFile ='), source.indexOf('\nexports.downloadAnnouncementFile =')), context);
   const response = new Writable({ write(chunk, _, done) { bytes = Buffer.concat([bytes, chunk]); done(); } });
@@ -108,4 +112,9 @@ test('bulk download returns ZIP bytes for available files and a clear error befo
     assert.equal(result.code, 404); assert.equal(result.reads, 0);
     assert.equal(result.payload.error, all ? 'FILES_NOT_FOUND' : 'FILE_NOT_FOUND');
   }
+});
+
+test('a return-only acknowledgement prevents permanent deletion of its distribution history', async () => {
+  const h=harness({...base(),receipts:{},firstReceipts:{},returnReceipts:{HR:{confirmedAt:'2026-10-30',signatureStoragePath:'return/hr.png'}}});
+  await assert.rejects(h.call('DELETE'),/หลักฐานรับหรือคืน/);assert.equal(h.deletions(),0);
 });

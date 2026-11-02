@@ -62,3 +62,20 @@ test('reopening does not remove a first receipt from the sheet; a new department
  assert.deepEqual(rows.map(row=>row.department),['HR','Planning']);
  assert.equal(rows[0].receipt!.signatureStoragePath,'signatures/hr.png');
 });
+
+test('server return evidence merges with first receipt and preserves return-only departments on the original sheet', () => {
+  const evidence = { confirmedAt: '2026-10-30T10:00:00Z', signerName: 'HR', confirmerUid: 'hr', signatureStoragePath: 'dcs/return-signatures/HR/s.png', previousRevision: '00', copies: 1 };
+  const first = make('FIRST');
+  const second = make('SECOND', { receipts: {}, firstReceipts: {}, returnReceipts: { HR: evidence, 'QA/QC': { ...evidence, signerName: 'QA/QC', signatureStoragePath: 'dcs/return-signatures/QA/s.png' } } });
+  const rows = buildCombinedDistributionRows([first, second]);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].receipt?.signatureStoragePath, first.receipts!.HR.signatureStoragePath);
+  assert.equal(rows[0].returnSignatureStoragePath, evidence.signatureStoragePath);
+  assert.equal(rows[1].department, 'QA/QC'); assert.equal(rows[1].receipt, undefined);
+  assert.equal(rows[1].returnDate, evidence.confirmedAt);
+});
+test('cancelled distribution and cancelled department return evidence are excluded from current sheet', () => {
+  const evidence = { confirmedAt: '2026-10-30', signerName: 'HR', confirmerUid: 'hr', signatureStoragePath: 'return.png', previousRevision: '00', copies: 1 };
+  assert.equal(buildCombinedDistributionRows([make('X', { status: 'CANCELLED', returnReceipts: { HR: evidence } })]).length, 0);
+  assert.equal(buildCombinedDistributionRows([make('Y', { departmentCancellations: { HR: { reason: 'ยกเลิก', cancelledAt: '2026-10-30', cancelledBy: 'DCC' } }, returnReceipts: { HR: evidence } })]).length, 0);
+});
