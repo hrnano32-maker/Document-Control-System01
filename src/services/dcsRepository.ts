@@ -803,8 +803,8 @@ export const acknowledgeDownload = async (
       const allDownloaded = current.targetDepartments.every(targetDept => Boolean(receipts[targetDept]?.downloadedAt));
       tx.update(distRef, clean({ receipts, status: allDownloaded ? 'COMPLETED' : 'IN_PROGRESS', allDownloadedAt: allDownloaded ? new Date().toISOString() : null, storageStatus: 'AVAILABLE', updatedAt: new Date().toISOString() }));
     }), 60000, 'บันทึกหลักฐานใช้เวลานานเกินไป กรุณาลองใหม่');
-  onProgress?.('บันทึกสำเร็จ กรุณากดดาวน์โหลดไฟล์ด้านล่าง', 100);
-  await writeAudit(user, 'CONTROLLED_COPY_DOWNLOADED', distribution.docNo, distribution.revision, `หน่วยงาน ${dept} รับและเตรียมดาวน์โหลด Controlled Copy จำนวน ${downloadUrls.length} ไฟล์`, { distributionNo: distribution.distributionNo, fileCount: downloadUrls.length });
+  onProgress?.('บันทึกการรับสำเร็จ กำลังเตรียมดาวน์โหลด', 100);
+  await writeAudit(user, 'CONTROLLED_COPY_DOWNLOADED', distribution.docNo, distribution.revision, `หน่วยงาน ${dept} รับและเตรียมดาวน์โหลด Controlled Copy จำนวน ${downloadUrls.length} ไฟล์`, { distributionNo: distribution.distributionNo, fileCount: downloadUrls.length }).catch(error => console.error('RECEIPT_AUDIT_FAILED', error));
   return downloadUrls;
 };
 

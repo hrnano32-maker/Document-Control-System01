@@ -202,13 +202,27 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
         setErrorMsg('บันทึกการรับสำเร็จ แต่ไม่พบไฟล์ดาวน์โหลด กรุณาติดต่อ DCC');
         return;
       }
-      setReadyDownloads(urls.map((url, index) => {
+      const files = urls.map((url, index) => {
         const baseName = distribution.departmentFileNames?.[dept]?.[index] || distribution.fileNames?.[index] || distribution.fileName || `${distribution.docNo}_Rev${distribution.revision}_CONTROLLED_${index + 1}.pdf`;
         return { url, name: `CONTROLLED_${dept}_${baseName}` };
-      }));
-      setSubmitStatus('บันทึกการรับสำเร็จ กรุณากดดาวน์โหลดไฟล์ทีละรายการ');
+      });
+      setReadyDownloads(files);
+      setSubmitStatus(files.length > 1 ? 'บันทึกการรับแล้ว กำลังเตรียมดาวน์โหลดไฟล์ทั้งหมดเป็น ZIP' : 'บันทึกการรับแล้ว กำลังเตรียมดาวน์โหลด PDF');
       setSubmitPercent(100);
-      setIsSubmitting(false);
+      try {
+        const blob = await downloadControlledCopyFromServer(distribution.id, files.length > 1 ? 'all' : 0, signal);
+        if (signal.aborted || !checkCurrentAccess()) return;
+        const name = files.length > 1
+          ? `CONTROLLED_${distribution.docNo}_Rev${distribution.revision}_${dept.replace(/[^a-zA-Z0-9._-]/g, '_')}.zip`
+          : files[0].name;
+        saveBlobToDevice(blob, name);
+        setSubmitStatus('ส่งคำสั่งดาวน์โหลดแล้ว กรุณาตรวจสอบโฟลเดอร์ดาวน์โหลด');
+      } catch (caught) {
+        if (!signal.aborted) {
+          const message = caught instanceof Error ? caught.message : 'ไม่ทราบสาเหตุ';
+          setErrorMsg(`บันทึกการรับแล้ว แต่ดาวน์โหลดอัตโนมัติไม่สำเร็จ: ${message} กรุณากดดาวน์โหลดด้านล่างอีกครั้ง`);
+        }
+      } finally { setIsSubmitting(false); }
     } else {
       setIsSubmitting(false);
       if (isMissingStorageFileError(result.message)) showMissingFileError(result.message);
@@ -530,15 +544,15 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
             <div className="p-4 bg-emerald-50 border-2 border-emerald-300 rounded-xl space-y-3">
               <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                บันทึกการรับเอกสารสำเร็จ — กดดาวน์โหลดไฟล์ด้านล่าง
+                บันทึกการรับเอกสารสำเร็จ
               </div>
-              <p className="text-[11px] text-emerald-800">ไฟล์พร้อมดาวน์โหลดแล้ว สามารถดาวน์โหลดทั้งหมดในครั้งเดียว หรือเลือกดาวน์โหลดทีละไฟล์ได้</p>
+              <p className="text-[11px] text-emerald-800">{submitStatus || 'ตรวจสอบไฟล์ในโฟลเดอร์ดาวน์โหลด หรือเลือกดาวน์โหลดอีกครั้งด้านล่าง'}</p>
               {readyDownloads.length > 1 && (
                 <button
                   type="button"
                   id="btn-download-all-controlled-files"
                   onClick={() => void downloadAllReadyFiles()}
-                  disabled={isDownloadingAll || downloadingIndex !== null}
+                  disabled={isSubmitting || isDownloadingAll || downloadingIndex !== null}
                   className="w-full px-4 py-3 bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-400 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2"
                 >
                   <Download className="w-4 h-4 shrink-0" />
@@ -551,7 +565,7 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
                     type="button"
                     key={file.url}
                     onClick={() => downloadReadyFile(file, index)}
-                    disabled={downloadingIndex !== null || isDownloadingAll}
+                    disabled={isSubmitting || downloadingIndex !== null || isDownloadingAll}
                     className="w-full px-4 py-3 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl font-bold text-xs flex items-center justify-between gap-3"
                   >
                     <span className="truncate">{downloadingIndex === index ? 'กำลังดาวน์โหลด...' : `ไฟล์ที่ ${index + 1}: ${file.name}`}</span>
