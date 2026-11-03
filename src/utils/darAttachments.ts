@@ -12,6 +12,16 @@ export const validateDarPdf = async (file: Blob, name: string, type = file.type)
   if (!file.size || file.size >= MAX_DAR_PDF_BYTES) throw new Error(`${name}: ไฟล์ PDF ต้องมีขนาดน้อยกว่า 25 MB`);
   const header = new Uint8Array(await file.slice(0, 5).arrayBuffer());
   if (String.fromCharCode(...header) !== '%PDF-') throw new Error(`${name}: เนื้อหาไฟล์ไม่ใช่ PDF กรุณาแปลงเป็น PDF ก่อนแนบ`);
+  try {
+    const { PDFDocument } = await import('pdf-lib');
+    const pdf = await PDFDocument.load(await file.arrayBuffer());
+    if (!pdf.getPageCount()) throw new Error('PDF has no pages');
+  } catch (error) {
+    const encrypted = error instanceof Error && /encrypt/i.test(error.message);
+    throw new Error(encrypted
+      ? `${name}: ไฟล์ PDF มีการเข้ารหัสหรือจำกัดสิทธิ์ กรุณาขอไฟล์ที่ไม่มีการเข้ารหัสจากเจ้าของเอกสาร`
+      : `${name}: ระบบอ่านไฟล์ PDF ไม่ได้ กรุณาตรวจสอบหรือส่งออกไฟล์ใหม่`);
+  }
 };
 
 // Old single-file DARs remain readable; the array is authoritative for new DARs.

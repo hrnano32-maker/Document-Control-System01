@@ -6,6 +6,7 @@ import { MasterRevisionDatesModal } from './MasterRevisionDatesModal';
 import { restoreMasterRevisionDates } from '../services/masterDateRepository';
 import { findExistingDistribution, initialDistributionSelection, canonicalDistributionDepartment } from '../utils/distributionReopen';
 import { getMasterRevisionHistory, hasMissingRevisionDates } from '../utils/masterRevisions';
+import { validateDarPdf } from '../utils/darAttachments';
 import {
   FileText,
   Search,
@@ -55,6 +56,8 @@ export const MasterListView: React.FC = () => {
   const [distError, setDistError] = useState('');
   const [distFiles, setDistFiles] = useState<{ name: string; size: string; type: string; dataUrl: string }[]>([]);
   const [isDistributing, setIsDistributing] = useState(false);
+  const [isCheckingPdf, setIsCheckingPdf] = useState(false);
+  const [invalidPdf, setInvalidPdf] = useState(false);
   const [distProgressText, setDistProgressText] = useState('');
   const [distProgressPercent, setDistProgressPercent] = useState(0);
 
@@ -147,6 +150,7 @@ export const MasterListView: React.FC = () => {
     setQuickDistributeDoc(doc);
     setTargetDepts(initialDistributionSelection(doc, findExistingDistribution(doc, distributions)));
     setDistFiles([]);
+    setInvalidPdf(false);
     setDistInstructions(`แจกจ่ายเอกสารควบคุม ${doc.docNo} Rev.${doc.currentRevision} กรุณาดาวน์โหลดภายใน 3 วัน`);
     setDistSuccessMsg('');
     setDistError('');
@@ -865,13 +869,19 @@ export const MasterListView: React.FC = () => {
 
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">{existingDistribution ? 'ไฟล์ PDF สำหรับรอบนี้ (ไม่แนบ = ใช้ไฟล์เดิม)' : 'ไฟล์ Controlled Copy ฉบับจริง เลือกพร้อมกันได้หลายไฟล์ *'}</label>
-                    <input type="file" disabled={isDistributing} multiple accept="application/pdf,.pdf" onChange={async event => {
+                    <input type="file" disabled={isDistributing || isCheckingPdf} multiple accept="application/pdf,.pdf" onChange={async event => {
                       const files: File[] = Array.from(event.currentTarget.files || []);
+                      const input = event.currentTarget;
                       setDistError('');
+                      setDistFiles([]);
+                      setInvalidPdf(false);
                       if (!files.length) { setDistFiles([]); return; }
-                      if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) { setDistError('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น'); event.target.value = ''; setDistFiles([]); return; }
-                      if (files.some(file => file.size > 25 * 1024 * 1024)) { setDistError('PDF แต่ละไฟล์ต้องมีขนาดไม่เกิน 25 MB'); event.target.value = ''; setDistFiles([]); return; }
-                      if (files.length > 20) { setDistError('เลือก PDF ได้สูงสุด 20 ไฟล์ต่อชุดแจกจ่าย'); event.target.value = ''; setDistFiles([]); return; }
+                      if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) { setInvalidPdf(true); setDistError('ไฟล์ Controlled Copy ทุกไฟล์ต้องเป็น PDF เท่านั้น'); event.target.value = ''; setDistFiles([]); return; }
+                      if (files.some(file => file.size > 25 * 1024 * 1024)) { setInvalidPdf(true); setDistError('PDF แต่ละไฟล์ต้องมีขนาดไม่เกิน 25 MB'); event.target.value = ''; setDistFiles([]); return; }
+                      if (files.length > 20) { setInvalidPdf(true); setDistError('เลือก PDF ได้สูงสุด 20 ไฟล์ต่อชุดแจกจ่าย'); event.target.value = ''; setDistFiles([]); return; }
+                      setIsCheckingPdf(true);
+                      try {
+                      for (const file of files) await validateDarPdf(file, file.name);
                       const loaded = await Promise.all(files.map(file => new Promise<{ name: string; size: string; type: string; dataUrl: string }>((resolve, reject) => {
                         const reader = new FileReader();
                         reader.onload = () => resolve({ name: file.name, size: `${(file.size / 1024 / 1024).toFixed(2)} MB`, type: 'application/pdf', dataUrl: String(reader.result) });
@@ -879,6 +889,8 @@ export const MasterListView: React.FC = () => {
                         reader.readAsDataURL(file);
                       })));
                       setDistFiles(loaded);
+                      } catch (error) { setDistFiles([]); setInvalidPdf(true); setDistError(error instanceof Error ? error.message : 'ตรวจสอบไฟล์ไม่สำเร็จ'); input.value = ''; }
+                      finally { setIsCheckingPdf(false); }
                     }} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white" />
                     {distFiles.length > 0 && (
                       <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-[11px] text-emerald-900">
@@ -939,7 +951,7 @@ export const MasterListView: React.FC = () => {
                 <button
                   type="button"
                   id="btn-confirm-quick-distribute"
-                  disabled={targetDepts.length === 0 || (!existingDistribution && distFiles.length === 0) || isDistributing}
+                  disabled={targetDepts.length === 0 || (!existingDistribution && distFiles.length === 0) || isDistributing || isCheckingPdf || invalidPdf}
                   onClick={handleConfirmDistribution}
                   className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 rounded-lg shadow-sm flex items-center gap-1.5 cursor-pointer transition-all"
                 >
