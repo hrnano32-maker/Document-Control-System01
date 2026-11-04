@@ -26,6 +26,7 @@ import { getMasterRevisionHistory, revisionKey } from '../utils/masterRevisions'
 
 import { MAX_DAR_PDFS, formatPdfSize, validateDarPdf, getDarAttachments } from '../utils/darAttachments';
 import { getDarMasterRows, masterDocumentKey, planDarMasterRegistration } from '../utils/darMasterRegistration';
+import { validateAdditionalCurrentRevisions } from '../utils/darRevisionDisplay';
 import { DAR_CORRECTION_LABELS, sameDarCorrectionValue } from '../utils/darCorrection';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -338,6 +339,7 @@ const darSubmissionStep = async <T,>(stage: string, operation: () => Promise<T>)
 
 export const createDarRecord = async (user: CurrentUserSession, input: DarCreateInput, onProgress?: (message: string, percent: number) => void) => {
   validateDarEffectiveDates(input);
+  validateAdditionalCurrentRevisions(input);
   getDarMasterRows({ ...input, id: '', status: 'PENDING_REVIEW', requestDate: '' } as DarRecord);
   if (input.requestDept !== user.currentDept && user.userRole !== 'DCC_ADMIN') throw new Error('ไม่มีสิทธิ์สร้าง DAR แทนหน่วยงานอื่น');
   if (!input.requesterName?.trim() || !input.requesterSignature) throw new Error('ต้องระบุผู้ยื่นคำขอและลงลายเซ็นให้ครบก่อนส่ง DAR');
@@ -379,8 +381,10 @@ export const createDarRecord = async (user: CurrentUserSession, input: DarCreate
   const id = `DAR-${year}-${String(seq).padStart(4, '0')}`;
   const createdAt = new Date().toISOString();
   const { attachments: uploadInputs, previousAttachments, useMasterPrevious, attachmentFileDataUrl: legacyDataUrl, ...fields } = input;
+  const normalizedAdditionalDocuments = input.additionalDocuments?.map(row => ({ ...row, currentRevision: input.requestType === 'NEW' ? 'N/A' : (row.currentRevision || '').trim() }));
   const record: DarRecord & { createdAt: string; createdByUid: string } = clean({
     ...fields,
+    ...(normalizedAdditionalDocuments ? { additionalDocuments: normalizedAdditionalDocuments } : {}),
     attachments: [],
     createdByUid: user.uid,
     id,

@@ -91,3 +91,15 @@ test('invalid previous PDF is rejected before uploading new files or allocating 
   assert.equal(h.uploads.length,0);assert.equal(Object.keys(h.records).length,0);
 });
 
+test('revision DAR persists the prior revision independently for each additional document', async () => {
+  const { h, repo } = await repository();
+  const extra = { docNo: 'WI-HR-02', docNameTh: 'เอกสารเพิ่มเติม', currentRevision: '03', revision: '04', reason: 'ปรับปรุง', previousEffectiveDate: '2026-01-01' };
+  const payload = { ...input(), requestType: 'REVISION', currentRevision: '01', proposedRevision: '02', previousEffectiveDate: '2026-01-01', attachments: [attachment('new.pdf')], previousAttachments: [attachment('old.pdf')], additionalDocuments: [extra] };
+  const id = await repo.createDarRecord(user, payload);
+  assert.equal(h.records['dcs_dars/' + id].additionalDocuments[0].currentRevision, '03');
+  assert.equal(h.records['dcs_dars/' + id].additionalDocuments[0].revision, '04');
+  const missing = await repository();
+  await assert.rejects(missing.repo.createDarRecord(user, { ...payload, additionalDocuments: [{ ...extra, currentRevision: '' }] }), /Rev. เดิม/);
+  assert.equal(missing.h.uploads.length, 0);
+});
+

@@ -1,6 +1,7 @@
 import React from 'react';
 import { DarAdditionalDocument, DarRequestType, Department, DocumentType, DEPARTMENTS } from '../types';
 import { NanoLogo } from './NanoLogo';
+import { formatDarRevision } from '../utils/darRevisionDisplay';
 
 interface DarLivePreviewProps {
   requestType: DarRequestType;
@@ -42,6 +43,7 @@ export const DarLivePreview: React.FC<DarLivePreviewProps> = props => {
       docNameTh: props.docNameTh,
       docNameEn: props.docNameEn,
       previousEffectiveDate: props.requestType === 'NEW' ? '' : props.previousEffectiveDate || '',
+      currentRevision: props.currentRevision,
       revision: props.requestType === 'OBSOLETE' ? 'OBSOLETE' : props.proposedRevision,
       reason: props.reasonForChange,
     },
@@ -101,7 +103,7 @@ export const DarLivePreview: React.FC<DarLivePreviewProps> = props => {
             <td className="border border-black px-1 font-mono font-bold break-words">{row.docNo}</td>
             <td className="border border-black px-1 break-words"><b>{row.docNameTh}</b>{row.docNameEn && <div className="italic text-[7px]">{row.docNameEn}</div>}</td>
             <td className="border border-black text-center">{index === 0 && props.requestType === 'NEW' ? '-' : formatDate(row.previousEffectiveDate)}</td>
-            <td className="border border-black text-center font-bold">{row.revision}</td>
+            <td className="border border-black text-center font-bold">{formatDarRevision(props.requestType, row.currentRevision, row.revision)}</td>
             <td className="border border-black px-1 break-words">{row.reason}</td>
           </tr>)}</tbody>
         </table>
@@ -136,3 +138,4 @@ export const DarLivePreview: React.FC<DarLivePreviewProps> = props => {
     </div>
   );
 };
+

@@ -126,6 +126,8 @@ export interface DarAdditionalDocument {
   docNameTh: string;
   docNameEn?: string;
   previousEffectiveDate?: string;
+  // Optional for DARs created before the previous-revision field existed.
+  currentRevision?: string;
   revision: string;
   reason: string;
 }

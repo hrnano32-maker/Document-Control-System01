@@ -13,7 +13,7 @@ const stableValue = (value: unknown): unknown => {
 export const sameDarCorrectionValue = (key: string, left: unknown, right: unknown) => {
   const comparable = (value: unknown) => key === 'additionalDocuments'
     ? stableValue((Array.isArray(value) ? value : []).map(row => ({
-      ...row, docNameEn: row.docNameEn ?? '', previousEffectiveDate: row.previousEffectiveDate ?? '',
+      ...row, docNameEn: row.docNameEn ?? '', previousEffectiveDate: row.previousEffectiveDate ?? '', currentRevision: row.currentRevision ?? '',
     })))
     : value ?? '';
   return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));
@@ -26,3 +26,4 @@ export const DAR_CORRECTION_LABELS: Record<string, string> = {
   reasonForChange: 'เหตุผลการดำเนินการ', changeDetails: 'รายละเอียดการเปลี่ยนแปลง',
   additionalDocuments: 'รายการเอกสารเพิ่มเติม',
 };
+

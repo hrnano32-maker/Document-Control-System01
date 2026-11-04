@@ -47,6 +47,7 @@ import { revisionKey } from '../utils/masterRevisions';
 import { DarPrintModal } from './DarPrintModal';
 import { DarLivePreview } from './DarLivePreview';
 import { analyzeRevisionSequence, getNextRevision, formatRevision } from '../utils/revisionHelper';
+import { formatDarRevision } from '../utils/darRevisionDisplay';
 
 export const DarManagement: React.FC = () => {
   const {
@@ -328,10 +329,14 @@ export const DarManagement: React.FC = () => {
     }
 
     const filledAdditionalDocuments = additionalDocuments.filter(item =>
-      item.docNo.trim() || item.docNameTh.trim() || item.docNameEn?.trim() || item.previousEffectiveDate || item.revision.trim() || item.reason.trim()
+      item.docNo.trim() || item.docNameTh.trim() || item.docNameEn?.trim() || item.previousEffectiveDate || item.currentRevision?.trim() || item.revision.trim() || item.reason.trim()
     );
     if (filledAdditionalDocuments.some(item => !item.docNo.trim() || !item.docNameTh.trim() || !item.revision.trim() || !item.reason.trim())) {
       setFormError('รายการเอกสารเพิ่มเติมต้องกรอกหมายเลข ชื่อเอกสาร ฉบับที่ และเหตุผลให้ครบ');
+      return;
+    }
+    if (reqType !== 'NEW' && filledAdditionalDocuments.some(item => !item.currentRevision?.trim() || item.currentRevision.trim().toUpperCase() === 'N/A')) {
+      setFormError('กรุณากรอก Rev. เดิมของรายการเอกสารเพิ่มเติมทุกหมายเลข');
       return;
     }
 
@@ -356,7 +361,7 @@ export const DarManagement: React.FC = () => {
       proposedRevision: reqType === 'OBSOLETE' ? 'OBSOLETE' : proposedRevision.trim(),
       reasonForChange: reasonForChange.trim(),
       changeDetails: changeDetails.trim(),
-      additionalDocuments: filledAdditionalDocuments.map(item => ({ ...item, docNo: item.docNo.trim().toUpperCase(), docNameTh: item.docNameTh.trim(), docNameEn: item.docNameEn?.trim() || '', revision: item.revision.trim(), reason: item.reason.trim() })),
+      additionalDocuments: filledAdditionalDocuments.map(item => ({ ...item, currentRevision: reqType === 'NEW' ? 'N/A' : (item.currentRevision || '').trim(), docNo: item.docNo.trim().toUpperCase(), docNameTh: item.docNameTh.trim(), docNameEn: item.docNameEn?.trim() || '', revision: item.revision.trim(), reason: item.reason.trim() })),
       isSkippedRevision: revAnalysis.isSkipped,
       skippedRevisionReason: revAnalysis.isSkipped ? skippedRevisionReason.trim() : undefined,
       systemCurrentRevision: revAnalysis.systemCurrentRev || undefined,
@@ -628,7 +633,7 @@ export const DarManagement: React.FC = () => {
                 <fieldset key={index} disabled={savingCorrection || correctionDetailsOnly} className="rounded-lg border p-3 disabled:opacity-60">
                   <legend className="font-semibold">รายการที่ {index + 2}</legend>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {([['docNo', 'รหัสเอกสาร'], ['docNameTh', 'ชื่อเอกสารภาษาไทย'], ['docNameEn', 'ชื่อเอกสารภาษาอังกฤษ'], ['previousEffectiveDate', 'วันที่เอกสารเดิมมีผล'], ['revision', 'ฉบับที่'], ['reason', 'เหตุผล']] as const).map(([key, label]) => (
+                    {([['docNo', 'รหัสเอกสาร'], ['docNameTh', 'ชื่อเอกสารภาษาไทย'], ['docNameEn', 'ชื่อเอกสารภาษาอังกฤษ'], ['previousEffectiveDate', 'วันที่เอกสารเดิมมีผล'], ['currentRevision', 'Rev. เดิม'], ['revision', 'Rev. ที่เสนอ'], ['reason', 'เหตุผล']] as const).map(([key, label]) => (
                       <label key={key} className="text-sm font-semibold">{label}
                         <input type={key === 'previousEffectiveDate' ? 'date' : 'text'} className="mt-1 w-full rounded-lg border p-2"
                           value={row[key] || ''} onChange={e => setCorrectionRows(items => items.map((item, i) => i === index ? { ...item, [key]: e.target.value } : item))} />
@@ -789,7 +794,7 @@ export const DarManagement: React.FC = () => {
                             <td className="p-2 text-center font-bold">{index + 2}</td>
                             <td className="p-2 font-mono font-bold">{item.docNo}</td>
                             <td className="p-2">{item.docNameTh}{item.docNameEn ? <div className="text-[10px] text-slate-500 italic">{item.docNameEn}</div> : null}</td>
-                            <td className="p-2 font-mono">{item.revision}</td>
+                            <td className="p-2 font-mono">{formatDarRevision(selectedDarForReview.requestType, item.currentRevision, item.revision)}</td>
                             <td className="p-2">{item.reason}</td>
                           </tr>
                         ))}
@@ -1231,7 +1236,7 @@ export const DarManagement: React.FC = () => {
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,0.8fr)_minmax(0,0.8fr)] items-end gap-3.5 [&>*]:min-w-0">
                           <div>
                             <label className="block text-xs font-bold text-slate-700 mb-1.5">รหัสเอกสาร (Doc No.) <span className="text-rose-500">*</span></label>
                             <input value={item.docNo} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, docNo: e.target.value } : row))} placeholder="เช่น QP-PD-005 หรือ WI-QA-008" className="w-full h-10 px-3.5 border border-slate-300 rounded-lg text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
@@ -1239,6 +1244,10 @@ export const DarManagement: React.FC = () => {
                           <div>
                             <label className="block text-xs font-bold text-slate-700 mb-1.5">วันที่เอกสารเดิมบังคับใช้</label>
                             <input type="date" value={item.previousEffectiveDate || ''} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, previousEffectiveDate: e.target.value } : row))} className="w-full h-10 px-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1.5">Rev. เดิม {reqType !== 'NEW' && <span className="text-rose-500">*</span>}</label>
+                            <input aria-label={`Rev. เดิม รายการที่ ${index + 2}`} value={reqType === 'NEW' ? 'N/A' : (item.currentRevision || '')} disabled={reqType === 'NEW'} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, currentRevision: e.target.value } : row))} placeholder="เช่น 00, 01" className="w-full h-10 px-3 border border-slate-300 rounded-lg text-sm font-mono disabled:bg-slate-100 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
                           </div>
                           <div>
                             <label className="block text-xs font-bold text-slate-700 mb-1.5">Rev. ที่เสนอ <span className="text-rose-500">*</span></label>

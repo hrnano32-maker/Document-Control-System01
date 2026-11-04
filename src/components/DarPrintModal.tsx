@@ -16,6 +16,7 @@ import confetti from 'canvas-confetti';
 import { printElementById, openPrintInNewTab, downloadPrintableHtml } from '../utils/printHelper';
 import { COMPANY } from '../config/company';
 import { NanoLogo } from './NanoLogo';
+import { formatDarRevision } from '../utils/darRevisionDisplay';
 
 interface DarPrintModalProps {
   dar: DarRecord;
@@ -562,7 +563,7 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose, onEd
                       {dar.requestType === 'NEW' ? '-' : dar.previousEffectiveDate ? formatThaiDate(dar.previousEffectiveDate) : 'ไม่ระบุวันที่เดิม'}
                     </td>
                     <td className="border-r border-black p-2 align-middle font-mono font-bold">
-                      {dar.requestType === 'NEW' ? dar.proposedRevision : `${dar.currentRevision} ➔ ${dar.proposedRevision}`}
+                      {formatDarRevision(dar.requestType, dar.currentRevision, dar.proposedRevision)}
                     </td>
                     <td className="p-2 align-middle text-left text-[11px] leading-tight">
                       {dar.reasonForChange}
@@ -593,7 +594,7 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose, onEd
                         <td className="border-r border-black p-1 align-middle font-mono text-[10px]">
                           {item?.previousEffectiveDate ? formatThaiDate(item.previousEffectiveDate) : ''}
                         </td>
-                        <td className="border-r border-black p-1 align-middle font-mono font-bold">{item?.revision || ''}</td>
+                        <td className="border-r border-black p-1 align-middle font-mono font-bold">{item ? formatDarRevision(dar.requestType, item.currentRevision, item.revision) : ''}</td>
                         <td className="p-1 align-middle text-left text-[10px] leading-tight">{item?.reason || ''}</td>
                       </tr>
                     );
@@ -1048,3 +1049,4 @@ export const DarPrintModal: React.FC<DarPrintModalProps> = ({ dar, onClose, onEd
     </div>
   );
 };
+

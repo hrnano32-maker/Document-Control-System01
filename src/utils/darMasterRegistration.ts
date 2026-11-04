@@ -6,7 +6,7 @@ export const masterDocumentKey = (docNo: string) => encodeURIComponent(docNo.tri
 // A DAR has one approval and one distribution set, but each row is a distinct document.
 export function getDarMasterRows(dar: DarRecord) {
   const rows = [
-    { docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn, revision: dar.proposedRevision || dar.currentRevision || '00', reason: dar.reasonForChange, previousEffectiveDate: dar.previousEffectiveDate },
+    { docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn, currentRevision: dar.currentRevision, revision: dar.proposedRevision || dar.currentRevision || '00', reason: dar.reasonForChange, previousEffectiveDate: dar.previousEffectiveDate },
     ...(dar.additionalDocuments || []).map(row => ({ ...row, docNameEn: row.docNameEn || '' })),
   ];
   if (rows.length > 6) throw new Error('ใบ DAR มีรายการเอกสารเกิน 6 รายการ');
@@ -50,6 +50,9 @@ export function planDarMasterRegistration(
     }
     if (mode === 'register' && dar.requestType === 'NEW' && previous && previous.darReferenceId !== dar.id) throw new Error(`รหัส ${row.docNo} มีใน Master List แล้ว กรุณาตรวจสอบก่อนขึ้นทะเบียน`);
     if (mode === 'register' && index > 0 && dar.requestType !== 'NEW' && !previous) throw new Error(`ไม่พบ ${row.docNo} ใน Master List กรุณาตรวจสอบเอกสารเดิมก่อนขึ้นทะเบียน`);
+    if (mode === 'register' && index > 0 && dar.requestType !== 'NEW' && previous && row.currentRevision && revisionKey(row.currentRevision) !== revisionKey(previous.currentRevision)) {
+      throw new Error(`${row.docNo}: Rev. เดิมไม่ตรงกับ Master List กรุณาตรวจสอบ`);
+    }
     if (mode === 'register' && index > 0 && dar.requestType === 'REVISION' && previous) {
       const oldRev = revisionKey(previous.currentRevision);
       const newRev = revisionKey(row.revision);
@@ -92,7 +95,7 @@ export function planDarMasterRegistration(
     }
     next.revisionHistory = getMasterRevisionHistory(next, {
       ...dar, status: 'REGISTERED', docNo: row.docNo, proposedRevision: revision,
-      currentRevision: index === 0 ? dar.currentRevision : previous?.currentRevision || 'N/A',
+      currentRevision: index === 0 ? dar.currentRevision : row.currentRevision || previous?.currentRevision || 'N/A',
       previousEffectiveDate: row.previousEffectiveDate, reasonForChange: row.reason,
     });
     records.push(next);
