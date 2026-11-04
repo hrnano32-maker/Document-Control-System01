@@ -103,3 +103,24 @@ test('revision DAR persists the prior revision independently for each additional
   assert.equal(missing.h.uploads.length, 0);
 });
 
+test('revision submission preserves all original effective dates and rejects missing or reversed dates', async () => {
+  const extra = { docNo: 'WI-HR-02', docNameTh: 'เอกสารเพิ่มเติม', currentRevision: '03', revision: '04', reason: 'ปรับปรุง', previousEffectiveDate: '2025-06-01' };
+  const payload = { ...input(), requestType: 'REVISION', currentRevision: '04', proposedRevision: '05', previousEffectiveDate: '2025-01-10', targetEffectiveDate: '2026-10-23', attachments: [attachment('new.pdf')], previousAttachments: [attachment('old.pdf')], additionalDocuments: [extra] };
+  const { h, repo } = await repository();
+  const id = await repo.createDarRecord(user, payload);
+  assert.equal(h.records['dcs_dars/' + id].previousEffectiveDate, '2025-01-10');
+  assert.equal(h.records['dcs_dars/' + id].additionalDocuments[0].previousEffectiveDate, '2025-06-01');
+
+  for (const [invalid, expected] of [
+    [{ ...payload, previousEffectiveDate: '' }, /รายการที่ 1/],
+    [{ ...payload, additionalDocuments: [{ ...extra, previousEffectiveDate: '' }] }, /รายการที่ 2/],
+    [{ ...payload, previousEffectiveDate: payload.targetEffectiveDate }, /วันที่ฉบับใหม่ต้องอยู่หลัง/],
+    [{ ...payload, additionalDocuments: [{ ...extra, previousEffectiveDate: '2027-01-01' }] }, /รายการที่ 2/],
+  ] as const) {
+    const rejected = await repository();
+    await assert.rejects(rejected.repo.createDarRecord(user, invalid), expected);
+    assert.equal(rejected.h.uploads.length, 0);
+    assert.equal(Object.keys(rejected.h.records).length, 0);
+  }
+});
+

@@ -132,6 +132,9 @@ export const DarManagement: React.FC = () => {
     new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   );
   const [previousEffectiveDate, setPreviousEffectiveDate] = useState('');
+  // The date field appears before the document number. Never overwrite a date
+  // the requester has entered while typing the number or receiving updates.
+  const previousDateManuallyEdited = useRef(false);
   const [docNo, setDocNo] = useState('');
   const [docNameTh, setDocNameTh] = useState('');
   const [docNameEn, setDocNameEn] = useState('');
@@ -264,7 +267,9 @@ export const DarManagement: React.FC = () => {
   };
 
   useEffect(() => {
-    const existing = documents.find(item => item.docNo.trim().toUpperCase() === docNo.trim().toUpperCase());
+    if (previousDateManuallyEdited.current) return;
+    const number = docNo.trim().toUpperCase();
+    const existing = number ? documents.find(item => item.docNo.trim().toUpperCase() === number) : undefined;
     setPreviousEffectiveDate(reqType === 'NEW' ? '' : existing?.effectiveDate || '');
   }, [docNo, reqType, documents]);
 
@@ -451,6 +456,8 @@ export const DarManagement: React.FC = () => {
 
         <button
           onClick={() => {
+            previousDateManuallyEdited.current = false;
+            setPreviousEffectiveDate('');
             setDocNo('');
             setDocNameTh('');
             setDocNameEn('');
@@ -1078,8 +1085,8 @@ export const DarManagement: React.FC = () => {
 
               {reqType !== 'NEW' && <div>
                 <label className="mb-1.5 block text-xs font-bold text-slate-700">วันที่เอกสารเดิมบังคับใช้ <span className="text-rose-500">*</span></label>
-                <input type="date" required value={previousEffectiveDate} onChange={e => setPreviousEffectiveDate(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                <p className="mt-1 text-xs text-slate-500">ดึงจาก Master List เมื่อพบเอกสาร กรุณาตรวจสอบกับฉบับเดิม วันที่ฉบับใหม่ต้องอยู่หลังวันนี้</p>
+                <input aria-label="วันที่เอกสารเดิมบังคับใช้ รายการที่ 1" type="date" required value={previousEffectiveDate} onChange={e => { previousDateManuallyEdited.current = true; setPreviousEffectiveDate(e.target.value); }} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                <p className="mt-1 text-xs text-slate-500">ดึงจาก Master List เมื่อพบเอกสาร หากกรอกวันที่เองหรือเปลี่ยนรหัสเอกสาร กรุณาตรวจสอบให้ตรงกับฉบับเดิม วันที่ฉบับใหม่ต้องอยู่หลังวันนี้</p>
                 {previousEffectiveDate && targetEffectiveDate && previousEffectiveDate >= targetEffectiveDate && <p role="alert" className="mt-2 text-sm font-bold text-rose-600">วันที่ฉบับใหม่ต้องอยู่หลังวันที่เอกสารเดิม ระบบจะไม่อนุญาตให้ส่ง DAR</p>}
               </div>}
               {/* Document Identity */}
@@ -1242,8 +1249,8 @@ export const DarManagement: React.FC = () => {
                             <input value={item.docNo} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, docNo: e.target.value } : row))} placeholder="เช่น QP-PD-005 หรือ WI-QA-008" className="w-full h-10 px-3.5 border border-slate-300 rounded-lg text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
                           </div>
                           <div>
-                            <label className="block text-xs font-bold text-slate-700 mb-1.5">วันที่เอกสารเดิมบังคับใช้</label>
-                            <input type="date" value={item.previousEffectiveDate || ''} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, previousEffectiveDate: e.target.value } : row))} className="w-full h-10 px-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                            <label className="block text-xs font-bold text-slate-700 mb-1.5">วันที่เอกสารเดิมบังคับใช้ {reqType !== 'NEW' && <span className="text-rose-500">*</span>}</label>
+                            <input aria-label={`วันที่เอกสารเดิมบังคับใช้ รายการที่ ${index + 2}`} type="date" value={item.previousEffectiveDate || ''} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, previousEffectiveDate: e.target.value } : row))} className="w-full h-10 px-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
                           </div>
                           <div>
                             <label className="block text-xs font-bold text-slate-700 mb-1.5">Rev. เดิม {reqType !== 'NEW' && <span className="text-rose-500">*</span>}</label>
