@@ -4,9 +4,11 @@ import { MasterDocument, DOCUMENT_TYPES, DEPARTMENTS, DocumentType } from '../ty
 import { MasterListPrintModal } from './MasterListPrintModal';
 import { MasterRevisionDatesModal } from './MasterRevisionDatesModal';
 import { restoreMasterRevisionDates } from '../services/masterDateRepository';
-import { findExistingDistribution, initialDistributionSelection, canonicalDistributionDepartment } from '../utils/distributionReopen';
+import { findExistingDistribution, initialDistributionSelection, canonicalDistributionDepartment, resolveDistributionAnchor, isDistributedMasterForDepartment } from '../utils/distributionReopen';
 import { getMasterRevisionHistory, hasMissingRevisionDates } from '../utils/masterRevisions';
 import { validateDarPdf } from '../utils/darAttachments';
+import { getDarMasterRows } from '../utils/darMasterRegistration';
+import { recoverDarMasterDocuments } from '../services/dcsRepository';
 import {
   FileText,
   Search,
@@ -67,12 +69,46 @@ export const MasterListView: React.FC = () => {
   const [restoreError, setRestoreError] = useState('');
   const [restoreAttempt, setRestoreAttempt] = useState(0);
   const attemptedRestores = useRef(new Set<string>());
+  const attemptedDarRecovery = useRef(new Set<string>());
+  const [recoveryMessage, setRecoveryMessage] = useState('');
+  const [recoveryError, setRecoveryError] = useState('');
   const revisionDocuments = useMemo(() => masterListDocuments.map(master => ({
     ...master,
     revisionHistory: getMasterRevisionHistory(master, dars.find(dar => dar.id === master.darReferenceId)),
   })), [masterListDocuments, dars]);
   const selectedDocForHistory = historyDocument
     ? revisionDocuments.find(master => master.id === historyDocument.id) || historyDocument : null;
+
+  // Registered NEW DARs from before multi-row registration may lack rows 2–6.
+  // Only DCC repairs them, with each absent record rechecked in a transaction.
+  useEffect(() => {
+    if (currentUser.userRole !== 'DCC_ADMIN') return;
+    const known = new Map<string, MasterDocument>(masterListDocuments.map(master => [master.id, master]));
+    const candidates = dars.filter(dar => {
+      if (dar.status !== 'REGISTERED' || dar.requestType !== 'NEW' || !dar.additionalDocuments?.length || attemptedDarRecovery.current.has(dar.id)) return false;
+      try {
+        const rows = getDarMasterRows(dar);
+        const primary = known.get(rows[0].key);
+        return primary?.darReferenceId === dar.id && primary.status === 'ACTIVE' && rows.slice(1).some(row => !known.has(row.key));
+      } catch { return false; }
+    });
+    if (!candidates.length) return;
+    let stopped = false;
+    void (async () => {
+      for (const dar of candidates) {
+        if (stopped) break;
+        attemptedDarRecovery.current.add(dar.id);
+        try {
+          const result = await recoverDarMasterDocuments(currentUser, dar);
+          if (!stopped && result.created.length) setRecoveryMessage(`เติม Master List จาก ${dar.id} แล้ว: ${result.created.join(', ')}`);
+          if (!stopped && result.conflicts.length) setRecoveryError(`${dar.id}: รหัส ${result.conflicts.join(', ')} มีทะเบียนอื่นอยู่แล้ว กรุณาตรวจสอบ ไม่ได้เขียนทับ`);
+        } catch (error) {
+          if (!stopped) setRecoveryError(`${dar.id}: ${error instanceof Error ? error.message : 'เติมรายการไม่สำเร็จ'}`);
+        }
+      }
+    })();
+    return () => { stopped = true; };
+  }, [currentUser.uid, currentUser.userRole, dars, masterListDocuments]);
 
   useEffect(() => {
     if (currentUser.userRole !== 'DCC_ADMIN') return;
@@ -122,11 +158,7 @@ export const MasterListView: React.FC = () => {
   const accessibleDocuments = revisionDocuments.filter(doc => {
     if (currentUser.userRole === 'DCC_ADMIN') return true;
     if (doc.ownerDept === currentUser.currentDept) return true;
-    return distributions.some(distribution =>
-      distribution.status !== 'CANCELLED'
-      && distribution.docId === doc.id
-      && distribution.targetDepartments.includes(currentUser.currentDept)
-    );
+    return isDistributedMasterForDepartment(doc, distributions, currentUser.currentDept);
   });
 
   // Filter documents
@@ -147,11 +179,13 @@ export const MasterListView: React.FC = () => {
   const existingDistribution = quickDistributeDoc ? findExistingDistribution(quickDistributeDoc, distributions) : undefined;
 
   const handleOpenQuickDistribute = (doc: MasterDocument) => {
-    setQuickDistributeDoc(doc);
-    setTargetDepts(initialDistributionSelection(doc, findExistingDistribution(doc, distributions)));
+    const anchor = resolveDistributionAnchor(doc, masterListDocuments);
+    if (!anchor) { window.alert('ไม่พบเอกสารหลักของชุด DAR นี้ กรุณาตรวจสอบก่อนแจกจ่าย'); return; }
+    setQuickDistributeDoc(anchor);
+    setTargetDepts(initialDistributionSelection(anchor, findExistingDistribution(anchor, distributions)));
     setDistFiles([]);
     setInvalidPdf(false);
-    setDistInstructions(`แจกจ่ายเอกสารควบคุม ${doc.docNo} Rev.${doc.currentRevision} กรุณาดาวน์โหลดภายใน 3 วัน`);
+    setDistInstructions(`แจกจ่ายเอกสารควบคุม ${anchor.docNo} Rev.${anchor.currentRevision} กรุณาดาวน์โหลดภายใน 3 วัน`);
     setDistSuccessMsg('');
     setDistError('');
     setDistProgressText('');
@@ -275,6 +309,9 @@ export const MasterListView: React.FC = () => {
           )}
         </div>
       </div>
+
+      {recoveryMessage && <div role="status" className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">{recoveryMessage}</div>}
+      {recoveryError && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{recoveryError}</div>}
 
       {/* Search and Filters Strip */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3.5">
@@ -422,6 +459,7 @@ export const MasterListView: React.FC = () => {
                           <div className="text-xs text-slate-400 font-mono font-medium">
                             DAR Ref: {doc.darReferenceId}
                           </div>
+                          {doc.distributionSetDocId && <div className="text-xs text-indigo-700">ไฟล์และใบแจกจ่ายอยู่ในชุด DAR เดียวกัน</div>}
                         </div>
                       </td>
 
@@ -532,7 +570,7 @@ export const MasterListView: React.FC = () => {
                                 onClick={() => doc.currentFileStoragePath && openDocumentViewer({ title: `${doc.docNameTh} — ไฟล์ต้นฉบับ`, docNo: doc.docNo, docNameTh: doc.docNameTh, docNameEn: doc.docNameEn, docType: doc.docType, revision: doc.currentRevision, dept: doc.ownerDept, fileName: doc.fileName || `${doc.docNo}_Rev${doc.currentRevision}_ORIGINAL.pdf`, fileSize: doc.fileSize, fileType: 'application/pdf', fileStoragePath: doc.currentFileStoragePath, docId: doc.id, effectiveDate: doc.effectiveDate, isControlledCopy: false })}
                                 disabled={!doc.currentFileStoragePath}
                                 className="px-3 py-2 bg-white hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 text-slate-800 border border-slate-300 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
-                                title={doc.currentFileStoragePath ? 'เปิดและดาวน์โหลดไฟล์ PDF ต้นฉบับที่ไม่ประทับตรา' : 'ไฟล์ต้นฉบับยังอยู่ระหว่างจัดเตรียม'}
+                                title={doc.currentFileStoragePath ? 'เปิดและดาวน์โหลดไฟล์ PDF ต้นฉบับที่ไม่ประทับตรา' : doc.distributionSetDocId ? 'ไฟล์อยู่ในชุด DAR กรุณาตรวจสอบจากรายการเอกสารหลัก' : 'ไฟล์ต้นฉบับยังอยู่ระหว่างจัดเตรียม'}
                               >
                                 <Download className="w-4 h-4" />
                                 <span>ไฟล์ต้นฉบับ</span>
@@ -985,4 +1023,5 @@ export const MasterListView: React.FC = () => {
     </div>
   );
 };
+
 

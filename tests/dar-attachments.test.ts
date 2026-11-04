@@ -2,14 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import vm from 'node:vm';
+import { PDFDocument } from 'pdf-lib';
 import { validateDarPdf, getDarAttachments, MAX_DAR_PDF_BYTES } from '../src/utils/darAttachments';
-const pdf = (text = 'PDF') => new Blob([`%PDF-1.7\n${text}`], { type: 'application/pdf' });
+const pdfFixture = await PDFDocument.create();
+pdfFixture.addPage();
+const pdfBytes = await pdfFixture.save();
+const pdf = (text = 'PDF') => new Blob([pdfBytes, `\n%${text}`], { type: 'application/pdf' });
 const input = () => ({ requestType: 'NEW', requestDept: 'HR', requesterName: 'HR', requesterTitle: 'HR', requesterSignature: 'registered-signature', deptApproverName: 'HR', deptApproverTitle: 'Manager', deptApproverDate: '2026-10-22', deptApproverSignature: 'approved-signature', targetEffectiveDate: '2026-10-23', docNo: 'WI-HR-01', docNameTh: 'เอกสารทดสอบ', docNameEn: '', docType: 'WI', currentRevision: 'N/A', proposedRevision: '00', reasonForChange: 'ขึ้นทะเบียนเอกสาร', changeDetails: '', distributionHolders: [{ checked: true, dept: 'HR', copies: '1', position: 'HR' }] });
 const user = { uid: 'hr', currentDept: 'HR', userName: 'HR', userRole: 'STAFF' };
 const attachment = (name: string, file = pdf()) => ({ name, size: '0.1 KB', type: 'application/pdf', file });
-test('only PDF extension, MIME and magic header pass; boundary sizes and renamed files fail', async () => {
+test('only readable PDF files pass; boundary sizes and renamed files fail', async () => {
   await validateDarPdf(pdf(), 'FILE.PDF');
-  await validateDarPdf(new Blob(['%PDF-1.7']), 'mobile.pdf');
+  await validateDarPdf(new Blob([pdfBytes]), 'mobile.pdf');
+  await assert.rejects(validateDarPdf(new Blob(['%PDF-1.7']), 'truncated.pdf'));
   for (const [file, name] of [[pdf(), 'file.zip'], [new Blob(['image'], { type: 'application/pdf' }), 'renamed.pdf'], [new Blob(['%PDF-1.7'], { type: 'image/png' }), 'wrong.pdf'], [new Blob([]), 'empty.pdf'], [new Blob([new Uint8Array(MAX_DAR_PDF_BYTES)]), 'large.pdf']] as const) await assert.rejects(validateDarPdf(file, name));
 });
 test('saved arrays win over compatibility fields and old single-file DARs still have one attachment', () => {
@@ -33,7 +38,7 @@ async function repository() {
     b.onResolve({ filter: /^firebase\// }, args => ({ path: args.path.split('/')[1], namespace: 'fake' }));
     b.onLoad({ filter: /.*/, namespace: 'fake' }, args => ({ contents: mocks[args.path], loader: 'js' }));
   } }] });
-  const context: any = { __h: h, module: { exports: {} }, Blob, Uint8Array, URLSearchParams, Date, fetch, setTimeout, clearTimeout, console };
+  const context: any = { __h: h, module: { exports: {} }, Blob, ArrayBuffer, Uint8Array, URLSearchParams, Date, fetch, setTimeout, clearTimeout, console };
   vm.runInNewContext(bundle.outputFiles[0].text, context);
   return { h, repo: context.module.exports };
 }
@@ -61,7 +66,7 @@ test('upload failure does not publish a partial DAR or its audit; valid 20-file 
   assert.equal(full.h.records['dcs_dars/' + id].attachments.length, 20);
 });
 test('legacy single-PDF submission remains compatible', async () => {
-  const { h, repo } = await repository(); const id = await repo.createDarRecord(user, { ...input(), attachmentFileName: 'legacy.pdf', attachmentFileType: 'application/pdf', attachmentFileDataUrl: 'data:application/pdf;base64,' + Buffer.from('%PDF-1.7').toString('base64') });
+  const { h, repo } = await repository(); const id = await repo.createDarRecord(user, { ...input(), attachmentFileName: 'legacy.pdf', attachmentFileType: 'application/pdf', attachmentFileDataUrl: 'data:application/pdf;base64,' + Buffer.from(pdfBytes).toString('base64') });
   assert.equal(h.records['dcs_dars/' + id].attachments.length, 1);
 });
 
@@ -85,3 +90,4 @@ test('invalid previous PDF is rejected before uploading new files or allocating 
   await assert.rejects(repo.createDarRecord(user,{...input(),requestType:'REVISION',currentRevision:'04',previousEffectiveDate:'2026-01-01',attachments:[attachment('new.pdf')],previousAttachments:[attachment('old.pdf',new Blob(['not PDF']))]}));
   assert.equal(h.uploads.length,0);assert.equal(Object.keys(h.records).length,0);
 });
+

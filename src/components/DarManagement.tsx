@@ -1200,7 +1200,7 @@ export const DarManagement: React.FC = () => {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h4 className="text-xs font-bold text-slate-900">รายการเอกสารเพิ่มเติมในชุดเดียวกัน (ลำดับ 2–6)</h4>
-                    <p className="text-[10px] text-slate-500 mt-0.5">ใช้เลขที่ DAR และการอนุมัติเดียวกับรายการที่ 1</p>
+                    <p className="text-xs text-slate-600 mt-0.5">แต่ละหมายเลขขึ้นทะเบียนแยกใน Master List โดยใช้ DAR การอนุมัติ และชุดไฟล์แจกจ่ายเดียวกัน</p>
                   </div>
                   <button
                     type="button"
@@ -1633,5 +1633,6 @@ export const DarManagement: React.FC = () => {
     </div>
   );
 };
+
 
 

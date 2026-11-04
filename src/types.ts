@@ -248,6 +248,11 @@ export interface MasterDocument {
   revisionHistory: RevisionHistoryItem[];
   retentionPeriodYears: number;
   distributionDepartments?: { dept: Department; copies: number; position: string }[];
+  // Additional documents share the distribution of the first document in the DAR.
+  distributionSetDocId?: string;
+  // Retains previous per-document source paths when a multi-document DAR
+  // replaces the current revision; these are not files of the new revision.
+  previousRevisionSourceFiles?: Record<string, string[]>;
   currentFileStoragePath?: string;
   currentFileStoragePaths?: string[];
   cancelledFileStoragePaths?: Record<string, string>;
@@ -520,5 +525,6 @@ export interface DocumentViewPayload {
   effectiveDate?: string;
   isControlledCopy?: boolean;
 }
+
 
 
