@@ -10,32 +10,61 @@ import {
   subscribeInstallAvailability,
 } from '../services/pwaService';
 
-export const PwaNotificationPrompt: React.FC = () => {
+export const PwaNotificationPrompt: React.FC<{ hideBanner?: boolean }> = ({ hideBanner = false }) => {
   const { currentUser, setActiveView } = useDcs();
   const [installAvailable, setInstallAvailable] = useState(false);
   const [installed, setInstalled] = useState(isStandaloneApp());
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [dismissed, setDismissed] = useState(false);
-  const notificationEnabled = typeof Notification !== 'undefined' && Notification.permission === 'granted'
-    && localStorage.getItem('dcs_notifications_enabled') === 'true';
-  const needsNotification = typeof Notification !== 'undefined' && !notificationEnabled;
+  const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(
+    () => typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
+  );
+  const [registrationStatus, setRegistrationStatus] = useState<'idle' | 'checking' | 'ready' | 'failed'>('idle');
+  const [listenerFailed, setListenerFailed] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const notificationEnabled = permission === 'granted' && registrationStatus === 'ready' && !listenerFailed;
+  const needsNotification = typeof Notification !== 'undefined' && registrationStatus !== 'checking' && !notificationEnabled;
   const ios = isIosDevice();
 
   useEffect(() => subscribeInstallAvailability(setInstallAvailable), []);
 
   useEffect(() => {
-    if (!currentUser.isAuthenticated || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-    void enableDepartmentNotifications(currentUser).catch(() => undefined);
+    const updatePermission = () => setPermission(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
+    window.addEventListener('focus', updatePermission);
+    return () => window.removeEventListener('focus', updatePermission);
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser.isAuthenticated || permission !== 'granted') return;
+    let active = true;
     let stop = () => undefined;
+    setRegistrationStatus('checking');
+    void enableDepartmentNotifications(currentUser).then(() => {
+      if (active) setRegistrationStatus('ready');
+    }).catch(() => {
+      if (!active) return;
+      setRegistrationStatus('failed');
+      setDismissed(false);
+      setMessage('เชื่อมต่อระบบแจ้งเตือนไม่สำเร็จ กรุณากดอนุญาตการแจ้งเตือนอีกครั้ง');
+    });
     void listenForForegroundNotifications((title, body) => {
+      setDismissed(false);
       setMessage(`${title}: ${body}`);
       setActiveView('distribution');
-    }).then(unsubscribe => { stop = unsubscribe; });
-    return () => stop();
-  }, [currentUser.isAuthenticated, currentUser.uid, currentUser.currentDept]);
+    }).then(unsubscribe => {
+      if (active) { stop = unsubscribe; setListenerFailed(false); }
+      else unsubscribe();
+    }).catch(() => {
+      if (!active) return;
+      setListenerFailed(true);
+      setDismissed(false);
+      setMessage('เชื่อมต่อระบบแจ้งเตือนไม่สำเร็จ กรุณากดอนุญาตการแจ้งเตือนอีกครั้ง');
+    });
+    return () => { active = false; stop(); };
+  }, [currentUser.isAuthenticated, currentUser.uid, currentUser.currentDept, permission, retryCount]);
 
-  if (!currentUser.isAuthenticated || dismissed || (installed && !needsNotification && !message)) return null;
+  if (hideBanner || !currentUser.isAuthenticated || dismissed || (installed && !needsNotification && !message)) return null;
   if (!installAvailable && !ios && !needsNotification && !message) return null;
 
   const install = async () => {
@@ -48,11 +77,17 @@ export const PwaNotificationPrompt: React.FC = () => {
 
   const enableNotifications = async () => {
     setBusy(true);
+    setRegistrationStatus('checking');
     setMessage('');
     try {
       await enableDepartmentNotifications(currentUser);
+      setRegistrationStatus('ready');
+      setPermission(Notification.permission);
+      setRetryCount(count => count + 1);
       setMessage(`เปิดแจ้งเตือนสำหรับแผนก ${currentUser.currentDept} สำเร็จแล้ว`);
     } catch (error) {
+      setRegistrationStatus('failed');
+      setPermission(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
       setMessage(error instanceof Error ? error.message : 'เปิดการแจ้งเตือนไม่สำเร็จ');
     } finally { setBusy(false); }
   };

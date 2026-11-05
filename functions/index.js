@@ -307,8 +307,8 @@ exports.registerNotificationDevice = onCall({ region: REGION, timeoutSeconds: 30
   const db = getFirestore();
   const profile = await db.collection('users').doc(request.auth.uid).get();
   if (!profile.exists || profile.data().active !== true) throw new HttpsError('permission-denied', 'บัญชีนี้ยังไม่พร้อมใช้งาน');
-  const department = profile.data().department;
-  if (requestedDepartment && requestedDepartment !== department) throw new HttpsError('permission-denied', 'ไม่สามารถลงทะเบียนแจ้งเตือนแทนหน่วยงานอื่นได้');
+  const department = canonicalDepartment(profile.data().department);
+  if (requestedDepartment && canonicalDepartment(requestedDepartment) !== department) throw new HttpsError('permission-denied', 'ไม่สามารถลงทะเบียนแจ้งเตือนแทนหน่วยงานอื่นได้');
   const deviceId = createHash('sha256').update(token).digest('hex');
   await db.collection('dcs_notification_devices').doc(deviceId).set({
     uid: request.auth.uid,
@@ -323,6 +323,9 @@ exports.registerNotificationDevice = onCall({ region: REGION, timeoutSeconds: 30
 });
 
 const chunksOf = (items, size) => Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
+// Devices registered before QA and QC were merged retain their old department.
+const notificationDepartmentKeys = departments => [...new Set(departments.flatMap(department =>
+  QA_QC_ALIASES.has(department) ? [...QA_QC_ALIASES] : [department]))];
 
 exports.notifyAnnouncement = onCall({ region: REGION, timeoutSeconds: 120, memory: '256MiB' }, async request => {
   await requireDcc(request);
@@ -337,7 +340,7 @@ exports.notifyAnnouncement = onCall({ region: REGION, timeoutSeconds: 120, memor
   if (announcement.notificationSentAt) return { alreadySent: true };
   const departments = [...new Set((announcement.targetDepartments || []).filter(Boolean))];
   const deviceDocs = [];
-  for (const departmentChunk of chunksOf(departments, 10)) {
+  for (const departmentChunk of chunksOf(notificationDepartmentKeys(departments), 10)) {
     const deviceSnapshot = await db.collection('dcs_notification_devices').where('department', 'in', departmentChunk).get();
     deviceDocs.push(...deviceSnapshot.docs.filter(row => row.data().active !== false && row.data().token));
   }
@@ -370,7 +373,7 @@ async function notifyDistributionReady(distributionId, distribution, distributio
   if (!departments.length) return;
   const db = getFirestore();
   const deviceDocs = [];
-  for (const departmentChunk of chunksOf(departments, 10)) {
+  for (const departmentChunk of chunksOf(notificationDepartmentKeys(departments), 10)) {
     const snapshot = await db.collection('dcs_notification_devices').where('department', 'in', departmentChunk).get();
     deviceDocs.push(...snapshot.docs.filter(row => row.data().active !== false && row.data().token));
   }

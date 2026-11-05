@@ -20,7 +20,8 @@ import { PendingDistributionGate } from './components/PendingDistributionGate';
 import { isPendingDepartmentReceipt } from './utils/distributionAccess';
 
 export const MainLayout: React.FC = () => {
-  const { activeView, currentUser, setActiveView, distributions, distributionSync, isChangePasswordOpen } = useDcs();
+  const { activeView, currentUser, setActiveView, distributions, distributionSync, isChangePasswordOpen,
+    selectedDistributionForDownload, selectedDistributionForReRequest } = useDcs();
 
   useEffect(() => {
     if (!currentUser.isAuthenticated) return;
@@ -79,7 +80,7 @@ export const MainLayout: React.FC = () => {
       <PendingDistributionGate />
       <DownloadModal />
       <CopyRequestModal />
-      {!blocked && <PwaNotificationPrompt />}
+      <PwaNotificationPrompt hideBanner={Boolean(selectedDistributionForDownload || selectedDistributionForReRequest)} />
 
     </div>
   );
