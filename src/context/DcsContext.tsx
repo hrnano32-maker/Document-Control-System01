@@ -1,10 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { hasDistributionAllocation, refreshDistributionSelection } from '../utils/distributionAccess';
+import { hasDistributionAllocation, refreshDistributionSelection, getDepartmentReceipt, isReceiptTransferComplete } from '../utils/distributionAccess';
 import type { AuditLogEntry, CopyReRequest, CurrentUserSession, DarCreateInput, DarRecord, DcsAnnouncement, Department, DistributionRecord, DocumentViewPayload, MasterDocument } from '../types';
 import { changeDcsPassword, observeDcsAuth, signInDcsUser, signOutDcsUser, updateOwnSignature } from '../services/authService';
 import { acknowledgeDownload, cancelAnnouncementRecord, cancelDarRecord, createAnnouncementRecord, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, manageDistributionRecord, deleteDarDraftRecord, patchDarRecord, recordAnnouncementActivity, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAnnouncements, subscribeAuditForUser, subscribeMasterDocuments, subscribeMasterListRegistry, subscribeCopyRequests, subscribeDars, subscribeDistributions, updateAnnouncementRecord, writeAudit } from '../services/dcsRepository';
 
-type Result = { success: boolean; message: string; downloadUrl?: string; downloadUrls?: string[] };
+type Result = { success: boolean; message: string; downloadUrl?: string; downloadUrls?: string[]; transferId?: string };
 interface DcsContextType {
   currentUser: CurrentUserSession; setUserName: (name: string) => void;
   login: (username: string, password: string, rememberMe?: boolean) => Promise<Result>; logout: () => void;
@@ -17,7 +17,7 @@ interface DcsContextType {
   cancelDar: (darId: string, reason: string) => Promise<void>;
   deleteDar: (darId: string) => Promise<void>;
   updateDarSignatures: (darId: string, updates: Partial<DarRecord>) => Promise<void>; registerDarToMasterList: (darId: string) => Promise<void>;
-  distributions: DistributionRecord[];
+  distributions: DistributionRecord[]; distributionSync: 'loading' | 'ready' | 'error'; retryDistributionSync: () => void;
   createDistribution: (docId: string, targetDepts: Department[], instructions: string, attachedFiles?: { name: string; size: string; type: string; dataUrl?: string }[], onProgress?: (message: string, percent: number) => void) => Promise<string>;
   cancelDistribution: (distributionId: string, reason: string) => Promise<void>;
   deleteDistribution: (distributionId: string) => Promise<void>;
@@ -44,12 +44,19 @@ interface DcsContextType {
 
 const emptySession = (): CurrentUserSession => ({ uid: '', currentDept: 'DCC', username: '', userName: '', userEmpId: '', userRole: 'STAFF', roleName: 'Department User', deptDescriptionTh: '', position: '', signaturePath: '', isAuthenticated: false, mustChangePassword: false, allowedViews: [] });
 const DcsContext = createContext<DcsContextType | undefined>(undefined);
-const hydrateDistribution = (row: any): DistributionRecord => ({ ...row, targets: (row.targets || []).map((target: any) => { const receipt = row.receipts?.[target.dept]; return receipt ? { ...target, isDownloaded: true, status: 'DOWNLOADED', downloadTimestamp: receipt.downloadedAt, downloaderName: receipt.downloaderName, downloaderEmpId: receipt.downloaderEmpId, downloaderPosition: receipt.downloaderPosition, signatureDataUrl: null } : target; }) });
+const hydrateDistribution = (row: DistributionRecord): DistributionRecord => ({ ...row, targets: (row.targets || []).map(target => { const receipt = getDepartmentReceipt(row, target.dept); if (!receipt) return target; const complete = isReceiptTransferComplete(receipt); return { ...target, isDownloaded: complete, status: complete ? 'DOWNLOADED' : 'PENDING', downloadTimestamp: receipt.downloadedAt, downloaderName: receipt.downloaderName, downloaderEmpId: receipt.downloaderEmpId, downloaderPosition: receipt.downloaderPosition, signatureDataUrl: null }; }) });
 
 export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<CurrentUserSession>(emptySession());
   const [documents, setDocuments] = useState<MasterDocument[]>([]); const [masterListDocuments, setMasterListDocuments] = useState<MasterDocument[]>([]); const [dars, setDars] = useState<DarRecord[]>([]);
   const [distributions, setDistributions] = useState<DistributionRecord[]>([]); const [reRequests, setReRequests] = useState<CopyReRequest[]>([]); const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [distributionSyncState, setDistributionSyncState] = useState<{ key: string; status: 'loading' | 'ready' | 'error' }>({ key: '', status: 'loading' });
+  const [requestSyncState, setRequestSyncState] = useState<{ key: string; status: 'loading' | 'ready' | 'error' }>({ key: '', status: 'loading' });
+  const [distributionRetry, setDistributionRetry] = useState(0);
+  const distributionKey = `${currentUser.uid}:${currentUser.currentDept}:${currentUser.userRole}`;
+  const distributionStatus = distributionSyncState.key === distributionKey ? distributionSyncState.status : 'loading';
+  const requestStatus = requestSyncState.key === distributionKey ? requestSyncState.status : 'loading';
+  const distributionSync = distributionStatus === 'error' || requestStatus === 'error' ? 'error' : distributionStatus === 'ready' && requestStatus === 'ready' ? 'ready' : 'loading';
   const [announcements, setAnnouncements] = useState<DcsAnnouncement[]>([]);
   const [activeView, setActiveView] = useState('dashboard'); const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [selectedDocForModal, setSelectedDocForModal] = useState<MasterDocument | null>(null); const [selectedDistributionForSheet, setSelectedDistributionForSheet] = useState<DistributionRecord | null>(null);
@@ -60,7 +67,7 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => observeDcsAuth(session => {
     setCurrentUser(session || emptySession());
-    if (!session) setActiveView('dashboard');
+    if (!session) { setActiveView('dashboard'); setDistributionSyncState({ key: '', status: 'loading' }); setRequestSyncState({ key: '', status: 'loading' }); }
     if (session?.mustChangePassword) setIsChangePasswordOpen(true);
   }), []);
   useEffect(() => {
@@ -69,9 +76,14 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSelectedDistributionForSheet(null);
     setSelectedDocumentForView(null);
     if (!currentUser.isAuthenticated) { setDocuments([]); setMasterListDocuments([]); setDars([]); setDistributions([]); setReRequests([]); setAuditLogs([]); setAnnouncements([]); return; }
-    const receiveDistributions = (rows: DistributionRecord[]) => {
+    let active = true;
+    setDistributionSyncState({ key: distributionKey, status: 'loading' });
+    setRequestSyncState({ key: distributionKey, status: 'loading' });
+    const receiveDistributions = (rows: DistributionRecord[], fromCache: boolean) => {
+      if (!active) return;
       const latest = rows.map(hydrateDistribution);
       setDistributions(latest);
+      setDistributionSyncState({ key: distributionKey, status: fromCache ? 'loading' : 'ready' });
       setSelectedDistributionForDownload(selected => refreshDistributionSelection(selected, latest));
       setSelectedDistributionForReRequest(selected => refreshDistributionSelection(selected, latest));
       setSelectedDistributionForSheet(selected => {
@@ -84,9 +96,9 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return hasDistributionAllocation(latest.find(row => row.id === selected.distributionId), currentUser.currentDept) ? selected : null;
       });
     };
-    const stops = [subscribeMasterDocuments(currentUser, setDocuments), subscribeMasterListRegistry(setMasterListDocuments), subscribeDars(currentUser, setDars), subscribeDistributions(currentUser, receiveDistributions), subscribeCopyRequests(currentUser, setReRequests), subscribeAuditForUser(currentUser, setAuditLogs), subscribeAnnouncements(currentUser, setAnnouncements)];
-    return () => stops.forEach(stop => stop());
-  }, [currentUser.isAuthenticated, currentUser.uid, currentUser.currentDept, currentUser.userRole]);
+    const stops = [subscribeMasterDocuments(currentUser, setDocuments), subscribeMasterListRegistry(setMasterListDocuments), subscribeDars(currentUser, setDars), subscribeDistributions(currentUser, receiveDistributions, error => { console.error('DISTRIBUTION_SYNC_FAILED', error); if (active) setDistributionSyncState({ key: distributionKey, status: 'error' }); }), subscribeCopyRequests(currentUser, (rows, fromCache) => { if (active) { setReRequests(rows); setRequestSyncState({ key: distributionKey, status: fromCache ? 'loading' : 'ready' }); } }, error => { console.error('COPY_REQUEST_SYNC_FAILED', error); if (active) setRequestSyncState({ key: distributionKey, status: 'error' }); }), subscribeAuditForUser(currentUser, setAuditLogs), subscribeAnnouncements(currentUser, setAnnouncements)];
+    return () => { active = false; stops.forEach(stop => stop()); };
+  }, [currentUser.isAuthenticated, currentUser.uid, currentUser.currentDept, currentUser.userRole, distributionRetry]);
 
   const needDar = (id: string) => { const row = dars.find(x => x.id === id); if (!row) throw new Error('ไม่พบ DAR'); return row; };
   const needDoc = (id: string) => { const row = documents.find(x => x.id === id); if (!row) throw new Error('ไม่พบเอกสาร'); return row; };
@@ -94,13 +106,13 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const login = async (username: string, password: string, remember = false): Promise<Result> => { try { setCurrentUser(await signInDcsUser(username, password, remember)); return { success: true, message: 'เข้าสู่ระบบสำเร็จ' }; } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }; } };
   const changePassword = async (oldPassword: string, newPassword: string): Promise<Result> => { try { await changeDcsPassword(oldPassword, newPassword); setCurrentUser(prev => ({ ...prev, mustChangePassword: false })); return { success: true, message: 'เปลี่ยนรหัสผ่านสำเร็จ' }; } catch { return { success: false, message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง หรือเซสชันหมดอายุ' }; } };
   const updateSignature = async (signatureDataUrl: string): Promise<Result> => { try { const signaturePath = await updateOwnSignature(signatureDataUrl); setCurrentUser(prev => ({ ...prev, signaturePath })); return { success: true, message: 'บันทึกลายเซ็นใหม่สำเร็จ' }; } catch (error) { return { success: false, message: error instanceof Error ? error.message : 'บันทึกลายเซ็นไม่สำเร็จ' }; } };
-  const downloadControlledCopy = async (id: string, dept: Department, name: string, empId: string, position: string, signature: string, onProgress?: (message: string, percent: number) => void): Promise<Result> => { try { const downloadUrls = await acknowledgeDownload(currentUser, needDist(id), dept, { name, empId, position, signatureDataUrl: signature }, onProgress); return { success: true, message: 'บันทึกการรับเอกสารสำเร็จ', downloadUrl: downloadUrls[0], downloadUrls }; } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'ดำเนินการไม่สำเร็จ' }; } };
+  const downloadControlledCopy = async (id: string, dept: Department, name: string, empId: string, position: string, signature: string, onProgress?: (message: string, percent: number) => void): Promise<Result> => { try { const { downloadUrls, transferId } = await acknowledgeDownload(currentUser, needDist(id), dept, { name, empId, position, signatureDataUrl: signature }, onProgress); return { success: true, message: 'บันทึกลายเซ็นแล้ว', downloadUrl: downloadUrls[0], downloadUrls, transferId }; } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'ดำเนินการไม่สำเร็จ' }; } };
 
   const value: DcsContextType = {
-    currentUser, setUserName: name => setCurrentUser(prev => ({ ...prev, userName: name })), login, logout: () => { void signOutDcsUser(); setCurrentUser(emptySession()); }, changePassword, updateSignature, isChangePasswordOpen, setIsChangePasswordOpen: open => { if (!open && currentUser.mustChangePassword) return; setIsChangePasswordOpen(open); },
+    currentUser, setUserName: name => setCurrentUser(prev => ({ ...prev, userName: name })), login, logout: () => { void signOutDcsUser(); setDistributionSyncState({ key: '', status: 'loading' }); setRequestSyncState({ key: '', status: 'loading' }); setCurrentUser(emptySession()); }, changePassword, updateSignature, isChangePasswordOpen, setIsChangePasswordOpen: open => { if (!open && currentUser.mustChangePassword) return; setIsChangePasswordOpen(open); },
     documents, masterListDocuments, addDocument: input => saveMasterDocument(currentUser, input), updateDocumentRevision: (id, rev, date, darNo, reason, link) => reviseMasterDocument(currentUser, needDoc(id), rev, date, darNo, reason, link),
     dars, createDar: (input, onProgress) => createDarRecord(currentUser, input, onProgress), reviewDar: (id, status, remarks) => reviewDarRecord(currentUser, needDar(id), status, remarks), cancelDar: (id, reason) => cancelDarRecord(currentUser, needDar(id), reason), deleteDar: id => deleteDarDraftRecord(currentUser, needDar(id)), updateDarSignatures: patchDarRecord, registerDarToMasterList: id => registerDarRecord(currentUser, needDar(id)),
-    distributions, createDistribution: (id, depts, instructions, files, onProgress) => createDistributionRecord(currentUser, needDoc(id), depts, instructions, files, onProgress), cancelDistribution: (id, reason) => manageDistributionRecord(currentUser, needDist(id), 'CANCEL', reason), deleteDistribution: id => manageDistributionRecord(currentUser, needDist(id), 'DELETE'), downloadControlledCopy,
+    distributions, distributionSync, retryDistributionSync: () => setDistributionRetry(value => value + 1), createDistribution: (id, depts, instructions, files, onProgress) => createDistributionRecord(currentUser, needDoc(id), depts, instructions, files, onProgress), cancelDistribution: (id, reason) => manageDistributionRecord(currentUser, needDist(id), 'CANCEL', reason), deleteDistribution: id => manageDistributionRecord(currentUser, needDist(id), 'DELETE'), downloadControlledCopy,
     reRequests, createReRequest: (id, dept, name, empId, reason, details) => createCopyRequestRecord(currentUser, needDist(id), dept, name, empId, reason, details), reviewReRequest: async (id, approve, note, _days, files) => { const row = reRequests.find(x => x.id === id); if (!row) throw new Error('ไม่พบคำขอ'); await decideCopyRequest(currentUser, row, approve, note, files); },
     announcements, createAnnouncement: (input, files) => createAnnouncementRecord(currentUser, input, files), updateAnnouncement: (id, updates) => updateAnnouncementRecord(currentUser, id, updates), cancelAnnouncement: (id, reason) => cancelAnnouncementRecord(currentUser, id, reason), markAnnouncementRead: id => recordAnnouncementActivity(currentUser, id, 'READ'), acknowledgeAnnouncement: id => recordAnnouncementActivity(currentUser, id, 'ACKNOWLEDGE'),
     auditLogs, logAudit: (type, docNo, revision, description, details) => writeAudit(currentUser, type, docNo, revision, description, details), resetToDefaultData: () => {},

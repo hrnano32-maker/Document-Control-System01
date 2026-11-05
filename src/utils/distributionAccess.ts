@@ -1,5 +1,24 @@
-import type { DistributionRecord } from '../types';
+import type { DistributionReceipt, DistributionRecord } from '../types';
 import { canonicalDistributionDepartment } from './distributionReopen';
+
+// Older receipts did not record transfer status. Preserve their established
+// meaning; a new receipt explicitly remains pending until its files are saved.
+export const isReceiptTransferComplete = (receipt?: DistributionReceipt): boolean =>
+  Boolean(receipt?.downloadedAt && receipt.transferStatus !== 'PENDING');
+
+export const getDepartmentReceipt = (distribution: DistributionRecord, department: string): DistributionReceipt | undefined => {
+  const canonical = canonicalDistributionDepartment(department);
+  return distribution.receipts?.[canonical]
+    || Object.entries(distribution.receipts || {}).find(([key]) => canonicalDistributionDepartment(key) === canonical)?.[1];
+};
+
+export const isPendingDepartmentReceipt = (distribution: DistributionRecord, department: string): boolean => {
+  if (!hasDistributionAllocation(distribution, department)) return false;
+  const receipt = getDepartmentReceipt(distribution, department);
+  if (receipt) return !isReceiptTransferComplete(receipt);
+  const target = distribution.targets?.find(row => canonicalDistributionDepartment(row.dept) === canonicalDistributionDepartment(department));
+  return !target?.isDownloaded;
+};
 
 // Historical targets/receipts remain after cancellation. Only the current
 // allocation and cancellation state grant access; expiry still allows re-request.

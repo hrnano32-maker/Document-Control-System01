@@ -20,7 +20,7 @@ import { auth, db, firebaseFunctions, storage } from '../lib/firebase';
 import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarCreateInput, DarPreviousRevision, DocumentReturnRequest, DarRecord, DcsAnnouncement, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
 
 import { DEPARTMENTS } from '../types';
-import { hasDistributionAllocation, getDistributionDownloadAccess } from '../utils/distributionAccess';
+import { hasDistributionAllocation, getDistributionDownloadAccess, isReceiptTransferComplete } from '../utils/distributionAccess';
 import { findExistingDistribution, canonicalDistributionDepartment } from '../utils/distributionReopen';
 import { getMasterRevisionHistory, revisionKey } from '../utils/masterRevisions';
 
@@ -115,7 +115,7 @@ const normalizeDistributionQaQc = (distribution: DistributionRecord): Distributi
     if (values.length) output['QA/QC'] = (chooseMax ? Math.max(...values.map(value => Number(value))) : values[0]) as T;
     return output;
   };
-  const allDownloaded = targetDepartments.every(dept => Boolean(receipts[dept]?.downloadedAt));
+  const allDownloaded = targetDepartments.every(dept => isReceiptTransferComplete(receipts[dept]));
   return {
     ...distribution,
     targetDepartments,
@@ -131,17 +131,21 @@ const normalizeDistributionQaQc = (distribution: DistributionRecord): Distributi
   };
 };
 
-export const subscribeDistributions = (user: CurrentUserSession, callback: (rows: DistributionRecord[]) => void) => {
-  const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('createdAt', 'desc')] : [where('targetDepartments', 'array-contains', user.currentDept), orderBy('createdAt', 'desc')];
-  return onSnapshot(query(collection(db, 'dcs_distributions'), ...constraints), snap => {
-    const rows = snap.docs.map(item => normalizeDistributionQaQc(item.data() as DistributionRecord));
+export const subscribeDistributions = (user: CurrentUserSession, callback: (rows: DistributionRecord[], fromCache: boolean) => void, onError?: (error: Error) => void) => {
+  // Do not order in Firestore: old records without createdAt must still be
+  // visible in the mandatory pending list. Keep newest first in the client.
+  const constraints = user.userRole === 'DCC_ADMIN' ? [] : [where('targetDepartments', 'array-contains', user.currentDept)];
+  return onSnapshot(query(collection(db, 'dcs_distributions'), ...constraints), { includeMetadataChanges: true }, snap => {
+    const rows = snap.docs.map(item => normalizeDistributionQaQc(item.data() as DistributionRecord))
+      .sort((a, b) => String(b.distributedDate || '').localeCompare(String(a.distributedDate || '')) || String(b.id).localeCompare(String(a.id)));
     // DCC retains cancelled distributions for audit; recipients only see active allocations.
-    callback(user.userRole === 'DCC_ADMIN' ? rows : rows.filter(dist => hasDistributionAllocation(dist, user.currentDept)));
-  });
+    callback(user.userRole === 'DCC_ADMIN' ? rows : rows.filter(dist => hasDistributionAllocation(dist, user.currentDept)), snap.metadata.fromCache);
+  }, onError);
 };
-export const subscribeCopyRequests = (user: CurrentUserSession, callback: (rows: CopyReRequest[]) => void) => {
-  const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('createdAt', 'desc')] : [where('dept', '==', user.currentDept), orderBy('createdAt', 'desc')];
-  return onSnapshot(query(collection(db, 'dcs_copy_requests'), ...constraints), snap => callback(snap.docs.map(item => item.data() as CopyReRequest)));
+export const subscribeCopyRequests = (user: CurrentUserSession, callback: (rows: CopyReRequest[], fromCache: boolean) => void, onError?: (error: Error) => void) => {
+  const constraints = user.userRole === 'DCC_ADMIN' ? [] : [where('dept', '==', user.currentDept)];
+  return onSnapshot(query(collection(db, 'dcs_copy_requests'), ...constraints), { includeMetadataChanges: true }, snap => callback(snap.docs.map(item => item.data() as CopyReRequest)
+    .sort((a, b) => String(b.requestDate || '').localeCompare(String(a.requestDate || '')) || String(b.id).localeCompare(String(a.id))), snap.metadata.fromCache), onError);
 };
 export const subscribeAuditForUser = (user: CurrentUserSession, callback: (rows: AuditLogEntry[]) => void) => {
   const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('timestamp', 'desc')] : [where('actorDept', '==', user.currentDept), orderBy('timestamp', 'desc')];
@@ -793,6 +797,7 @@ export const acknowledgeDownload = async (
   await withTimeout(getDownloadURL(ref(storage, user.signaturePath)), 30000, 'ไม่สามารถตรวจสอบลายเซ็นที่ลงทะเบียนได้ กรุณาลองใหม่');
 
   onProgress?.('กำลังบันทึกหลักฐานการรับเอกสาร', 82);
+  const transferId = crypto.randomUUID();
   await withTimeout(runTransaction(db, async tx => {
       const snapshot = await tx.get(distRef);
       const current = snapshot.data() as DistributionRecord & { receipts?: Record<string, any> };
@@ -802,14 +807,21 @@ export const acknowledgeDownload = async (
       const currentAccess = getDistributionDownloadAccess(current, dept);
       if (!currentAccess.canDownload) throw new Error(currentAccess.message);
       if (current.receipts?.[dept]?.downloadedAt) throw new Error('หน่วยงานนี้ดาวน์โหลดฉบับนี้ไปแล้ว');
-      const receipt = { dept, receivedCopies: current.allocationByDepartment[dept], downloadedAt: new Date().toISOString(), downloaderName: person.name, downloaderEmpId: person.empId, downloaderPosition: person.position, downloaderUid: user.uid, signatureStoragePath: user.signaturePath };
+      const receipt = { dept, receivedCopies: current.allocationByDepartment[dept], downloadedAt: new Date().toISOString(), downloaderName: person.name, downloaderEmpId: person.empId, downloaderPosition: person.position, downloaderUid: user.uid, signatureStoragePath: user.signaturePath, transferStatus: 'PENDING' as const, transferId, transferredIndexes: [] };
       const receipts = { ...(current.receipts || {}), [dept]: receipt };
-      const allDownloaded = current.targetDepartments.every(targetDept => Boolean(receipts[targetDept]?.downloadedAt));
+      const allDownloaded = current.targetDepartments.every(targetDept => isReceiptTransferComplete(receipts[targetDept]));
       tx.update(distRef, clean({ receipts, status: allDownloaded ? 'COMPLETED' : 'IN_PROGRESS', allDownloadedAt: allDownloaded ? new Date().toISOString() : null, storageStatus: 'AVAILABLE', updatedAt: new Date().toISOString() }));
     }), 60000, 'บันทึกหลักฐานใช้เวลานานเกินไป กรุณาลองใหม่');
   onProgress?.('บันทึกการรับสำเร็จ กำลังเตรียมดาวน์โหลด', 100);
   await writeAudit(user, 'CONTROLLED_COPY_DOWNLOADED', distribution.docNo, distribution.revision, `หน่วยงาน ${dept} รับและเตรียมดาวน์โหลด Controlled Copy จำนวน ${downloadUrls.length} ไฟล์`, { distributionNo: distribution.distributionNo, fileCount: downloadUrls.length }).catch(error => console.error('RECEIPT_AUDIT_FAILED', error));
-  return downloadUrls;
+  return { downloadUrls, transferId };
+};
+
+export const completeControlledTransfer = async (distributionId: string, transferId: string, file: number | 'all', method: 'picker' | 'confirmed') => {
+  const complete = httpsCallable<{ distributionId: string; transferId: string; file: number | 'all'; method: 'picker' | 'confirmed' }, { complete: boolean; transferredIndexes: number[] }>(
+    firebaseFunctions, 'completeControlledTransfer', { timeout: 60000 },
+  );
+  return (await complete({ distributionId, transferId, file, method })).data;
 };
 
 export const createCopyRequestRecord = async (user: CurrentUserSession, distribution: DistributionRecord, dept: Department, requestedBy: string, empId: string, reasonType: CopyReRequest['reasonType'], reasonDetails: string) => {

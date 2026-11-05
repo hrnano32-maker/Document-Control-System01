@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useDcs } from '../context/DcsContext';
 import {
   Bell,
@@ -26,6 +26,9 @@ export const CopyRequestModal: React.FC = () => {
   const [reasonDetails, setReasonDetails] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitInFlight = useRef(false);
+  const closeTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (!selectedDistributionForReRequest) return;
@@ -35,12 +38,14 @@ export const CopyRequestModal: React.FC = () => {
     setReasonDetails(selectedDistributionForReRequest.reasonDetails || '');
     setIsSuccess(false);
     setErrorMsg('');
+    return () => window.clearTimeout(closeTimer.current);
   }, [selectedDistributionForReRequest?.distribution.id, selectedDistributionForReRequest?.dept, selectedDistributionForReRequest?.reasonType, selectedDistributionForReRequest?.reasonDetails, currentUser.userName, currentUser.userEmpId]);
 
   // Close on Escape key press
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !submitInFlight.current) {
+        window.clearTimeout(closeTimer.current);
         setSelectedDistributionForReRequest(null);
       }
     };
@@ -55,11 +60,14 @@ export const CopyRequestModal: React.FC = () => {
   const { distribution, dept } = selectedDistributionForReRequest;
 
   const handleClose = () => {
+    if (submitInFlight.current) return;
+    window.clearTimeout(closeTimer.current);
     setSelectedDistributionForReRequest(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitInFlight.current) return;
     setErrorMsg('');
 
     if (!requestedBy.trim()) {
@@ -72,15 +80,20 @@ export const CopyRequestModal: React.FC = () => {
       return;
     }
 
+    submitInFlight.current = true;
+    setIsSubmitting(true);
     try {
       await createReRequest(distribution.id, dept, requestedBy.trim(), empId.trim(), reasonType, reasonDetails.trim());
     } catch (error) {
       setErrorMsg(error instanceof Error ? error.message : 'ส่งคำร้องไม่สำเร็จ');
       return;
+    } finally {
+      submitInFlight.current = false;
+      setIsSubmitting(false);
     }
 
     setIsSuccess(true);
-    setTimeout(() => {
+    closeTimer.current = window.setTimeout(() => {
       setSelectedDistributionForReRequest(null);
     }, 2000);
   };
@@ -91,7 +104,7 @@ export const CopyRequestModal: React.FC = () => {
       onClick={(e) => {
         if (e.target === e.currentTarget) handleClose();
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto"
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto"
     >
       <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-8">
         
@@ -237,10 +250,11 @@ export const CopyRequestModal: React.FC = () => {
               <button
                 type="submit"
                 id="btn-submit-copy-request"
+                disabled={isSubmitting}
                 className="px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm flex items-center gap-1.5 cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5" />
-                ส่งคำร้องถึง DCC
+                {isSubmitting ? 'กำลังส่งคำร้อง...' : 'ส่งคำร้องถึง DCC'}
               </button>
             </div>
 

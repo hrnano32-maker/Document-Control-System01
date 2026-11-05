@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { Readable, Writable } = require('node:stream');
+const { transferComplete } = require('./controlledTransfer');
 const source = fs.readFileSync(require.resolve('./index.js'), 'utf8');
 const clone = value => JSON.parse(JSON.stringify(value));
 const base = () => ({ status: 'IN_PROGRESS', stampStatus: 'COMPLETED', storageStatus: 'AVAILABLE', targetDepartments: ['HR', 'QA/QC'], targets: [{ dept: 'HR' }, { dept: 'QA/QC' }], expirationEpoch: Date.now() + 86400000, allocationByDepartment: { HR: 1, 'QA/QC': 1 }, departmentFileLists: { HR: ['dcs/distributions/DC-1/controlled/hr/a.pdf'], 'QA/QC': ['dcs/distributions/DC-1/controlled/qa/a.pdf'] }, receipts: { HR: { downloadedAt: '2026-10-19', downloaderUid: 'hr-user' } }, firstReceipts: { HR: { downloadedAt: '2026-10-18', downloaderUid: 'hr-user' } } });
@@ -15,7 +16,7 @@ function harness(initial = base(), options = {}) {
     return callback({ get: ref.get, update: (_, patch) => Object.assign(data, clone(patch)), set: (_, entry) => audits.push(clone(entry)) });
   } };
   const remove = async () => { deletions++; options.onDelete?.(data); if (options.failDelete) throw Error('Storage unavailable'); };
-  const context = { exports: {}, onCall: (_, fn) => fn, REGION: 'test', requireDcc: async request => { if (request.auth.uid !== 'dcc') throw Error('permission-denied'); }, cleanText: value => String(value || ''), HttpsError: class extends Error { constructor(code, msg) { super(msg); this.code = code; } }, getFirestore: () => db, getStorage: () => ({ bucket: () => ({ deleteFiles: remove, file: () => ({ delete: remove }) }) }), console: { error() {} }, Date };
+  const context = { exports: {}, onCall: (_, fn) => fn, REGION: 'test', transferComplete, requireDcc: async request => { if (request.auth.uid !== 'dcc') throw Error('permission-denied'); }, cleanText: value => String(value || ''), HttpsError: class extends Error { constructor(code, msg) { super(msg); this.code = code; } }, getFirestore: () => db, getStorage: () => ({ bucket: () => ({ deleteFiles: remove, file: () => ({ delete: remove }) }) }), console: { error() {} }, Date };
   context.revisionWorkflow = { ensureReturnsForDistribution: async () => {}, cancelReturns: async () => {} };
   context.isPreviousPath = require('./darRevisionWorkflow').isPreviousPath;
   vm.createContext(context);
@@ -56,18 +57,27 @@ test('per-department cancellation removes only that allocation and keeps signatu
   assert.equal(h.data().status, 'IN_PROGRESS'); assert.equal(h.audits.length, 1);
   await h.department('QA/QC'); assert.equal(h.data().status, 'CANCELLED');
 });
+test('cancelling another department does not mark a signed but unfinished transfer complete', async () => {
+  const record = base();
+  record.receipts['QA/QC'] = { downloadedAt: '2026-11-05', downloaderUid: 'qa-user', transferStatus: 'PENDING' };
+  const h = harness(record);
+  await h.department('HR');
+  assert.equal(h.data().status, 'IN_PROGRESS');
+  assert.equal(h.data().allDownloadedAt, null);
+});
 async function download(distribution, department, all = false, missing = false) {
   const uid = department === 'HR' ? 'hr-user' : 'qa-user';
-  let reads = 0, code, payload, bytes = Buffer.alloc(0);
-  const context = { exports: {}, onRequest: (_, fn) => fn, REGION: 'test', setDownloadCors() {}, cleanText: value => String(value || ''), safeSegment: value => value || 'file', getAuth: () => ({ verifyIdToken: async () => ({ uid }) }), getFirestore: () => ({ collection: name => ({ doc: () => ({ get: async () => ({ exists: true, data: () => name === 'users' ? { active: true, role: 'STAFF', department } : distribution }) }) }) }), archiver: require('archiver'), getStorage: () => ({ bucket: () => ({ file: () => ({ exists: async () => [!missing], getMetadata: async () => [{ size: 8 }], createReadStream: () => { reads++; return Readable.from(Buffer.from('%PDF-1.7')); } }) }) }), console, Date };
+  let reads = 0, code, payload, bytes = Buffer.alloc(0), response;
+  const evidence = [], headers = {};
+  const context = { exports: {}, onRequest: (_, fn) => fn, REGION: 'test', setDownloadCors() {}, cleanText: value => String(value || ''), safeSegment: value => value || 'file', getAuth: () => ({ verifyIdToken: async () => ({ uid }) }), getFirestore: () => ({ collection: name => ({ doc: () => ({ get: async () => ({ exists: true, data: () => name === 'users' ? { active: true, role: 'STAFF', department } : distribution }) }) }) }), archiver: require('archiver'), getStorage: () => ({ bucket: () => ({ file: () => ({ exists: async () => [!missing], getMetadata: async () => [{ size: 8 }], createReadStream: () => { reads++; return Readable.from(Buffer.from('%PDF-1.7')); } }) }) }), recordControlledDelivery: async item => { evidence.push({ ...item, responseFinished: response.writableFinished }); }, console, Date };
   context.revisionWorkflow = { ensureReturnsForDistribution: async () => {}, cancelReturns: async () => {} };
   context.isPreviousPath = require('./darRevisionWorkflow').isPreviousPath;
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('exports.downloadControlledCopyFile ='), source.indexOf('\nexports.downloadAnnouncementFile =')), context);
-  const response = new Writable({ write(chunk, _, done) { bytes = Buffer.concat([bytes, chunk]); done(); } });
-  response.set = () => response; response.status = value => { code = value; return response; }; response.json = value => { payload = value; return response; };
+  response = new Writable({ write(chunk, _, done) { bytes = Buffer.concat([bytes, chunk]); done(); } });
+  response.set = (key, value) => { headers[key] = value; return response; }; response.status = value => { code = value; return response; }; response.json = value => { payload = value; return response; };
   await context.exports.downloadControlledCopyFile({ method: 'GET', get: () => 'Bearer token', query: { distributionId: 'DC-1', index: '0', ...(all ? { all: '1' } : {}) } }, response);
-  return { code, payload, reads, bytes };
+  return { code, payload, reads, bytes, evidence, headers };
 }
 test('cancelled sets deny individual and ZIP downloads before any Storage read', async () => {
   for (const all of [false, true]) {
@@ -111,6 +121,20 @@ test('bulk download returns ZIP bytes for available files and a clear error befo
     const result = await download(base(), 'HR', all, true);
     assert.equal(result.code, 404); assert.equal(result.reads, 0);
     assert.equal(result.payload.error, all ? 'FILES_NOT_FOUND' : 'FILE_NOT_FOUND');
+  }
+});
+
+test('delivery evidence is recorded before ending a pending PDF or ZIP response', async () => {
+  const record = base();
+  record.receipts.HR.transferStatus = 'PENDING'; record.receipts.HR.transferId = 'attempt-1';
+  for (const all of [false, true]) {
+    const result = await download(record, 'HR', all);
+    assert.equal(result.code, 200);
+    assert.equal(result.evidence.length, 1);
+    assert.equal(result.evidence[0].file, all ? 'all' : 0);
+    assert.equal(result.evidence[0].transferId, 'attempt-1');
+    assert.equal(result.evidence[0].responseFinished, false);
+    if (!all) assert.equal(result.headers['Content-Length'], undefined);
   }
 });
 

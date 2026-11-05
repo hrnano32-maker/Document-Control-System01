@@ -1,4 +1,5 @@
 import type { DistributionRecord, DistributionReceipt } from '../types';
+import { isReceiptTransferComplete } from './distributionAccess';
 
 export function getDarDistributionGroup(selected: DistributionRecord, distributions: DistributionRecord[]): DistributionRecord[] {
   const byId = new Map(distributions.map(item => [item.id, item]));
@@ -90,7 +91,7 @@ export function isCombinedSheetComplete(records: DistributionRecord[]): boolean 
   return records.length > 0 && records.every(record => {
     const departments = [...new Set([...(record.targetDepartments || []), ...(record.targets || []).map(target => target.dept)])]
       .filter(dept => !record.departmentCancellations?.[dept]);
-    return record.status !== 'CANCELLED' && departments.length > 0 && departments.every(dept => Boolean(record.receipts?.[dept]?.downloadedAt));
+    return record.status !== 'CANCELLED' && departments.length > 0 && departments.every(dept => isReceiptTransferComplete(record.receipts?.[dept]));
   });
 }
 

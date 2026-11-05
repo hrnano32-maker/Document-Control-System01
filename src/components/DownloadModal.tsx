@@ -16,8 +16,11 @@ import {
   Upload,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { downloadControlledCopyFromServer, getStorageFileUrl } from '../services/dcsRepository';
+import { completeControlledTransfer, downloadControlledCopyFromServer, getStorageFileUrl } from '../services/dcsRepository';
 import { normalizeSignatureDataUrl } from '../utils/signatureImage';
+
+type SaveTarget = { createWritable: () => Promise<{ write: (blob: Blob) => Promise<void>; close: () => Promise<void>; abort?: () => Promise<void> }> };
+type PendingConfirmation = { transferId: string; file: number | 'all'; name: string; method: 'picker' | 'confirmed' };
 
 export const DownloadModal: React.FC = () => {
   const { selectedDistributionForDownload: selection, currentUser } = useDcs();
@@ -37,6 +40,8 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
   const downloadAbort = useRef(new AbortController());
 
   const target = distribution.targets.find(t => t.dept === dept);
+  const receipt = distribution.receipts?.[dept];
+  const hasReceipt = Boolean(receipt?.downloadedAt);
 
   const [downloaderName] = useState(currentUser.currentDept === dept ? currentUser.userName : '');
   const [downloaderEmpId] = useState(currentUser.currentDept === dept ? currentUser.userEmpId : '');
@@ -54,6 +59,8 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [isControlledFileMissing, setIsControlledFileMissing] = useState(false);
   const [serverBlock, setServerBlock] = useState('');
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
+  const [isConfirmingTransfer, setIsConfirmingTransfer] = useState(false);
   const now = useDistributionClock();
   const access = getDistributionDownloadAccess(distribution, dept, now);
   const canDownload = access.canDownload && !serverBlock && !isControlledFileMissing;
@@ -131,8 +138,7 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
   }, [currentUser.signaturePath]);
 
   useEffect(() => {
-    const receipt = distribution.receipts?.[dept];
-    if (!target?.isDownloaded || receipt?.downloaderUid !== currentUser.uid || !canDownload) return;
+    if (!hasReceipt || (receipt?.downloaderUid && receipt.downloaderUid !== currentUser.uid) || !canDownload) return;
     const paths = distribution.departmentFileLists?.[dept]
       || (distribution.departmentFiles?.[dept] ? [distribution.departmentFiles[dept]] : []);
     if (!paths.length) return;
@@ -153,7 +159,58 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
         else setErrorMsg('ไม่สามารถเปิดไฟล์ที่รับไว้แล้ว กรุณาติดต่อ DCC');
       });
     return () => { active = false; };
-  }, [currentUser.uid, dept, distribution, canDownload, target?.isDownloaded]);
+  }, [currentUser.uid, dept, distribution, canDownload, hasReceipt]);
+
+  const safeFileName = (name: string) => name.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_');
+  const outputName = (index: number | 'all') => safeFileName(index === 'all'
+    ? `CONTROLLED_${distribution.docNo}_Rev${distribution.revision}_${dept}.zip`
+    : `CONTROLLED_${dept}_${distribution.departmentFileNames?.[dept]?.[index] || distribution.fileNames?.[index] || distribution.fileName || `${distribution.docNo}_${index + 1}.pdf`}`);
+
+  // The picker is opened in the original button gesture. Its writable stream
+  // lets Chrome report a completed save, rather than merely a download click.
+  const chooseSaveTarget = async (name: string, file: number | 'all'): Promise<SaveTarget | null> => {
+    const picker = (window as Window & { showSaveFilePicker?: (options: unknown) => Promise<SaveTarget> }).showSaveFilePicker;
+    if (!picker) return null;
+    return picker.call(window, { suggestedName: name, types: [{ description: file === 'all' ? 'ZIP' : 'PDF', accept: file === 'all' ? { 'application/zip': ['.zip'] } : { 'application/pdf': ['.pdf'] } }] });
+  };
+
+  const recordSavedFiles = async (confirmation: PendingConfirmation) => {
+    setIsConfirmingTransfer(true);
+    try {
+      let result: Awaited<ReturnType<typeof completeControlledTransfer>> | undefined;
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        try { result = await completeControlledTransfer(distribution.id, confirmation.transferId, confirmation.file, confirmation.method); break; }
+        catch (error) {
+          if (attempt === 5 || !(error instanceof Error) || !error.message.includes('กำลังบันทึกหลักฐานการส่งไฟล์')) throw error;
+          await new Promise(resolve => window.setTimeout(resolve, 500));
+        }
+      }
+      if (!result) throw new Error('บันทึกสถานะไม่สำเร็จ');
+      setPendingConfirmation(null);
+      setSubmitStatus(result.complete ? 'บันทึกไฟล์ครบแล้ว' : `บันทึกไฟล์แล้ว ${result.transferredIndexes.length} ไฟล์ กรุณาดาวน์โหลดไฟล์ที่เหลือ`);
+      if (result.complete) {
+        confetti({ particleCount: 60, spread: 55, origin: { y: 0.6 } });
+        setSelectedDistributionForDownload(null);
+      }
+    } catch (error) {
+      setPendingConfirmation(confirmation);
+      setErrorMsg(error instanceof Error ? `บันทึกสถานะไม่สำเร็จ: ${error.message} กรุณาลองบันทึกสถานะอีกครั้ง` : 'บันทึกสถานะไม่สำเร็จ กรุณาลองอีกครั้ง');
+    } finally { setIsConfirmingTransfer(false); }
+  };
+
+  const saveAndRecord = async (blob: Blob, name: string, file: number | 'all', transferId: string | undefined, targetFile: SaveTarget | null) => {
+    if (targetFile) {
+      const writer = await targetFile.createWritable();
+      try { await writer.write(blob); await writer.close(); }
+      catch (error) { await writer.abort?.().catch(() => undefined); throw error; }
+      if (transferId) await recordSavedFiles({ transferId, file, name, method: 'picker' });
+      else setSubmitStatus('บันทึกไฟล์ลงเครื่องแล้ว');
+    } else {
+      saveBlobToDevice(blob, name);
+      if (transferId) setPendingConfirmation({ transferId, file, name, method: 'confirmed' });
+      else setSubmitStatus('ส่งคำสั่งดาวน์โหลดแล้ว กรุณาตรวจสอบโฟลเดอร์ดาวน์โหลด');
+    }
+  };
 
   const handleConfirmDownload = async () => {
     const signal = downloadAbort.current.signal;
@@ -176,6 +233,16 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
       return;
     }
 
+    const paths = distribution.departmentFileLists?.[dept] || (distribution.departmentFiles?.[dept] ? [distribution.departmentFiles[dept]] : []);
+    const file: number | 'all' = paths.length > 1 ? 'all' : 0;
+    const name = outputName(file);
+    let saveTarget: SaveTarget | null;
+    try { saveTarget = await chooseSaveTarget(name, file); }
+    catch (error) {
+      if ((error as { name?: string })?.name !== 'AbortError') setErrorMsg('ไม่สามารถเลือกที่บันทึกไฟล์ได้ กรุณาลองใหม่');
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmitStatus('กำลังตรวจสอบสิทธิ์รับเอกสาร');
     setSubmitPercent(2);
@@ -195,7 +262,6 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
 
     if (signal.aborted || !checkCurrentAccess()) { setIsSubmitting(false); return; }
     if (result.success) {
-      confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
       const urls = result.downloadUrls?.length ? result.downloadUrls : (result.downloadUrl ? [result.downloadUrl] : []);
       if (!urls.length) {
         setIsSubmitting(false);
@@ -208,15 +274,11 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
       });
       setReadyDownloads(files);
       setSubmitStatus(files.length > 1 ? 'บันทึกการรับแล้ว กำลังเตรียมดาวน์โหลดไฟล์ทั้งหมดเป็น ZIP' : 'บันทึกการรับแล้ว กำลังเตรียมดาวน์โหลด PDF');
-      setSubmitPercent(100);
+      setSubmitPercent(0);
       try {
-        const blob = await downloadControlledCopyFromServer(distribution.id, files.length > 1 ? 'all' : 0, signal);
+        const blob = await downloadControlledCopyFromServer(distribution.id, file, signal);
         if (signal.aborted || !checkCurrentAccess()) return;
-        const name = files.length > 1
-          ? `CONTROLLED_${distribution.docNo}_Rev${distribution.revision}_${dept.replace(/[^a-zA-Z0-9._-]/g, '_')}.zip`
-          : files[0].name;
-        saveBlobToDevice(blob, name);
-        setSubmitStatus('ส่งคำสั่งดาวน์โหลดแล้ว กรุณาตรวจสอบโฟลเดอร์ดาวน์โหลด');
+        await saveAndRecord(blob, name, file, result.transferId, saveTarget);
       } catch (caught) {
         if (!signal.aborted) {
           const message = caught instanceof Error ? caught.message : 'ไม่ทราบสาเหตุ';
@@ -279,12 +341,16 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
     const signal = downloadAbort.current.signal;
     setErrorMsg('');
     if (!checkCurrentAccess()) return;
+    let saveTarget: SaveTarget | null;
+    const name = safeFileName(file.name);
+    try { saveTarget = await chooseSaveTarget(name, index); }
+    catch (error) { if ((error as { name?: string })?.name !== 'AbortError') setErrorMsg('ไม่สามารถเลือกที่บันทึกไฟล์ได้ กรุณาลองใหม่'); return; }
     setDownloadingIndex(index);
     try {
       if (!getReadyStoragePaths()[index]) throw new Error('ไม่พบตำแหน่งไฟล์');
       const blob = await downloadControlledCopyFromServer(distribution.id, index, signal);
       if (signal.aborted || !checkCurrentAccess()) return;
-      saveBlobToDevice(blob, file.name);
+      await saveAndRecord(blob, name, index, receipt?.transferStatus === 'PENDING' ? receipt.transferId : undefined, saveTarget);
     } catch (caught) {
       if (!signal.aborted) handleDownloadError(caught);
     } finally {
@@ -296,12 +362,16 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
     const signal = downloadAbort.current.signal;
     if (!readyDownloads.length || isDownloadingAll || !checkCurrentAccess()) return;
     setErrorMsg('');
+    const name = outputName('all');
+    let saveTarget: SaveTarget | null;
+    try { saveTarget = await chooseSaveTarget(name, 'all'); }
+    catch (error) { if ((error as { name?: string })?.name !== 'AbortError') setErrorMsg('ไม่สามารถเลือกที่บันทึกไฟล์ได้ กรุณาลองใหม่'); return; }
     setIsDownloadingAll(true);
     try {
       setSubmitStatus(`กำลังรวม ${readyDownloads.length} ไฟล์เป็น ZIP`);
       const blob = await downloadControlledCopyFromServer(distribution.id, 'all', signal);
       if (signal.aborted || !checkCurrentAccess()) return;
-      saveBlobToDevice(blob, `CONTROLLED_${distribution.docNo}_Rev${distribution.revision}_${dept.replace(/[^a-zA-Z0-9._-]/g, '_')}.zip`);
+      await saveAndRecord(blob, name, 'all', receipt?.transferStatus === 'PENDING' ? receipt.transferId : undefined, saveTarget);
     } catch (caught) {
       if (!signal.aborted) handleDownloadError(caught);
     } finally {
@@ -326,7 +396,7 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
       onClick={(e) => {
         if (e.target === e.currentTarget) handleClose();
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto"
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto"
     >
       <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-8">
         
@@ -396,16 +466,16 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
           </div>
 
           {/* Already Downloaded Warning Check */}
-          {(target?.isDownloaded || canDownload) && (target?.isDownloaded ? (
+          {(hasReceipt || canDownload) && (hasReceipt ? (
             <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl space-y-2">
               <div className="flex items-center gap-2 text-amber-800 font-bold">
                 <Lock className="w-4 h-4 text-amber-600" />
-                <span>🔒 หน่วยงาน {dept} ได้ใช้สิทธิ์ดาวน์โหลดไปแล้ว</span>
+                <span>{receipt?.transferStatus === 'PENDING' ? `ลงนามรับแล้ว กรุณาบันทึกไฟล์ของ ${dept} ให้ครบ` : `🔒 หน่วยงาน ${dept} ได้ใช้สิทธิ์ดาวน์โหลดไปแล้ว`}</span>
               </div>
               <p className="text-[11px] text-amber-700 leading-relaxed">
-                ผู้ดาวน์โหลด: <strong>{target.downloaderName}</strong> ({target.downloaderEmpId || 'ไม่ระบุรหัส'})
+                ผู้ดาวน์โหลด: <strong>{receipt?.downloaderName || target?.downloaderName}</strong> ({receipt?.downloaderEmpId || target?.downloaderEmpId || 'ไม่ระบุรหัส'})
                 <br />
-                เมื่อวันที่: <strong>{new Date(target.downloadTimestamp!).toLocaleString('th-TH')}</strong>
+                เมื่อวันที่: <strong>{new Date(receipt?.downloadedAt || target?.downloadTimestamp || '').toLocaleString('th-TH')}</strong>
                 <br />
                 หากไฟล์สูญหายหรือต้องการสำเนาเพิ่มเติม โปรดส่งคำร้องขอผ่านระบบถึง DCC
               </p>
@@ -531,10 +601,10 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
             <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2">
               <div className="flex items-center justify-between text-xs font-bold text-indigo-900">
                 <span>{submitStatus || 'กำลังดำเนินการ...'}</span>
-                <span>{submitPercent}%</span>
+                <span>{submitPercent > 0 ? `${submitPercent}%` : 'กำลังดาวน์โหลดไฟล์'}</span>
               </div>
               <div className="h-2.5 bg-indigo-100 rounded-full overflow-hidden">
-                <div className="h-full bg-indigo-600 transition-all duration-300" style={{ width: `${submitPercent}%` }} />
+                <div className={`h-full bg-indigo-600 transition-all duration-300 ${submitPercent === 0 ? 'animate-pulse' : ''}`} style={{ width: submitPercent === 0 ? '50%' : `${submitPercent}%` }} />
               </div>
               <p className="text-[10px] text-indigo-700">กรุณาอย่าปิดหน้าต่าง ระยะเวลาขึ้นอยู่กับจำนวนและขนาดไฟล์ PDF</p>
             </div>
@@ -544,7 +614,7 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
             <div className="p-4 bg-emerald-50 border-2 border-emerald-300 rounded-xl space-y-3">
               <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                บันทึกการรับเอกสารสำเร็จ
+                {receipt?.transferStatus === 'PENDING' || pendingConfirmation ? 'ลงนามแล้ว · กรุณาบันทึกไฟล์ให้ครบ' : 'บันทึกการรับเอกสารสำเร็จ'}
               </div>
               <p className="text-[11px] text-emerald-800">{submitStatus || 'ตรวจสอบไฟล์ในโฟลเดอร์ดาวน์โหลด หรือเลือกดาวน์โหลดอีกครั้งด้านล่าง'}</p>
               {readyDownloads.length > 1 && (
@@ -552,7 +622,7 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
                   type="button"
                   id="btn-download-all-controlled-files"
                   onClick={() => void downloadAllReadyFiles()}
-                  disabled={isSubmitting || isDownloadingAll || downloadingIndex !== null}
+                  disabled={isSubmitting || isDownloadingAll || downloadingIndex !== null || Boolean(pendingConfirmation) || isConfirmingTransfer}
                   className="w-full px-4 py-3 bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-400 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2"
                 >
                   <Download className="w-4 h-4 shrink-0" />
@@ -565,7 +635,7 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
                     type="button"
                     key={file.url}
                     onClick={() => downloadReadyFile(file, index)}
-                    disabled={isSubmitting || downloadingIndex !== null || isDownloadingAll}
+                    disabled={isSubmitting || downloadingIndex !== null || isDownloadingAll || Boolean(pendingConfirmation) || isConfirmingTransfer}
                     className="w-full px-4 py-3 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl font-bold text-xs flex items-center justify-between gap-3"
                   >
                     <span className="truncate">{downloadingIndex === index ? 'กำลังดาวน์โหลด...' : `ไฟล์ที่ ${index + 1}: ${file.name}`}</span>
@@ -575,6 +645,15 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
               </div>
             </div>
           )}
+
+          {pendingConfirmation && <div role="alert" className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 space-y-3">
+            <p className="font-bold">{pendingConfirmation.method === 'picker' ? 'บันทึกไฟล์แล้ว แต่ยังบันทึกสถานะในระบบไม่สำเร็จ' : 'กรุณาตรวจสอบว่าไฟล์บันทึกลงเครื่องแล้ว'}</p>
+            <p className="break-all">{pendingConfirmation.name}</p>
+            <p>{pendingConfirmation.method === 'picker' ? 'กดปุ่มด้านล่างเพื่อลองบันทึกสถานะอีกครั้ง' : 'เบราว์เซอร์นี้ไม่แจ้งผลการบันทึกไฟล์ กรุณาตรวจสอบโฟลเดอร์ดาวน์โหลดก่อนกดยืนยัน'}</p>
+            <div className="flex flex-wrap gap-2"><button type="button" disabled={isConfirmingTransfer} onClick={() => void recordSavedFiles(pendingConfirmation)} className="rounded-lg bg-amber-700 px-4 py-2 font-bold text-white disabled:opacity-50">{isConfirmingTransfer ? 'กำลังบันทึกสถานะ...' : pendingConfirmation.method === 'picker' ? 'ลองบันทึกสถานะอีกครั้ง' : 'ยืนยันว่าบันทึกไฟล์แล้ว'}</button>
+              <button type="button" disabled={isConfirmingTransfer} onClick={() => setPendingConfirmation(null)} className="rounded-lg border border-amber-700 px-4 py-2 font-bold">ลองดาวน์โหลดใหม่</button>
+            </div>
+          </div>}
 
           {/* Error Message */}
           {errorMsg && (
@@ -603,10 +682,10 @@ const ActiveDownloadModal: React.FC<{ selection: { distribution: DistributionRec
               onClick={handleClose}
               className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
             >
-              {target?.isDownloaded || !canDownload ? 'ปิดหน้าต่าง' : 'ยกเลิก / ปิด'}
+              {hasReceipt || !canDownload ? 'ปิดหน้าต่าง' : 'ยกเลิก / ปิด'}
             </button>
 
-            {canDownload && !target?.isDownloaded && readyDownloads.length === 0 && (
+            {canDownload && !hasReceipt && readyDownloads.length === 0 && (
               <button
                 type="button"
                 id="btn-confirm-download-controlled"

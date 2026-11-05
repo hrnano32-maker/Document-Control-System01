@@ -16,9 +16,11 @@ import { COMPANY } from './config/company';
 import { UserRegistrationAdmin } from './components/UserRegistrationAdmin';
 import { PwaNotificationPrompt } from './components/PwaNotificationPrompt';
 import { Announcements } from './components/Announcements';
+import { PendingDistributionGate } from './components/PendingDistributionGate';
+import { isPendingDepartmentReceipt } from './utils/distributionAccess';
 
-const MainLayout: React.FC = () => {
-  const { activeView, currentUser, setActiveView } = useDcs();
+export const MainLayout: React.FC = () => {
+  const { activeView, currentUser, setActiveView, distributions, distributionSync, isChangePasswordOpen } = useDcs();
 
   useEffect(() => {
     if (!currentUser.isAuthenticated) return;
@@ -32,9 +34,12 @@ const MainLayout: React.FC = () => {
   }
 
   const isDcc = currentUser.currentDept === 'DCC';
+  const blocked = currentUser.userRole !== 'DCC_ADMIN' && !currentUser.mustChangePassword && !isChangePasswordOpen
+    && (distributionSync !== 'ready' || distributions.some(row => isPendingDepartmentReceipt(row, currentUser.currentDept)));
 
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col selection:bg-indigo-500 selection:text-white font-sans">
+      <div inert={blocked || undefined} className="contents">
       
       {/* Top Navigation */}
       <Navbar />
@@ -51,12 +56,9 @@ const MainLayout: React.FC = () => {
       </main>
 
       {/* Modals & Dialogs */}
-      <DownloadModal />
       <DistributionSheetModal />
-      <CopyRequestModal />
       <StamperToolModal />
       <DocumentViewerModal />
-      <PwaNotificationPrompt />
 
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500 print:hidden">
@@ -72,6 +74,12 @@ const MainLayout: React.FC = () => {
           </p>
         </div>
       </footer>
+
+      </div>
+      <PendingDistributionGate />
+      <DownloadModal />
+      <CopyRequestModal />
+      {!blocked && <PwaNotificationPrompt />}
 
     </div>
   );

@@ -1,5 +1,6 @@
 const { MAX_PDF_BYTES, getDarAttachments, isDarAttachmentPath, validateDarPdfAttachments } = require('./darAttachments');
 const { createDarRevisionWorkflow, isPreviousPath } = require('./darRevisionWorkflow');
+const { createCompleteControlledTransfer, createRecordControlledDelivery, transferComplete } = require('./controlledTransfer');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
@@ -849,7 +850,7 @@ exports.normalizeQaQcDepartments = onCall({ region: REGION, timeoutSeconds: 540,
     distributionSheet = { ...sheet, rows: normalizedRows, updatedAt: new Date().toISOString(), updatedBy: request.auth.uid };
   }
 
-  const allDownloaded = targetDepartments.every(dept => Boolean(receipts[dept]?.downloadedAt));
+  const allDownloaded = targetDepartments.every(dept => transferComplete(receipts[dept]));
   const update = {
     targetDepartments,
     targets,
@@ -952,6 +953,10 @@ const setDownloadCors = response => {
   response.set('Cache-Control', 'private, no-store, max-age=0');
 };
 
+exports.completeControlledTransfer = onCall({ region: REGION, timeoutSeconds: 60 },
+  createCompleteControlledTransfer({ getFirestore, HttpsError }));
+const recordControlledDelivery = createRecordControlledDelivery({ getFirestore });
+
 exports.downloadControlledCopyFile = onRequest({
   region: REGION,
   timeoutSeconds: 540,
@@ -1017,9 +1022,20 @@ exports.downloadControlledCopyFile = onRequest({
         response.once('finish', resolve);
         response.once('error', reject);
       });
-      archive.pipe(response);
+      const archiveEnded = new Promise((resolve, reject) => {
+        archive.once('end', resolve);
+        archive.once('error', reject);
+        response.once('error', reject);
+      });
+      // Keep the response open until server-only delivery evidence is stored.
+      // A browser cannot finish fetching the blob before this write completes.
+      archive.pipe(response, { end: false });
       paths.forEach((path, index) => archive.append(bucket.file(path).createReadStream(), { name: outputNames[index] }));
       await archive.finalize();
+      await archiveEnded;
+      await recordControlledDelivery({ distributionId, dept: department, uid: decoded.uid, transferId: receipt?.transferId, file: 'all', expectedPaths: paths })
+        .catch(error => console.error('CONTROLLED_DELIVERY_EVIDENCE_FAILED', distributionId, error));
+      response.end();
       await completed;
       return;
     }
@@ -1033,14 +1049,19 @@ exports.downloadControlledCopyFile = onRequest({
     response.status(200);
     response.set('Content-Type', 'application/octet-stream');
     response.set('Content-Disposition', `attachment; filename="${outputNames[index]}"`);
-    if (metadata.size) response.set('Content-Length', String(metadata.size));
-    await new Promise((resolve, reject) => {
-      const stream = file.createReadStream();
-      stream.once('error', reject);
-      response.once('finish', resolve);
-      response.once('error', reject);
-      stream.pipe(response);
-    });
+    // For new pending transfers, finish the chunked response only after the
+    // server evidence is committed; a fixed Content-Length could otherwise let
+    // the browser finish before that write.
+    if (metadata.size && receipt?.transferStatus !== 'PENDING') response.set('Content-Length', String(metadata.size));
+    const stream = file.createReadStream();
+    const completed = new Promise((resolve, reject) => { response.once('finish', resolve); response.once('error', reject); });
+    const streamEnded = new Promise((resolve, reject) => { stream.once('end', resolve); stream.once('error', reject); response.once('error', reject); });
+    stream.pipe(response, { end: false });
+    await streamEnded;
+    await recordControlledDelivery({ distributionId, dept: department, uid: decoded.uid, transferId: receipt?.transferId, file: index, expectedPaths: paths })
+      .catch(error => console.error('CONTROLLED_DELIVERY_EVIDENCE_FAILED', distributionId, error));
+    response.end();
+    await completed;
   } catch (error) {
     console.error('CONTROLLED_DOWNLOAD_FAILED', error);
     if (!response.headersSent) response.status(500).json({ error: 'DOWNLOAD_FAILED' });
@@ -1128,7 +1149,7 @@ exports.cancelDistributionDepartment = onCall({ region: REGION, timeoutSeconds: 
     const filePaths = data.departmentFileLists?.[department] || [data.departmentFiles?.[department]].filter(Boolean);
     const remaining = data.targetDepartments.filter(dept => dept !== department);
     const now = new Date().toISOString();
-    const allReceived = remaining.length > 0 && remaining.every(dept => Boolean(data.receipts?.[dept]?.downloadedAt));
+    const allReceived = remaining.length > 0 && remaining.every(dept => transferComplete(data.receipts?.[dept]));
     const updates = {
       targetDepartments: remaining,
       departmentCancellations: { ...(data.departmentCancellations || {}), [department]: { reason, cancelledAt: now, cancelledBy: request.auth.uid, filePaths } },

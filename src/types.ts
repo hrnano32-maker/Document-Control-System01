@@ -298,6 +298,12 @@ export interface DistributionReceipt {
   downloaderPosition: string;
   signatureStoragePath: string;
   downloaderUid?: string;
+  // Receipts predating transfer tracking have no status and remain valid history.
+  transferStatus?: 'PENDING' | 'COMPLETE';
+  transferId?: string;
+  transferredIndexes?: number[];
+  transferCompletedAt?: string;
+  transferSaveMethod?: 'picker' | 'confirmed';
 }
 
 export interface DocumentReturnEvidence {
