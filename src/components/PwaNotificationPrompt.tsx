@@ -30,6 +30,15 @@ export const PwaNotificationPrompt: React.FC<{ hideBanner?: boolean }> = ({ hide
   useEffect(() => subscribeInstallAvailability(setInstallAvailable), []);
 
   useEffect(() => {
+    const onProtectedNotification = () => {
+      setDismissed(false);
+      setMessage('มีการแจ้งเตือนใหม่ ข้อมูล DAR ที่กำลังกรอกยังอยู่ กรุณาตรวจสอบการแจ้งเตือนหลังดำเนินการเสร็จ');
+    };
+    window.addEventListener('dcs:dar-notification', onProtectedNotification);
+    return () => window.removeEventListener('dcs:dar-notification', onProtectedNotification);
+  }, []);
+
+  useEffect(() => {
     const updatePermission = () => setPermission(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
     window.addEventListener('focus', updatePermission);
     return () => window.removeEventListener('focus', updatePermission);
@@ -51,7 +60,7 @@ export const PwaNotificationPrompt: React.FC<{ hideBanner?: boolean }> = ({ hide
     void listenForForegroundNotifications((title, body) => {
       setDismissed(false);
       setMessage(`${title}: ${body}`);
-      setActiveView('distribution');
+      if (!document.getElementById('dar-create-modal-backdrop')) setActiveView('distribution');
     }).then(unsubscribe => {
       if (active) { stop = unsubscribe; setListenerFailed(false); }
       else unsubscribe();

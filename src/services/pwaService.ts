@@ -16,6 +16,18 @@ export const initializePwa = () => {
   if (!('serviceWorker' in navigator)) return;
   const serviceWorkerUrl = new URL('firebase-messaging-sw.js', document.baseURI);
   const serviceWorkerScope = new URL('./', serviceWorkerUrl).pathname;
+  navigator.serviceWorker.addEventListener('message', event => {
+    if (event.data?.type !== 'DCS_OPEN_NOTIFICATION' || typeof event.data.url !== 'string') return;
+    let target: URL;
+    try { target = new URL(event.data.url, document.baseURI); } catch { return; }
+    if (target.origin !== window.location.origin || !target.pathname.startsWith(serviceWorkerScope)) return;
+    // Never replace an unsent DAR when the user clicks an operating-system notification.
+    if (document.getElementById('dar-create-modal-backdrop')) {
+      window.dispatchEvent(new Event('dcs:dar-notification'));
+      return;
+    }
+    window.location.assign(target.href);
+  });
   serviceWorkerPromise = navigator.serviceWorker.register(serviceWorkerUrl.pathname, { scope: serviceWorkerScope });
   window.addEventListener('beforeinstallprompt', event => {
     event.preventDefault();

@@ -35,9 +35,11 @@ self.addEventListener('notificationclick', event => {
   const targetUrl = new URL(event.notification.data?.url || '?view=distribution', self.registration.scope).href;
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const existing = windows.find(client => new URL(client.url).origin === self.location.origin);
+    const existing = windows.find(client => client.url.startsWith(self.registration.scope));
     if (existing) {
-      await existing.navigate(targetUrl);
+      // Let the page protect an in-progress DAR before navigating. An older
+      // page without a handler is safely focused instead of being replaced.
+      existing.postMessage({ type: 'DCS_OPEN_NOTIFICATION', url: targetUrl });
       return existing.focus();
     }
     return self.clients.openWindow(targetUrl);

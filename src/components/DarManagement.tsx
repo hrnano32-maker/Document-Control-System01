@@ -108,20 +108,19 @@ export const DarManagement: React.FC = () => {
     } finally { setSavingCorrection(false); }
   };
 
-  // Close on Escape key press
+  // Escape remains available for the review and print dialogs.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (selectedDarForPrint) setSelectedDarForPrint(null);
         if (selectedDarForReview) setSelectedDarForReview(null);
-        if (isCreateModalOpen && !submitInFlight.current) setIsCreateModalOpen(false);
       }
     };
-    if (selectedDarForPrint || selectedDarForReview || isCreateModalOpen) {
+    if (selectedDarForPrint || selectedDarForReview) {
       window.addEventListener('keydown', handleKeyDown);
     }
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedDarForPrint, selectedDarForReview, isCreateModalOpen]);
+  }, [selectedDarForPrint, selectedDarForReview]);
 
   // DAR Creation Form state
   const [reqType, setReqType] = useState<DarRequestType>('REVISION');
@@ -942,9 +941,6 @@ export const DarManagement: React.FC = () => {
       {isCreateModalOpen && (
         <div
           id="dar-create-modal-backdrop"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !submitInFlight.current) setIsCreateModalOpen(false);
-          }}
           className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-3 bg-slate-950/70 backdrop-blur-xs overflow-hidden"
         >
           <div
