@@ -310,6 +310,11 @@ export const DarManagement: React.FC = () => {
       return;
     }
 
+    if (reqType !== 'OBSOLETE' && !proposedRevision.trim()) {
+      setFormError('กรุณาระบุ Rev. ที่เสนอตามเอกสาร');
+      return;
+    }
+
     if (!attachedFiles.length) { setFormError('กรุณาแนบไฟล์ PDF อย่างน้อย 1 ไฟล์'); return; }
 
     if (!reasonForChange.trim()) {
@@ -1145,6 +1150,8 @@ export const DarManagement: React.FC = () => {
                       value={proposedRevision}
                       onChange={e => setProposedRevision(e.target.value)}
                       disabled={reqType === 'OBSOLETE'}
+                      required={reqType !== 'OBSOLETE'}
+                      placeholder="ระบุ Rev. ที่เสนอ"
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono font-bold text-indigo-700 disabled:bg-slate-100"
                     />
                   </div>
