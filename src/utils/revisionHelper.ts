@@ -18,11 +18,11 @@ export interface RevisionAnalysisResult {
  * Examples: "00" -> 0, "01" -> 1, "03" -> 3, "Rev.02" -> 2
  */
 export function parseRevisionNumber(rev: string): number | null {
-  if (!rev || rev === 'N/A' || rev.toUpperCase() === 'OBSOLETE') return null;
-  const cleaned = rev.replace(/[^0-9]/g, '');
-  if (cleaned === '') return null;
-  const parsed = parseInt(cleaned, 10);
-  return isNaN(parsed) ? null : parsed;
+  const cleaned = String(rev || '').trim().replace(/^rev(?:ision)?\.?\s*/i, '');
+  // Customer revisions such as 5.2 or A1 are identifiers, not integers 52/1.
+  if (!/^\d+$/.test(cleaned)) return null;
+  const parsed = Number(cleaned);
+  return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 /**
@@ -38,8 +38,17 @@ export function formatRevision(num: number): string {
  */
 export function getNextRevision(currentRev: string): string {
   const num = parseRevisionNumber(currentRev);
-  if (num === null) return '00';
+  if (num === null) return !currentRev || /^(?:n\/a|-)$/i.test(currentRev.trim()) ? '00' : '';
   return formatRevision(num + 1);
+}
+
+// Customer numbering cannot always be ordered automatically. Entering a reason
+// explicitly records the requester's declaration for DCC review.
+export function getSkippedRevisionFields(reqType: DarRequestType, detectedSkip: boolean, reason: string) {
+  const trimmed = reason.trim();
+  if (reqType === 'OBSOLETE') return { isSkippedRevision: false, skippedRevisionReason: undefined };
+  if (detectedSkip && !trimmed) throw new Error('กรุณาระบุเหตุผลกรณีข้าม Revision');
+  return { isSkippedRevision: detectedSkip || Boolean(trimmed), skippedRevisionReason: trimmed || undefined };
 }
 
 /**
@@ -68,22 +77,25 @@ export function analyzeRevisionSequence(
   const skippedRevs: string[] = [];
   let warningMessage = '';
   let dccPrompt = '';
+  const listSkipped = (first: number, end: number) => {
+    // Keep the warning readable even when a user types a very large revision.
+    for (let i = first; i < Math.min(end, first + 20); i++) skippedRevs.push(formatRevision(i));
+    return skippedRevs.join(', Rev.') + (end - first > 20 ? ` และอีก ${end - first - 20} ฉบับ` : '');
+  };
 
   if (reqType === 'NEW') {
     expectedProposedRev = '00';
     if (formProposedNum !== null && formProposedNum > 0) {
       isSkipped = true;
-      for (let i = 0; i < formProposedNum; i++) {
-        skippedRevs.push(formatRevision(i));
-      }
-      warningMessage = `จัดทำเอกสารใหม่ (NEW) ตามมาตรฐานควรเริ่มต้นที่ Rev.00 แต่ท่านระบุเป็น Rev.${proposedRev} (ข้าม ${skippedRevs.join(', ')})`;
+      const skipped = listSkipped(0, formProposedNum);
+      warningMessage = `จัดทำเอกสารใหม่ (NEW) ตามมาตรฐานควรเริ่มต้นที่ Rev.00 แต่ท่านระบุเป็น Rev.${proposedRev} (ข้าม Rev.${skipped})`;
       dccPrompt = 'กรุณาติดต่อเจ้าหน้าที่ควบคุมเอกสาร (DCC) เพื่อยืนยัน หรือระบุเหตุผลความจำเป็นในการข้าม Rev.00 เริ่มต้น';
     }
   } else if (reqType === 'REVISION') {
     // 1. If document already exists in Master List
     if (systemDoc && systemCurrentRev) {
-      const baseNum = sysCurrentNum !== null ? sysCurrentNum : (formCurrentNum !== null ? formCurrentNum : 0);
-      expectedProposedRev = formatRevision(baseNum + 1);
+      const baseNum = sysCurrentNum;
+      expectedProposedRev = baseNum === null ? '' : formatRevision(baseNum + 1);
 
       // Check if current revision in form does not match system's Master List
       if (formCurrentNum !== null && sysCurrentNum !== null && formCurrentNum !== sysCurrentNum) {
@@ -91,12 +103,10 @@ export function analyzeRevisionSequence(
       }
 
       // Check if proposed revision skips intermediate revisions
-      if (formProposedNum !== null && formProposedNum > baseNum + 1) {
+      if (baseNum !== null && formProposedNum !== null && formProposedNum > baseNum + 1) {
         isSkipped = true;
-        for (let i = baseNum + 1; i < formProposedNum; i++) {
-          skippedRevs.push(formatRevision(i));
-        }
-        warningMessage = `ในระบบทะเบียนเอกสารมี Rev.${systemCurrentRev} แต่ท่านขอขึ้นทะเบียนเป็น Rev.${proposedRev} (ตรวจพบการข้าม Rev.${skippedRevs.join(', Rev.')})`;
+        const skipped = listSkipped(baseNum + 1, formProposedNum);
+        warningMessage = `ในระบบทะเบียนเอกสารมี Rev.${systemCurrentRev} แต่ท่านขอขึ้นทะเบียนเป็น Rev.${proposedRev} (ตรวจพบการข้าม Rev.${skipped})`;
         dccPrompt = 'กรุณาติดต่อเจ้าหน้าที่ควบคุมเอกสาร (DCC) เพื่อยืนยันประวัติเอกสาร หรือระบุเหตุผลความจำเป็นในการข้าม Revision';
       }
     } else {
@@ -105,10 +115,8 @@ export function analyzeRevisionSequence(
         expectedProposedRev = formatRevision(formCurrentNum + 1);
         if (formProposedNum > formCurrentNum + 1) {
           isSkipped = true;
-          for (let i = formCurrentNum + 1; i < formProposedNum; i++) {
-            skippedRevs.push(formatRevision(i));
-          }
-          warningMessage = `Rev. เดิมคือ ${currentRev} แต่เสนอเป็น Rev.${proposedRev} (ข้าม Rev.${skippedRevs.join(', Rev.')})`;
+          const skipped = listSkipped(formCurrentNum + 1, formProposedNum);
+          warningMessage = `Rev. เดิมคือ ${currentRev} แต่เสนอเป็น Rev.${proposedRev} (ข้าม Rev.${skipped})`;
           dccPrompt = 'กรุณาระบุเหตุผลความจำเป็นในการข้าม Revision หรือติดต่อ DCC';
         }
       }

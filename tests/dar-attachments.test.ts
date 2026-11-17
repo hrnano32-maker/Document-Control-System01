@@ -85,6 +85,19 @@ test('failed previous snapshot cannot publish a DAR as if the old files were pre
   await assert.rejects(repo.createDarRecord(user,{...input(),requestType:'REVISION',currentRevision:'04',proposedRevision:'05',previousEffectiveDate:'2026-01-01',attachments:[attachment('new.pdf')],previousAttachments:[attachment('old.pdf')]}),/Previous PDF unavailable/);
   assert.ok(!Object.keys(h.records).some(path=>path.startsWith('dcs_dars/')));
 });
+
+test('customer skip justification is stored with the DAR and a declared skip cannot omit its reason', async () => {
+  const payload = { ...input(), requestType: 'REVISION' as const, currentRevision: '5.2', proposedRevision: '7.0', previousEffectiveDate: '2025-01-01', attachments: [attachment('new.pdf')], previousAttachments: [attachment('old.pdf')], isSkippedRevision: true, skippedRevisionReason: 'ลูกค้ากำหนดฉบับใหม่' };
+  const { h, repo } = await repository();
+  const id = await repo.createDarRecord(user, payload);
+  assert.equal(h.records['dcs_dars/' + id].skippedRevisionReason, payload.skippedRevisionReason);
+  assert.equal(h.records['dcs_dars/' + id].currentRevision, '5.2');
+  assert.equal(h.records['dcs_dars/' + id].proposedRevision, '7.0');
+  assert.equal(h.records['dcs_dars/' + id].isSkippedRevision, true);
+  const invalid = await repository();
+  await assert.rejects(invalid.repo.createDarRecord(user, { ...payload, skippedRevisionReason: ' ' }), /เหตุผล/);
+  assert.equal(invalid.h.uploads.length, 0);
+});
 test('invalid previous PDF is rejected before uploading new files or allocating a DAR', async () => {
   const {h,repo}=await repository();
   await assert.rejects(repo.createDarRecord(user,{...input(),requestType:'REVISION',currentRevision:'04',previousEffectiveDate:'2026-01-01',attachments:[attachment('new.pdf')],previousAttachments:[attachment('old.pdf',new Blob(['not PDF']))]}));

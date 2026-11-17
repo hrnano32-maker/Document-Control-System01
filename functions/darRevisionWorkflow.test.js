@@ -58,6 +58,29 @@ test('manual multiple PDFs work without archived originals and staging files are
   assert.equal(result.attachments.length, 2); assert.ok(result.attachments.every(file => file.source === 'UPLOAD'));
   assert.ok(uploads.every(file => !h.files.has(file.storagePath)));
 });
+test('customer decimal and letter revisions preserve the previous PDF and reject a different revision', async () => {
+  for (const revision of ['5.2', 'A1']) {
+    const h = await setup();
+    const oldPaths = [...h.master.currentFileStoragePaths];
+    h.master.currentRevision = revision;
+    h.master.currentFileStoragePaths = oldPaths.map(path => path.replace('rev-04', `rev-${revision}`));
+    h.master.currentFileStoragePath = h.master.currentFileStoragePaths[0];
+    oldPaths.forEach((path, index) => { h.files.set(h.master.currentFileStoragePaths[index], h.files.get(path)); h.files.delete(path); });
+    const prepared = await h.prepare({ revision });
+    assert.equal(prepared.revision, revision);
+    assert.equal(prepared.attachments.length, 2);
+    assert.deepEqual(h.records.get('dcs_dar_previous_files/' + h.darId).previous, prepared);
+  }
+  const mismatch = await setup(); mismatch.master.currentRevision = '05.2';
+  await assert.rejects(mismatch.prepare({ revision: '5.2' }), /ไม่ตรงกับ Master List/);
+});
+test('customer revision rejects paths, empty values and excessively long values', async () => {
+  for (const revision of ['5.2/other', '../5.2', '', 'N/A', '1'.repeat(41)]) {
+    const h = await setup();
+    await assert.rejects(h.prepare({ revision }), { code: 'invalid-argument' });
+    assert.equal(h.records.has('dcs_dar_previous_files/' + h.darId), false);
+  }
+});
 test('wrong revision, wrong department, unauthenticated caller and foreign staging path are rejected before snapshot creation', async () => {
   for (const kind of ['revision', 'department', 'auth', 'path', 'empty', 'limit', 'corrupt']) {
     const h = await setup(); let data = {}, uid = 'hr';

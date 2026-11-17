@@ -46,7 +46,7 @@ import { MAX_DAR_PDFS, formatPdfSize, validateDarPdf, getDarAttachments, saveDow
 import { revisionKey } from '../utils/masterRevisions';
 import { DarPrintModal } from './DarPrintModal';
 import { DarLivePreview } from './DarLivePreview';
-import { analyzeRevisionSequence, getNextRevision, formatRevision } from '../utils/revisionHelper';
+import { analyzeRevisionSequence, getNextRevision, getSkippedRevisionFields, parseRevisionNumber } from '../utils/revisionHelper';
 import { formatDarRevision } from '../utils/darRevisionDisplay';
 
 export const DarManagement: React.FC = () => {
@@ -251,6 +251,8 @@ export const DarManagement: React.FC = () => {
     proposedRevision,
     documents
   );
+  const hasCustomerStyleRevision = reqType === 'REVISION' && [currentRevision, proposedRevision]
+    .some(rev => rev.trim() && parseRevisionNumber(rev) === null);
 
   // Handle selecting an existing document from Master List
   const handleSelectMasterDoc = (doc: MasterDocument) => {
@@ -367,8 +369,7 @@ export const DarManagement: React.FC = () => {
       reasonForChange: reasonForChange.trim(),
       changeDetails: changeDetails.trim(),
       additionalDocuments: filledAdditionalDocuments.map(item => ({ ...item, currentRevision: reqType === 'NEW' ? 'N/A' : (item.currentRevision || '').trim(), docNo: item.docNo.trim().toUpperCase(), docNameTh: item.docNameTh.trim(), docNameEn: item.docNameEn?.trim() || '', revision: item.revision.trim(), reason: item.reason.trim() })),
-      isSkippedRevision: revAnalysis.isSkipped,
-      skippedRevisionReason: revAnalysis.isSkipped ? skippedRevisionReason.trim() : undefined,
+      ...getSkippedRevisionFields(reqType, revAnalysis.isSkipped, skippedRevisionReason),
       systemCurrentRevision: revAnalysis.systemCurrentRev || undefined,
       isoClause: isoClause.trim(),
       attachments: attachedFiles.map(file => ({ name: file.name, size: formatPdfSize(file.size), type: 'application/pdf', file })),
@@ -396,6 +397,7 @@ export const DarManagement: React.FC = () => {
     });
 
     setIsCreateModalOpen(false);
+    setSkippedRevisionReason('');
     setAttachedFiles([]);
     setPreviousFiles([]);
   };
@@ -462,6 +464,7 @@ export const DarManagement: React.FC = () => {
             setDocNameTh('');
             setDocNameEn('');
             setReasonForChange('');
+            setSkippedRevisionReason('');
             setChangeDetails('');
             setAdditionalDocuments([]);
             setFormError('');
@@ -1147,6 +1150,25 @@ export const DarManagement: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {reqType !== 'OBSOLETE' && <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                {revAnalysis.isSkipped && <p role="alert" className="text-sm font-semibold text-amber-950">{revAnalysis.warningMessage}</p>}
+                {hasCustomerStyleRevision && <p className="text-sm text-slate-700">Revision รูปแบบนี้อาจมีลำดับเฉพาะของลูกค้า ระบบจึงไม่คาดเดาเลขฉบับที่ข้าม กรุณาตรวจสอบกับเอกสารลูกค้า</p>}
+                <label htmlFor="dar-skipped-revision-reason" className="block text-sm font-bold text-slate-800">
+                  เหตุผลกรณีข้าม Revision ของเอกสารลูกค้า {revAnalysis.isSkipped && <span className="text-rose-600">*</span>}
+                </label>
+                <textarea
+                  id="dar-skipped-revision-reason"
+                  rows={2}
+                  value={skippedRevisionReason}
+                  onChange={e => setSkippedRevisionReason(e.target.value)}
+                  placeholder="กรอกเมื่อมีการข้าม Revision เช่น ลูกค้าออก Rev. ใหม่โดยไม่ได้ส่งฉบับระหว่างกลาง"
+                  required={revAnalysis.isSkipped}
+                  maxLength={2000}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <p className="text-xs text-slate-600">หากมีการข้าม Revision ให้ระบุเหตุผล ระบบจะบันทึกไว้ในใบ DAR เพื่อให้ DCC ตรวจสอบ</p>
+              </div>}
 
               {/* Names */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 [&>*]:min-w-0">

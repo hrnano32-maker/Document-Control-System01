@@ -28,6 +28,7 @@ import { MAX_DAR_PDFS, formatPdfSize, validateDarPdf, getDarAttachments } from '
 import { getDarMasterRows, masterDocumentKey, planDarMasterRegistration } from '../utils/darMasterRegistration';
 import { validateAdditionalCurrentRevisions } from '../utils/darRevisionDisplay';
 import { DAR_CORRECTION_LABELS, sameDarCorrectionValue } from '../utils/darCorrection';
+import { getSkippedRevisionFields } from '../utils/revisionHelper';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -342,6 +343,7 @@ const darSubmissionStep = async <T,>(stage: string, operation: () => Promise<T>)
 };
 
 export const createDarRecord = async (user: CurrentUserSession, input: DarCreateInput, onProgress?: (message: string, percent: number) => void) => {
+  getSkippedRevisionFields(input.requestType, input.isSkippedRevision === true, input.skippedRevisionReason || '');
   validateDarEffectiveDates(input);
   validateAdditionalCurrentRevisions(input);
   getDarMasterRows({ ...input, id: '', status: 'PENDING_REVIEW', requestDate: '' } as DarRecord);

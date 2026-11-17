@@ -15,9 +15,10 @@ test('printed DAR shows the old and proposed revision of each row, while legacy 
   vm.runInNewContext(output.outputFiles[0].text, context);
   const Print = context.module.exports.DarPrintModal;
   const dar = { id:'DAR-TEST', requestType:'REVISION', status:'APPROVED', requestDept:'HR', requesterName:'HR', requestDate:'2026-01-01', targetEffectiveDate:'2026-02-01', previousEffectiveDate:'2025-01-01', docNo:'WI-HR-01', docNameTh:'เอกสารหลัก', docNameEn:'', docType:'WI', currentRevision:'01', proposedRevision:'02', reasonForChange:'ปรับปรุง', additionalDocuments:[{docNo:'WI-HR-02',docNameTh:'เอกสารสอง',currentRevision:'03',revision:'04',previousEffectiveDate:'2025-01-01',reason:'ปรับปรุง'},{docNo:'WI-HR-03',docNameTh:'เอกสารเก่า',revision:'06',reason:'เก่า'}] };
-  const html = renderToStaticMarkup(React.createElement(Print, { dar, onClose: () => {} }));
+  const html = renderToStaticMarkup(React.createElement(Print, { dar: { ...dar, skippedRevisionReason: 'ลูกค้าออกฉบับใหม่' }, onClose: () => {} }));
   assert.match(html, /01 ➔ 02/);
   assert.match(html, /03 ➔ 04/);
   assert.match(html, />06<\/td>/);
   assert.doesNotMatch(html, /undefined ➔ 06/);
+  assert.match(html, /ข้าม Rev: ลูกค้าออกฉบับใหม่/);
 });

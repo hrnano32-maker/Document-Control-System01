@@ -1,6 +1,16 @@
 const { randomBytes } = require('node:crypto');
 const { MAX_DAR_PDFS, MAX_PDF_BYTES, isDarAttachmentPath } = require('./darAttachments');
 const revisionKey = value => String(value || '').trim().replace(/^rev[.\s]*/i, '').replace(/^0+(?=\d)/, '').toUpperCase();
+// Match the client when checking which exact previous file is being captured.
+const previousRevisionKey = value => {
+  const text = String(value || '').trim().replace(/^rev\.?\s*/i, '');
+  return (/^\d+$/.test(text) ? text.replace(/^0+(?=\d)/, '') : text).toUpperCase();
+};
+// Customer revisions can contain components such as 5.2 or A1. Keep the
+// original identifier while excluding path separators and unbounded input.
+const isValidPreviousRevision = value => typeof value === 'string' && value.length <= 40
+  && /^(?:Rev\.?\s*)?[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$/i.test(value.trim())
+  && !/^(?:OBSOLETE|N\/A)$/i.test(value.trim());
 const documentKey = value => encodeURIComponent(String(value || '').trim().toUpperCase()).replace(/%/g, '_');
 const departmentKey = value => ['QA', 'QC', 'QA/QC'].includes(value) ? 'QA/QC' : value;
 const isPreviousPath = (path, darId) => typeof path === 'string' && /^dcs\/dar-previous\/[^/]+\/[^/]+\/[^/]+$/.test(path) && path.split('/')[3] === darId;
@@ -25,14 +35,14 @@ function createDarRevisionWorkflow({ getFirestore, getStorage, HttpsError, loadP
   async function preparePreviousRevision(request) {
     const profile = await activeProfile(request), db = getFirestore();
     const { darId, docNo, revision, uploadedAttachments = [], useMaster = true } = request.data || {};
-    if (typeof darId !== 'string' || darId.length > 80 || !/^DAR-\d{4}-\d+$/.test(darId) || typeof docNo !== 'string' || !docNo.trim() || docNo.length > 160 || typeof revision !== 'string' || !/^(?:Rev\.?\s*)?\d{1,4}$/i.test(revision)) fail('invalid-argument', 'กรุณาระบุรหัสเอกสารและ Rev. เดิมให้ถูกต้อง');
+    if (typeof darId !== 'string' || darId.length > 80 || !/^DAR-\d{4}-\d+$/.test(darId) || typeof docNo !== 'string' || !docNo.trim() || docNo.length > 160 || !isValidPreviousRevision(revision)) fail('invalid-argument', 'กรุณาระบุรหัสเอกสารและ Rev. เดิมให้ถูกต้อง');
     if (!Array.isArray(uploadedAttachments) || uploadedAttachments.length > MAX_DAR_PDFS || typeof useMaster !== 'boolean') fail('invalid-argument', 'ไฟล์ฉบับเดิมไม่ถูกต้อง');
     const darRef = db.collection('dcs_dars').doc(darId);
     if ((await darRef.get()).exists) fail('already-exists', 'ใบ DAR นี้ถูกบันทึกแล้ว');
     const masterId = documentKey(docNo), masterRef = db.collection('dcs_documents').doc(masterId), masterSnap = await masterRef.get();
     const master = masterSnap.exists ? masterSnap.data() : null;
     if (master && profile.role !== 'DCC_ADMIN' && departmentKey(master.ownerDept) !== departmentKey(profile.department)) fail('permission-denied', 'ไม่มีสิทธิ์ใช้ต้นฉบับของหน่วยงานอื่น');
-    if (master && revisionKey(master.currentRevision) !== revisionKey(revision)) fail('failed-precondition', `Rev. เดิมไม่ตรงกับ Master List ซึ่งเป็น Rev.${master.currentRevision}`);
+    if (master && previousRevisionKey(master.currentRevision) !== previousRevisionKey(revision)) fail('failed-precondition', `Rev. เดิมไม่ตรงกับ Master List ซึ่งเป็น Rev.${master.currentRevision}`);
     const paths = useMaster && master ? (master.currentFileStoragePaths?.length ? master.currentFileStoragePaths : [master.currentFileStoragePath].filter(Boolean)) : [];
     if (paths.length + uploadedAttachments.length < 1 || paths.length + uploadedAttachments.length > MAX_DAR_PDFS) fail('invalid-argument', 'กรุณาแนบ PDF ฉบับเดิม 1–20 ไฟล์ หรือเลือกใช้ฉบับเดิมจากระบบ');
     const sources = [];
@@ -59,7 +69,7 @@ function createDarRevisionWorkflow({ getFirestore, getStorage, HttpsError, loadP
         const [prepared, existingDar, liveMaster] = await Promise.all([tx.get(ref), tx.get(darRef), tx.get(masterRef)]);
         if (existingDar.exists) fail('already-exists', 'ใบ DAR นี้ถูกบันทึกแล้ว');
         if (prepared.exists && prepared.data().uid !== request.auth.uid) fail('permission-denied', 'เลขที่ DAR นี้ถูกจองโดยบัญชีอื่น');
-        if (liveMaster.exists && revisionKey(liveMaster.data().currentRevision) !== revisionKey(revision)) fail('failed-precondition', 'Rev. ใน Master List เปลี่ยนแล้ว กรุณาตรวจสอบอีกครั้ง');
+        if (liveMaster.exists && previousRevisionKey(liveMaster.data().currentRevision) !== previousRevisionKey(revision)) fail('failed-precondition', 'Rev. ใน Master List เปลี่ยนแล้ว กรุณาตรวจสอบอีกครั้ง');
         tx.set(ref, { uid: request.auth.uid, previous });
       });
       committed = true;
