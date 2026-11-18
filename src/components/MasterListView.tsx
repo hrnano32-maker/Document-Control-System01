@@ -449,6 +449,8 @@ export const MasterListView: React.FC = () => {
                           <FileText className="w-4.5 h-4.5 text-indigo-600 shrink-0" />
                           <span className="text-sm font-extrabold">{doc.docNo}</span>
                         </div>
+                        {doc.previousDocNo && <div className="mt-1 text-xs font-normal text-slate-600">รหัสเดิม: {doc.previousDocNo}</div>}
+                        {doc.supersededByDocNo && <div className="mt-1 text-xs font-normal text-slate-600">เปลี่ยนเป็น: {doc.supersededByDocNo}</div>}
                       </td>
 
                       {/* Doc Name */}
@@ -641,6 +643,11 @@ export const MasterListView: React.FC = () => {
             <div className="p-5 sm:p-6 space-y-5 max-h-[75vh] overflow-y-auto text-xs text-slate-800">
               
               {currentUser.userRole === 'DCC_ADMIN' && <button type="button" onClick={() => setEditingDates(selectedDocForHistory)} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white"><Calendar className="h-4 w-4" />แก้ไขวันที่ Master List</button>}
+              {(selectedDocForHistory.previousDocumentId || selectedDocForHistory.supersededByDocumentId) && <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm">
+                {selectedDocForHistory.previousDocumentId && <button type="button" className="text-indigo-700 underline font-bold mr-4" onClick={() => { const linked = revisionDocuments.find(doc => doc.id === selectedDocForHistory.previousDocumentId); if (linked) setSelectedDocForHistory(linked); else alert('ไม่พบทะเบียนรหัสเดิม'); }}>ดูประวัติรหัสเดิม {selectedDocForHistory.previousDocNo}</button>}
+                {selectedDocForHistory.supersededByDocumentId && <button type="button" className="text-indigo-700 underline font-bold" onClick={() => { const linked = revisionDocuments.find(doc => doc.id === selectedDocForHistory.supersededByDocumentId); if (linked) setSelectedDocForHistory(linked); else alert('ไม่พบทะเบียนรหัสใหม่'); }}>ดูรหัสใหม่ {selectedDocForHistory.supersededByDocNo}</button>}
+                <div className="mt-1 text-slate-600">ประวัติแต่ละรหัสเก็บแยกกัน เพื่อรักษา Revision และวันที่เดิม</div>
+              </div>}
               {/* Top Summary Banner */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-gradient-to-r from-indigo-50/80 to-slate-50 border border-indigo-200/80 rounded-xl">
                 <div>

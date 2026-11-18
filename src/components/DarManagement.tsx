@@ -48,6 +48,7 @@ import { DarPrintModal } from './DarPrintModal';
 import { DarLivePreview } from './DarLivePreview';
 import { analyzeRevisionSequence, getNextRevision, getSkippedRevisionFields, parseRevisionNumber } from '../utils/revisionHelper';
 import { formatDarRevision } from '../utils/darRevisionDisplay';
+import { getDarMasterRows } from '../utils/darMasterRegistration';
 
 export const DarManagement: React.FC = () => {
   const {
@@ -72,6 +73,8 @@ export const DarManagement: React.FC = () => {
   const [isSubmittingDar, setIsSubmittingDar] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedDarForReview, setSelectedDarForReview] = useState<DarRecord | null>(null);
+  const [previousDocumentLinks, setPreviousDocumentLinks] = useState<Record<string, string>>({});
+  useEffect(() => { setPreviousDocumentLinks({}); }, [selectedDarForReview?.id]);
   const [selectedDarForPrint, setSelectedDarForPrint] = useState<DarRecord | null>(null);
   const [showMobileLivePreview, setShowMobileLivePreview] = useState(false);
   const [registeringDarId, setRegisteringDarId] = useState<string | null>(null);
@@ -406,11 +409,21 @@ export const DarManagement: React.FC = () => {
     setPreviousFiles([]);
   };
 
-  const handleRegisterToMasterList = async (darId: string) => {
+  const confirmDocumentLinks = () => {
+    const pairs = Object.entries(previousDocumentLinks).map(([newId, oldId]) => {
+      const row = selectedDarForReview && getDarMasterRows(selectedDarForReview).find(item => item.key === newId);
+      const old = documents.find(item => item.id === oldId);
+      return row && old ? `${old.docNo} (Rev.${old.currentRevision}) → ${row.docNo} (Rev.${row.revision})` : '';
+    }).filter(Boolean);
+    return !pairs.length || window.confirm(`ยืนยันเชื่อมเอกสารเดิมกับรหัสใหม่ตามรายการนี้หรือไม่?\n\n${pairs.join('\n')}\n\nเมื่อขึ้นทะเบียน รหัสเดิมจะถูกเปลี่ยนสถานะเป็นเอกสารที่ถูกแทนที่ทันที และเก็บประวัติไว้ กรุณาตรวจสอบรหัสและวันที่ให้ถูกต้อง`);
+  };
+  const handleRegisterToMasterList = async (darId: string, alreadyConfirmed = false) => {
     if (registeringDarId) return;
+    const links = selectedDarForReview?.id === darId ? previousDocumentLinks : {};
+    if (!alreadyConfirmed && Object.keys(links).length && !confirmDocumentLinks()) return;
     setRegisteringDarId(darId);
     try {
-      await registerDarToMasterList(darId);
+      await registerDarToMasterList(darId, links);
       confetti({
         particleCount: 80,
         spread: 70,
@@ -818,6 +831,23 @@ export const DarManagement: React.FC = () => {
                 </div>
               )}
 
+              {isDcc && selectedDarForReview.requestType === 'REVISION' && !['REGISTERED', 'CANCELLED'].includes(selectedDarForReview.status) && (
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 space-y-3">
+                  <div className="font-bold text-indigo-950">เชื่อมรหัสเดิม เมื่อเอกสารเปลี่ยนรหัส</div>
+                  <p className="text-sm text-indigo-900">เลือกเฉพาะรายการที่เปลี่ยนรหัส โดยตรวจสอบว่าเป็นเอกสารเดียวกัน รหัสเดิมจะเก็บไว้เป็นประวัติ ไม่เลือกระบบจะใช้รหัสใน DAR ค้นหารายการเดิมตามปกติ</p>
+                  {(() => { try { return getDarMasterRows(selectedDarForReview); } catch { return []; } })().map((row, index) => (
+                    <label key={row.key} className="block text-sm font-semibold text-slate-800">
+                      รายการที่ {index + 1}: {row.docNo} — {row.docNameTh}
+                      <select value={previousDocumentLinks[row.key] || ''} onChange={event => setPreviousDocumentLinks(current => { const next = { ...current }; if (event.target.value) next[row.key] = event.target.value; else delete next[row.key]; return next; })} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-normal">
+                        <option value="">ไม่เปลี่ยนรหัส / ใช้รหัสใน DAR</option>
+                        {documents.filter(doc => doc.status === 'ACTIVE' && doc.id !== row.key && (doc.ownerDept === selectedDarForReview.requestDept || (['QA', 'QC', 'QA/QC'].includes(doc.ownerDept) && ['QA', 'QC', 'QA/QC'].includes(selectedDarForReview.requestDept)))).map(doc => <option key={doc.id} value={doc.id}>{doc.docNo} — {doc.docNameTh} — Rev.{doc.currentRevision} — มีผล {doc.effectiveDate}</option>)}
+                      </select>
+                    </label>
+                  ))}
+                  <p className="text-sm text-indigo-900">ไฟล์ฉบับเดิมที่แนบเป็นไฟล์รวมของ DAR ระบบเก็บไว้เป็นหลักฐาน โดยไม่เดาว่าไฟล์ใดเป็นของรายการใด</p>
+                </div>
+              )}
+
               {selectedDarForReview.status === 'CANCELLED' && <div className="p-4 rounded-xl border-2 border-rose-300 bg-rose-50 text-rose-900"><div className="font-black">คำขอนี้ถูกยกเลิกแล้ว</div><div className="mt-1">เหตุผล: {selectedDarForReview.cancellationReason || '-'}</div><div className="text-[11px] mt-1">โดย {selectedDarForReview.cancelledBy || '-'} เมื่อ {selectedDarForReview.cancelledAt ? new Date(selectedDarForReview.cancelledAt).toLocaleString('th-TH') : '-'}</div></div>}
 
               {renderDarAttachments(selectedDarForReview)}
@@ -874,9 +904,10 @@ export const DarManagement: React.FC = () => {
                           alert('ยังไม่สามารถอนุมัติ/ส่งต่อใบ DAR ได้ กรุณาให้ผู้ขอดำเนินการและผู้อนุมัติในแผนกลงลายเซ็นให้ครบก่อน (ไม่รวม QMR)');
                           return;
                         }
+                        if (!confirmDocumentLinks()) return;
                         try {
                           await reviewDar(selectedDarForReview.id, 'APPROVED', reviewRemarks);
-                          await handleRegisterToMasterList(selectedDarForReview.id);
+                          await handleRegisterToMasterList(selectedDarForReview.id, true);
                         } catch (error) {
                           alert(error instanceof Error ? error.message : 'อนุมัติสำเร็จ แต่ขึ้นทะเบียนหรือแจกจ่ายอัตโนมัติไม่สำเร็จ กรุณากดดำเนินการซ้ำจากรายการ DAR');
                         }

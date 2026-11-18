@@ -155,3 +155,28 @@ test('reconciliation never creates new recall tasks for an already superseded re
   const h=await setup();h.seedReturns();h.master.currentRevision='06';await h.api.ensureReturnsForDistribution('new');
   assert.equal([...h.records.keys()].filter(path=>path.startsWith('dcs_document_returns/')).length,0);
 });
+
+test('renumbered additional documents recall signed holders from the original distribution set', async () => {
+  const h = await setup(); h.seedReturns();
+  const newMaster = h.records.get('dcs_documents/WI-HR-01');
+  const dar = h.records.get('dcs_dars/' + h.darId);
+  dar.linkedPreviousDocuments = [{ newDocumentId: 'NEW-EXTRA', previousDocumentId: 'OLD-EXTRA', previousDistributionAnchorId: 'OLD-SET', previousAnchorRevision: '02', previousDarId: 'DAR-OLD', previousDocNo: 'OLD-EXTRA', previousRevision: '00' }];
+  h.records.set('dcs_documents/OLD-EXTRA', { status: 'OBSOLETE', supersededByDocumentId: 'NEW-EXTRA', renumberedByDarId: h.darId });
+  h.records.set('dcs_documents/NEW-EXTRA', { previousDocumentId: 'OLD-EXTRA', darReferenceId: h.darId });
+  h.records.set('dcs_distributions/old-set', { docId: 'OLD-SET', darReferenceId: 'DAR-OLD', revision: '02', receipts: { Planning: { downloadedAt: '2026-10-01', signatureStoragePath: 'signed', receivedCopies: 1 } } });
+  h.records.set('dcs_distributions/unrelated', { docId: 'OLD-SET', darReferenceId: 'DAR-OTHER', revision: '02', receipts: { DCC: { downloadedAt: '2026-10-01', signatureStoragePath: 'signed' } } });
+  await h.api.ensureReturnsForDistribution('new'); await h.api.ensureReturnsForDistribution('new');
+  const task = h.records.get('dcs_document_returns/' + h.darId + '__Planning');
+  assert.deepEqual(task.sourceDocuments, [{ docNo: 'OLD-EXTRA', revision: '00' }]);
+  assert.deepEqual(task.sourceDistributionIds, ['old-set']);
+  assert.equal(h.records.has('dcs_document_returns/' + h.darId + '__DCC'), false);
+  assert.equal(newMaster.status, 'ACTIVE');
+});
+
+test('unverified renumber links cannot create return requests', async () => {
+  const h = await setup(); h.seedReturns();
+  h.records.get('dcs_dars/' + h.darId).linkedPreviousDocuments = [{ newDocumentId: 'NEW-EXTRA', previousDocumentId: 'OLD-EXTRA', previousDistributionAnchorId: 'OLD-SET', previousDarId: 'DAR-OLD', previousDocNo: 'OLD-EXTRA', previousRevision: '00' }];
+  h.records.set('dcs_distributions/old-set', { docId: 'OLD-SET', darReferenceId: 'DAR-OLD', receipts: { Planning: { downloadedAt: '2026-10-01', signatureStoragePath: 'signed' } } });
+  await h.api.ensureReturnsForDistribution('new');
+  assert.equal(h.records.has('dcs_document_returns/' + h.darId + '__Planning'), false);
+});

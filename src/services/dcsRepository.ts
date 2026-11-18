@@ -558,11 +558,18 @@ export const deleteDarDraftRecord = async (user: CurrentUserSession, dar: DarRec
 
 const documentKey = masterDocumentKey;
 
-export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord) => {
+export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord, links: Record<string, string> = {}) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่ขึ้นทะเบียนเอกสารได้');
+  if (Object.keys(links).length) {
+    try {
+      const support = await httpsCallable<{ capability: string }, { capability?: string }>(firebaseFunctions, 'syncDocumentReturnRequests')({ capability: 'renumbered-returns-v1' });
+      if (support.data.capability !== 'renumbered-returns-v1') throw new Error('unsupported');
+    } catch { throw new Error('ยังไม่สามารถเชื่อมรหัสได้: ระบบคืนเอกสารฝั่งเซิร์ฟเวอร์ยังไม่พร้อม กรุณาติดต่อ DCC เพื่อตรวจสอบการติดตั้ง'); }
+  }
   const openedRows = getDarMasterRows(dar);
-  const refs = openedRows.map(row => doc(db, 'dcs_documents', row.key));
-  const masterRef = refs[0];
+  const ids = [...new Set([...openedRows.map(row => row.key), ...Object.values(links)])];
+  const refs = ids.map(id => doc(db, 'dcs_documents', id));
+  const masterRef = doc(db, 'dcs_documents', openedRows[0].key);
   const darRef = doc(db, 'dcs_dars', dar.id);
   const registrationResult = await runTransaction(db, async tx => {
     const darSnap = await tx.get(darRef);
@@ -571,13 +578,21 @@ export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord
     const rows = getDarMasterRows(currentDar);
     if (rows.map(row => row.key).join('|') !== openedRows.map(row => row.key).join('|')) throw new Error('รายการเอกสารใน DAR เปลี่ยน กรุณารีเฟรชก่อนขึ้นทะเบียน');
     const snapshots = await Promise.all(refs.map(ref => tx.get(ref)));
-    const previousById = Object.fromEntries(snapshots.map((snap, index) => [refs[index].id, snap.exists() ? snap.data() as MasterDocument : undefined]));
+    const previousById: Record<string, MasterDocument | undefined> = Object.fromEntries(snapshots.map((snap, index) => [refs[index].id, snap.exists() ? { ...snap.data(), id: refs[index].id } as MasterDocument : undefined]));
+    const anchorIds = [...new Set(Object.values(links).map(id => previousById[id]?.distributionSetDocId).filter((id): id is string => !!id && !(id in previousById)))];
+    const anchors = await Promise.all(anchorIds.map(id => tx.get(doc(db, 'dcs_documents', id))));
+    anchors.forEach((snap, i) => { previousById[anchorIds[i]] = snap.exists() ? { ...snap.data(), id: anchorIds[i] } as MasterDocument : undefined; });
     const previous = previousById[masterRef.id];
-    if (currentDar.status === 'REGISTERED' && previous?.darReferenceId === dar.id) return { alreadyRegistered: true, previousFile: null };
-    const plan = planDarMasterRegistration(currentDar, previousById, user.userName, new Date().toISOString(), 'register');
-    for (const record of plan.records) tx.set(doc(db, 'dcs_documents', record.id), clean(record));
-    tx.update(darRef, { status: 'REGISTERED', updatedAt: new Date().toISOString() });
-    return { alreadyRegistered: false, previousFile: previous?.currentFileStoragePath ? { path: previous.currentFileStoragePath, revision: previous.currentRevision, newRevision: currentDar.proposedRevision || currentDar.currentRevision || '00' } : null };
+    if (currentDar.status === 'REGISTERED' && previous?.darReferenceId === dar.id) return { alreadyRegistered: true, previousFile: null, linked: !!currentDar.linkedPreviousDocuments?.length };
+    const now = new Date().toISOString();
+    const plan = planDarMasterRegistration(currentDar, previousById, user.userName, now, 'register', links);
+    for (const record of [...plan.records, ...plan.superseded]) tx.set(doc(db, 'dcs_documents', record.id), clean(record));
+    tx.update(darRef, clean({ status: 'REGISTERED', updatedAt: now, ...(plan.linkedPreviousDocuments.length ? { linkedPreviousDocuments: plan.linkedPreviousDocuments } : {}) }));
+    if (plan.linkedPreviousDocuments.length) {
+      const auditRef = doc(collection(db, 'dcs_audit_logs'));
+      tx.set(auditRef, clean({ id: auditRef.id, timestamp: now, createdAt: now, ...actorFields(user), actionType: 'MASTER_LIST_UPDATED', docNo: currentDar.docNo, revision: currentDar.proposedRevision, description: `เชื่อมรหัสเอกสารเดิมกับรหัสใหม่ตาม ${dar.id}`, details: { darId: dar.id, links: plan.linkedPreviousDocuments } }));
+    }
+    return { alreadyRegistered: false, linked: !!plan.linkedPreviousDocuments.length, previousFile: previous?.currentFileStoragePath ? { path: previous.currentFileStoragePath, revision: previous.currentRevision, newRevision: currentDar.proposedRevision || currentDar.currentRevision || '00' } : null };
   });
   const previousFile = registrationResult.previousFile;
   if (previousFile && (previousFile.revision !== previousFile.newRevision || dar.requestType === 'OBSOLETE')) {
@@ -593,6 +608,10 @@ export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord
     const distributionId = automatic.data.distributionId;
     if (distributionId) {
       await httpsCallable(firebaseFunctions, 'stampControlledCopies', { timeout: 540000 })({ distributionId });
+      if (registrationResult.linked) {
+        try { await httpsCallable(firebaseFunctions, 'syncDocumentReturnRequests', { timeout: 120000 })({ distributionId }); }
+        catch { throw new Error('ขึ้นทะเบียนแล้ว แต่ตรวจรายการคืนเอกสารเดิมไม่สำเร็จ ให้ DCC กด “ตรวจรายการคืนฉบับเดิม” อีกครั้ง'); }
+      }
       await writeAudit(user, 'DISTRIBUTION_INITIATED', dar.docNo, dar.proposedRevision, `สร้างและแจกจ่ายอัตโนมัติ ${distributionId} หลังอนุมัติ ${dar.id}`, { darId: dar.id, distributionId, automatic: true, reusedExisting: automatic.data.existing === true });
     }
   }

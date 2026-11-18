@@ -158,6 +158,12 @@ export type DarCreateInput = Omit<DarRecord, 'id' | 'requestDate' | 'status' | '
   useMasterPrevious?: boolean;
 };
 
+export interface DarDocumentLink {
+  newDocumentId: string; newDocNo: string; previousDocumentId: string; previousDocNo: string;
+  previousRevision: string; newRevision: string; previousDarId: string;
+  previousDistributionAnchorId: string; previousAnchorRevision: string;
+}
+
 export interface DarRecord {
   id: string; // e.g. DAR-2026-0001
   requestType: DarRequestType;
@@ -191,6 +197,7 @@ export interface DarRecord {
   systemCurrentRevision?: string;
 
   previousRevision?: DarPreviousRevision;
+  linkedPreviousDocuments?: DarDocumentLink[];
 
   // Attached Draft Document / File
   attachments?: DarAttachment[];
@@ -252,6 +259,11 @@ export interface MasterDocument {
   distributionDepartments?: { dept: Department; copies: number; position: string }[];
   // Additional documents share the distribution of the first document in the DAR.
   distributionSetDocId?: string;
+  previousDocumentId?: string;
+  previousDocNo?: string;
+  supersededByDocumentId?: string;
+  supersededByDocNo?: string;
+  renumberedByDarId?: string;
   // Retains previous per-document source paths when a multi-document DAR
   // replaces the current revision; these are not files of the new revision.
   previousRevisionSourceFiles?: Record<string, string[]>;
@@ -312,7 +324,7 @@ export interface DocumentReturnEvidence {
 export interface DocumentReturnRequest extends Partial<DocumentReturnEvidence> {
   id: string; darId: string; distributionId: string; docId: string; docNo: string; docNameTh: string;
   previousRevision: string; newRevision: string; dept: Department;
-  status: 'PENDING' | 'CONFIRMED' | 'CANCELLED'; createdAt: string; sourceDistributionIds: string[]; copies: number;
+  status: 'PENDING' | 'CONFIRMED' | 'CANCELLED'; createdAt: string; sourceDistributionIds: string[]; sourceDocuments?: { docNo: string; revision: string }[]; copies: number;
 }
 
 export interface DistributionRecord {

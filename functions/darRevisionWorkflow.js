@@ -97,17 +97,41 @@ function createDarRevisionWorkflow({ getFirestore, getStorage, HttpsError, loadP
     const dar = darSnap.data();
     if (dar.requestType !== 'REVISION') return;
     const previousRevision = dar.previousRevision?.revision || dar.currentRevision;
-    if (!previousRevision || revisionKey(previousRevision) === revisionKey(dist.revision)) return;
-    const history = await db.collection('dcs_distributions').where('docId', '==', dist.docId).get();
+    const sources = [];
+    const links = Array.isArray(dar.linkedPreviousDocuments) ? dar.linkedPreviousDocuments : [];
+    // Only a link committed alongside both Master records may identify old holders.
+    for (const link of links) {
+      if (!link?.previousDocumentId || !link?.newDocumentId || !link?.previousDistributionAnchorId) continue;
+      const [oldSnap, nextSnap] = await Promise.all([
+        db.collection('dcs_documents').doc(link.previousDocumentId).get(),
+        db.collection('dcs_documents').doc(link.newDocumentId).get(),
+      ]);
+      if (!oldSnap.exists || !nextSnap.exists || oldSnap.data().supersededByDocumentId !== link.newDocumentId ||
+          nextSnap.data().previousDocumentId !== link.previousDocumentId || nextSnap.data().darReferenceId !== dist.darReferenceId ||
+          oldSnap.data().renumberedByDarId !== dist.darReferenceId) continue;
+      sources.push({ anchorId: link.previousDistributionAnchorId, anchorRevision: link.previousAnchorRevision, previousDarId: link.previousDarId,
+        docNo: link.previousDocNo, revision: link.previousRevision });
+    }
+    if (!links.some(link => link.newDocumentId === dist.docId) && previousRevision && revisionKey(previousRevision) !== revisionKey(dist.revision)) {
+      sources.push({ anchorId: dist.docId, anchorRevision: previousRevision, previousDarId: '', docNo: dist.docNo, revision: previousRevision });
+    }
+    if (!sources.length) return;
     const recipients = new Map();
-    for (const row of history.docs) {
-      const prior = row.data();
-      if (row.id === distributionId || revisionKey(prior.revision) !== revisionKey(previousRevision)) continue;
-      for (const [dept, receipt] of Object.entries({ ...(prior.receipts || {}), ...(prior.firstReceipts || {}) })) {
-        if (!receipt?.downloadedAt || !receipt.signatureStoragePath) continue;
-        const key = departmentKey(dept), value = recipients.get(key) || { sourceDistributionIds: [], copies: Math.max(1, Math.min(100, Number(receipt.receivedCopies) || 1)) };
-        if (!value.sourceDistributionIds.includes(row.id)) value.sourceDistributionIds.push(row.id);
-        recipients.set(key, value);
+    for (const source of sources) {
+      const history = await db.collection('dcs_distributions').where('docId', '==', source.anchorId).get();
+      for (const row of history.docs) {
+        const prior = row.data();
+        if (row.id === distributionId) continue;
+        if (source.previousDarId && prior.darReferenceId) {
+          if (prior.darReferenceId !== source.previousDarId) continue;
+        } else if (!source.anchorRevision || revisionKey(prior.revision) !== revisionKey(source.anchorRevision)) continue;
+        for (const [dept, receipt] of Object.entries({ ...(prior.receipts || {}), ...(prior.firstReceipts || {}) })) {
+          if (!receipt?.downloadedAt || !receipt.signatureStoragePath) continue;
+          const key = departmentKey(dept), value = recipients.get(key) || { sourceDistributionIds: [], sourceDocuments: [], copies: Math.max(1, Math.min(100, Number(receipt.receivedCopies) || 1)) };
+          if (!value.sourceDistributionIds.includes(row.id)) value.sourceDistributionIds.push(row.id);
+          if (!value.sourceDocuments.some(item => item.docNo === source.docNo && item.revision === source.revision)) value.sourceDocuments.push({ docNo: source.docNo, revision: source.revision });
+          recipients.set(key, value);
+        }
       }
     }
     for (const [dept, prior] of recipients) {
@@ -149,7 +173,7 @@ function createDarRevisionWorkflow({ getFirestore, getStorage, HttpsError, loadP
         const received = Object.entries({ ...(dist.receipts || {}), ...(dist.firstReceipts || {}) }).some(([dept, receipt]) => departmentKey(dept) === task.dept && receipt?.downloadedAt && receipt.signatureStoragePath);
         if (isTarget && !received) fail('failed-precondition', 'กรุณารับเอกสารฉบับใหม่ก่อนยืนยันเลิกใช้ฉบับเดิม');
         const confirmedAt = new Date().toISOString();
-        const evidence = { confirmedAt, signerName: profile.displayName.trim().slice(0, 120), confirmerUid: request.auth.uid, signatureStoragePath, previousRevision: task.previousRevision, copies: task.copies };
+        const evidence = { ...(task.sourceDocuments?.length ? { sourceDocuments: task.sourceDocuments } : {}), confirmedAt, signerName: profile.displayName.trim().slice(0, 120), confirmerUid: request.auth.uid, signatureStoragePath, previousRevision: task.previousRevision, copies: task.copies };
         tx.update(ref, { ...evidence, status: 'CONFIRMED' });
         tx.update(distRef, { returnReceipts: { ...(dist.returnReceipts || {}), [task.dept]: evidence }, updatedAt: confirmedAt });
         tx.create(db.collection('dcs_audit_logs').doc(), { timestamp: confirmedAt, createdAt: confirmedAt, actor: evidence.signerName, actorUid: request.auth.uid, actorDept: task.dept, actionType: 'SIGNATURE_CAPTURED', docNo: task.docNo, revision: task.previousRevision, description: `ยืนยันคืน/เลิกใช้ Rev.${task.previousRevision} ตาม ${task.darId}`, details: { returnId: id, darId: task.darId, distributionId: task.distributionId } });

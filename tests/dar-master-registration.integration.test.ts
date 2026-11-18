@@ -14,7 +14,7 @@ async function setup(dar = base()) {
     const mocks: Record<string, string> = {
       firestore: `const h=globalThis.__h; export const collection=(_,name)=>({name}); export const doc=(db,name,id)=>id?({name,id}):({name:db.name,id:'audit-'+(++h.next)}); const key=r=>r.name+'/'+r.id; export const runTransaction=async(_,cb)=>{const writes=[];const result=await cb({get:async r=>({exists:()=>h.store.has(key(r)),data:()=>structuredClone(h.store.get(key(r)))}),set:(r,v)=>writes.push(['set',r,v]),update:(r,v)=>writes.push(['update',r,v])});for(const [kind,r,v] of writes){const k=key(r);h.store.set(k,kind==='update'?{...h.store.get(k),...v}:v);h.writes.push({kind,key:k,data:v});}return result};export const setDoc=async(r,v)=>{h.store.set(key(r),v)}; export const getDoc=()=>{};export const getDocs=()=>{};export const getDocFromServer=()=>{};export const writeBatch=()=>{};export const onSnapshot=()=>{};export const orderBy=()=>{};export const query=()=>{};export const where=()=>{};export const Timestamp={};export const updateDoc=()=>{};`,
       storage: `export const deleteObject=()=>{};export const getDownloadURL=()=>{};export const ref=()=>{};export const uploadBytes=()=>{};export const uploadBytesResumable=()=>{};`,
-      functions: `const h=globalThis.__h; export const httpsCallable=(_,name)=>async data=>{h.calls.push({name,data});return {data:{skipped:true}}};`,
+      functions: `const h=globalThis.__h; export const httpsCallable=(_,name)=>async data=>{h.calls.push({name,data});return {data:name==='syncDocumentReturnRequests' && data?.capability ? {capability:h.capability} : name==='createAutomaticDistributionFromDar' && h.distributionId ? {distributionId:h.distributionId} : {skipped:true}}};`,
       firebase: `export const db={};export const auth={currentUser:{uid:'dcc'}};export const firebaseFunctions={};export const storage={};`,
     };
     const output = await build({ entryPoints: ['src/services/dcsRepository.ts'], bundle: true, platform: 'node', format: 'cjs', write: false, plugins: [{ name: 'firebase-boundary', setup(b) {
@@ -24,7 +24,7 @@ async function setup(dar = base()) {
     } }] });
     compiled = output.outputFiles[0].text;
   }
-  const h = { store: new Map<string, any>([[`dcs_dars/${dar.id}`, structuredClone(dar)]]), writes: [] as any[], calls: [] as any[], next: 0 };
+  const h = { store: new Map<string, any>([[`dcs_dars/${dar.id}`, structuredClone(dar)]]), writes: [] as any[], calls: [] as any[], capability: 'renumbered-returns-v1', distributionId: '', next: 0 };
   const context: any = { __h: h, module: { exports: {} }, structuredClone, Date, console };
   vm.runInNewContext(compiled, context);
   return { h, repo: context.module.exports };
@@ -63,4 +63,29 @@ test('a conflict or stale changed DAR does not partially write any Master docume
   h.store.get(`dcs_dars/${dar.id}`).additionalDocuments[0].docNo = 'WI-OTHER';
   await assert.rejects(repo.registerDarRecord(dcc, dar), /เปลี่ยน/);
   assert.equal(h.writes.length, 0);
+});
+
+
+test('renumbering is an atomic linked registration, then reconciles the old holders', async () => {
+  const dar = { ...base(), requestType: 'REVISION', currentRevision: '00', proposedRevision: '01', previousEffectiveDate: '2026-01-01', targetEffectiveDate: '2026-12-01', additionalDocuments: [{ docNo: 'NEW-CODE', docNameTh: 'รายการเดิมเปลี่ยนรหัส', currentRevision: '00', previousEffectiveDate: '2026-01-01', revision: '01', reason: 'เปลี่ยนรหัส' }] };
+  const { h, repo } = await setup(dar); h.distributionId = 'DIST-NEW';
+  const oldPrimary = { id: 'WI-HR-01', docNo: 'WI-HR-01', status: 'ACTIVE', ownerDept: 'HR', currentRevision: '00', effectiveDate: '2026-01-01', darReferenceId: 'DAR-OLD', revisionHistory: [], createdAt: '2026-01-01' };
+  const old = { ...oldPrimary, id: 'OLD-CODE', docNo: 'OLD-CODE', distributionSetDocId: 'OLD-ANCHOR', currentFileStoragePath: 'old.pdf' };
+  h.store.set('dcs_documents/WI-HR-01', oldPrimary); h.store.set('dcs_documents/OLD-CODE', old); h.store.set('dcs_documents/OLD-ANCHOR', { ...oldPrimary, id: 'OLD-ANCHOR' });
+  await repo.registerDarRecord(dcc, dar, { 'NEW-CODE': 'OLD-CODE' });
+  assert.equal(h.store.get('dcs_documents/OLD-CODE').status, 'OBSOLETE');
+  assert.equal(h.store.get('dcs_documents/OLD-CODE').currentFileStoragePath, 'old.pdf');
+  assert.equal(h.store.get('dcs_documents/NEW-CODE').previousDocumentId, 'OLD-CODE');
+  assert.equal(h.store.get('dcs_dars/' + dar.id).linkedPreviousDocuments[0].previousDistributionAnchorId, 'OLD-ANCHOR');
+  assert.equal(h.writes.filter(row => row.key.startsWith('dcs_audit_logs/')).length, 1);
+  assert.ok(h.calls.some(call => call.name === 'syncDocumentReturnRequests' && call.data.distributionId === 'DIST-NEW'));
+});
+
+test('renumbering fails without server capability or with stale source before any write', async () => {
+  const dar = { ...base(), requestType: 'REVISION', currentRevision: '00', proposedRevision: '01', additionalDocuments: [{ docNo: 'NEW-CODE', docNameTh: 'เอกสาร', currentRevision: '00', revision: '01', reason: 'เปลี่ยนรหัส' }] };
+  const { h, repo } = await setup(dar); h.capability = '';
+  await assert.rejects(repo.registerDarRecord(dcc, dar, { 'NEW-CODE': 'OLD-CODE' }), /เซิร์ฟเวอร์ยังไม่พร้อม/); assert.equal(h.writes.length, 0);
+  h.capability = 'renumbered-returns-v1';
+  h.store.set('dcs_documents/WI-HR-01', { id: 'WI-HR-01', docNo: 'WI-HR-01', status: 'ACTIVE', ownerDept: 'HR', currentRevision: '00', effectiveDate: '2026-01-01', darReferenceId: 'DAR-OLD', revisionHistory: [], createdAt: '2026-01-01' });
+  await assert.rejects(repo.registerDarRecord(dcc, dar, { 'NEW-CODE': 'OLD-CODE' }), /ไม่พบรหัสเดิม/); assert.equal(h.writes.length, 0);
 });

@@ -48,14 +48,15 @@ export function DocumentReturnPanel() {
     {message && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-emerald-800">{message}</p>}
     {!visible.length && <p className="text-slate-500">ไม่มีรายการในหมวดนี้</p>}
     {visible.map(row => <article key={row.id} className="rounded-xl border border-slate-200 p-3 space-y-2">
-      <div className="flex flex-wrap justify-between gap-2"><strong>{row.docNo} · Rev.{row.previousRevision} → Rev.{row.newRevision}</strong><span>{row.dept} · {row.darId}</span></div>
+      <div className="flex flex-wrap justify-between gap-2"><strong>{row.sourceDocuments?.length ? `เอกสารฉบับใหม่ ${row.docNo} · Rev.${row.newRevision}` : `${row.docNo} · Rev.${row.previousRevision} → Rev.${row.newRevision}`}</strong><span>{row.dept} · {row.darId}</span></div>
       <p>{row.docNameTh}</p>
+      {!!row.sourceDocuments?.length && <div className="rounded-lg bg-amber-50 p-2"><strong>เอกสารเดิมที่ต้องคืน/เลิกใช้</strong><ul className="list-disc pl-5">{row.sourceDocuments.map(item => <li key={`${item.docNo}-${item.revision}`}>{item.docNo} · Rev.{item.revision}</li>)}</ul></div>}
       {row.status === 'CONFIRMED' ? <p className="text-emerald-800">ยืนยันแล้วโดย {row.signerName} · {new Date(row.confirmedAt!).toLocaleString('th-TH')}</p>
         : row.status === 'CANCELLED' ? <p className="text-slate-500">ยกเลิกรายการแล้ว</p>
         : dcc ? <p className="text-amber-800">รอแผนกยืนยันคืน/เลิกใช้ฉบับเดิม</p>
         : <>
           <p>ผู้ยืนยัน: {currentUser.userName} · ใช้ลายเซ็นที่ลงทะเบียนในบัญชีนี้</p>
-          <label className="flex items-start gap-2"><input type="checkbox" checked={!!consents[row.id]} disabled={!!busy} onChange={event => setConsents(values => ({ ...values, [row.id]: event.target.checked }))} className="mt-1"/><span>ข้าพเจ้ายืนยันว่าได้คืน/เลิกใช้ Rev.{row.previousRevision} และนำสำเนาฉบับเดิมออกจากจุดใช้งานแล้ว ยินยอมใช้ลายเซ็นที่ลงทะเบียนเป็นหลักฐาน</span></label>
+          <label className="flex items-start gap-2"><input type="checkbox" checked={!!consents[row.id]} disabled={!!busy} onChange={event => setConsents(values => ({ ...values, [row.id]: event.target.checked }))} className="mt-1"/><span>ข้าพเจ้ายืนยันว่าได้คืน/เลิกใช้เอกสารฉบับเดิมตามรายการข้างต้น และนำสำเนาฉบับเดิมออกจากจุดใช้งานแล้ว ยินยอมใช้ลายเซ็นที่ลงทะเบียนเป็นหลักฐาน</span></label>
           <button type="button" disabled={!consents[row.id] || !!busy} onClick={() => void confirm(row)} className="rounded-lg bg-amber-700 px-4 py-2 font-semibold text-white disabled:opacity-50">{busy === row.id ? 'กำลังบันทึกลายเซ็นคืน...' : 'ยืนยันคืน/เลิกใช้ฉบับเดิม'}</button>
         </>}
     </article>)}

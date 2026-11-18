@@ -458,6 +458,7 @@ exports.prepareDarPreviousRevision = onCall({ region: REGION, timeoutSeconds: 54
 exports.confirmDocumentReturn = onCall({ region: REGION, timeoutSeconds: 120, memory: '512MiB' }, revisionWorkflow.confirmReturn);
 exports.syncDocumentReturnRequests = onCall({ region: REGION, timeoutSeconds: 120, memory: '256MiB' }, async request => {
   await requireDcc(request);
+  if (request.data?.capability === 'renumbered-returns-v1') return { capability: 'renumbered-returns-v1' };
   const id = request.data?.distributionId;
   if (typeof id !== 'string' || !id || id.length > 100 || id.includes('/')) throw new HttpsError('invalid-argument', 'ไม่พบรายการแจกจ่าย');
   await revisionWorkflow.ensureReturnsForDistribution(id);
