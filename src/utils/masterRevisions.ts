@@ -39,7 +39,7 @@ export function getMasterRevisionHistory(master: MasterDocument, dar?: DarRecord
     });
   };
   supplement(master.currentRevision, master.effectiveDate);
-  if (dar?.id === master.darReferenceId && dar.status === 'REGISTERED'
+  if (dar && dar.id === master.darReferenceId && dar.status === 'REGISTERED'
       && dar.docNo.trim().toUpperCase() === master.docNo.trim().toUpperCase()
       && revisionKey(dar.proposedRevision || dar.currentRevision) === currentKey) {
     supplement(dar.proposedRevision || dar.currentRevision, dar.targetEffectiveDate, dar);

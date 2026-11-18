@@ -106,3 +106,11 @@ test('renumbering rejects stale, wrong department, reused and conflicting target
   assert.throws(() => run({ ...base, 'NEW-1': { ...old, id: 'NEW-1' } }, { 'NEW-1': 'OLD' }), /มีใน Master List/);
   assert.throws(() => run(base, { 'NEW-1': 'MISSING' }), /ไม่พบรหัสเดิม/);
 });
+
+
+test('legacy Master records without a DAR reference can still be inspected', () => {
+  const original = planDarMasterRegistration(dar, {}, 'DCC', now, 'register').records;
+  const legacy = { ...original[0], darReferenceId: undefined } as unknown as MasterDocument;
+  const revision = { ...dar, requestType: 'REVISION', currentRevision: '00', proposedRevision: '01', targetEffectiveDate: '2026-12-01', previousEffectiveDate: '2026-11-03', additionalDocuments: [] } as DarRecord;
+  assert.doesNotThrow(() => planDarMasterRegistration(revision, { [legacy.id]: legacy }, 'DCC', now, 'register'));
+});
