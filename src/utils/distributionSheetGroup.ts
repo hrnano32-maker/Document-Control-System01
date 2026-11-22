@@ -1,4 +1,5 @@
-import type { DistributionRecord, DistributionReceipt } from '../types';
+import type { DistributionRecord, DistributionReceipt, DocumentReturnRequest } from '../types';
+import { revisionKey } from './masterRevisions';
 import { isReceiptTransferComplete } from './distributionAccess';
 
 export function getDarDistributionGroup(selected: DistributionRecord, distributions: DistributionRecord[]): DistributionRecord[] {
@@ -33,7 +34,7 @@ export interface CombinedSheetRow {
 
 const departmentKey = (dept: string) => ['QA', 'QC', 'QA/QC'].includes(dept.trim().toUpperCase()) ? 'QA/QC' : dept;
 
-export function buildCombinedDistributionRows(records: DistributionRecord[]): CombinedSheetRow[] {
+export function buildCombinedDistributionRows(records: DistributionRecord[], confirmedReturns: DocumentReturnRequest[] = [], expectedReturnRevision?: string): CombinedSheetRow[] {
   const rows = new Map<string, CombinedSheetRow>();
   records.forEach((record, index) => {
     if (record.status === 'CANCELLED') return;
@@ -78,11 +79,27 @@ export function buildCombinedDistributionRows(records: DistributionRecord[]): Co
     if (record.status === 'CANCELLED') continue;
     for (const [dept, evidence] of Object.entries(record.returnReceipts || {})) {
       if (!evidence.confirmedAt || !evidence.signatureStoragePath || record.departmentCancellations?.[dept]) continue;
+      if (expectedReturnRevision && revisionKey(evidence.previousRevision) !== revisionKey(expectedReturnRevision)) continue;
       const department = departmentKey(dept);
       const row = rows.get(department) || { key: `return-${department}`, department, copies: evidence.copies || 1, recordIds: [record.id], documentIndexes: [], returnDate: '', returnSignerName: '', returnSignatureStoragePath: '' };
       row.returnDate = evidence.confirmedAt; row.returnSignerName = evidence.signerName; row.returnSignatureStoragePath = evidence.signatureStoragePath;
       rows.set(department, row);
     }
+  }
+  // Some historical return confirmations exist as separate records. Only
+  // signed confirmations for this exact DAR, distribution and revision count.
+  for (const evidence of confirmedReturns) {
+    if (evidence.status !== 'CONFIRMED' || !evidence.confirmedAt || !evidence.signatureStoragePath || !evidence.previousRevision || !expectedReturnRevision || !revisionKey(expectedReturnRevision) || revisionKey(evidence.previousRevision) !== revisionKey(expectedReturnRevision)) continue;
+    const source = records.find(record => record.id === evidence.distributionId && record.status !== 'CANCELLED' && record.darReferenceId === evidence.darId);
+    if (!source || Object.keys(source.departmentCancellations || {}).some(dept => departmentKey(dept) === departmentKey(evidence.dept))) continue;
+    const department = departmentKey(evidence.dept);
+    const existing = rows.get(department);
+    const time = Date.parse(evidence.confirmedAt);
+    const previousTime = Date.parse(existing?.returnDate || '');
+    if (existing?.returnSignatureStoragePath && (!Number.isFinite(time) || !Number.isFinite(previousTime) || previousTime <= time)) continue;
+    const row = existing || { key: `return-${department}`, department, copies: evidence.copies || 1, recordIds: [source.id], documentIndexes: [], returnDate: '', returnSignerName: '', returnSignatureStoragePath: '' };
+    row.returnDate = evidence.confirmedAt; row.returnSignerName = evidence.signerName || ''; row.returnSignatureStoragePath = evidence.signatureStoragePath;
+    rows.set(department, row);
   }
   return [...rows.values()];
 }

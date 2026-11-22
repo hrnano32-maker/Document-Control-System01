@@ -79,3 +79,35 @@ test('cancelled distribution and cancelled department return evidence are exclud
   assert.equal(buildCombinedDistributionRows([make('X', { status: 'CANCELLED', returnReceipts: { HR: evidence } })]).length, 0);
   assert.equal(buildCombinedDistributionRows([make('Y', { departmentCancellations: { HR: { reason: 'ยกเลิก', cancelledAt: '2026-10-30', cancelledBy: 'DCC' } }, returnReceipts: { HR: evidence } })]).length, 0);
 });
+
+test('confirmed return evidence for this DAR and previous revision restores the return signature', () => {
+  const dist = make('A');
+  const evidence = { id:'return-HR', status:'CONFIRMED', darId:dist.darReferenceId, distributionId:dist.id, dept:'HR', previousRevision:'00', newRevision:'01', confirmedAt:'2026-11-05T12:00:00Z', signerName:'HR', signatureStoragePath:'dcs/return-signatures/HR/s.png', copies:1 } as any;
+  const rows = buildCombinedDistributionRows([dist], [evidence], '00');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].receipt?.signatureStoragePath, 'signatures/hr.png');
+  assert.equal(rows[0].returnSignatureStoragePath, evidence.signatureStoragePath);
+  assert.equal(rows[0].returnDate, evidence.confirmedAt);
+});
+
+test('pending, unsigned, unrelated, cancelled and wrong-revision returns never become return signatures', () => {
+  const dist = make('A');
+  const valid = { id:'return-HR', status:'CONFIRMED', darId:dist.darReferenceId, distributionId:dist.id, dept:'HR', previousRevision:'00', newRevision:'01', confirmedAt:'2026-11-05T12:00:00Z', signerName:'HR', signatureStoragePath:'return.png', copies:1 } as any;
+  for (const bad of [{status:'PENDING'}, {signatureStoragePath:''}, {confirmedAt:''}, {darId:'DAR-OTHER'}, {distributionId:'B'}, {previousRevision:'02'}]) {
+    assert.equal(buildCombinedDistributionRows([dist], [{...valid,...bad}], '00')[0].returnSignatureStoragePath, '');
+  }
+  assert.equal(buildCombinedDistributionRows([dist], [valid], '-')[0].returnSignatureStoragePath, '');
+  const cancelled=make('A',{departmentCancellations:{HR:{reason:'ยกเลิก',cancelledAt:'2026-11-06',cancelledBy:'DCC'}}});
+  assert.equal(buildCombinedDistributionRows([cancelled], [valid], '00').length, 0);
+  const noReturn=buildCombinedDistributionRows([dist], [], '00')[0];
+  assert.equal(noReturn.returnSignatureStoragePath,'');
+  assert.equal(noReturn.receipt?.signatureStoragePath,'signatures/hr.png');
+});
+
+test('earliest matching signed return is retained across sources with QA aliases', () => {
+  const dist=make('A',{targetDepartments:['QA/QC'],receipts:{'QA/QC':{...make('A').receipts!.HR,dept:'QA/QC'}}});
+  const evidence={id:'q',status:'CONFIRMED',darId:dist.darReferenceId,distributionId:'A',dept:'QA',previousRevision:'00',newRevision:'01',confirmedAt:'2026-11-05T12:00:00Z',signerName:'QA/QC',signatureStoragePath:'return-earlier.png',copies:1} as any;
+  const later={...evidence,id:'later',dept:'QC',confirmedAt:'2026-11-06T12:00:00Z',signatureStoragePath:'return-later.png'};
+  const rows=buildCombinedDistributionRows([dist],[later,evidence],'00');
+  assert.equal(rows.length,1);assert.equal(rows[0].department,'QA/QC');assert.equal(rows[0].returnSignatureStoragePath,'return-earlier.png');
+});

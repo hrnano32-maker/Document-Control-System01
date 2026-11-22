@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { DistributionRecord, DarRecord } from '../types';
-import { getStorageFileUrl } from '../services/dcsRepository';
+import type { DistributionRecord, DarRecord, DocumentReturnRequest } from '../types';
+import { getStorageFileUrl, subscribeDocumentReturns } from '../services/dcsRepository';
+import { useDcs } from '../context/DcsContext';
 import { normalizeSignatureDataUrl } from '../utils/signatureImage';
 import { buildCombinedDistributionRows } from '../utils/distributionSheetGroup';
 import { downloadPrintableHtml, openPrintInNewTab, printElementById } from '../utils/printHelper';
@@ -23,18 +24,26 @@ const dateText = (date?: string, localTime = false) => {
 };
 
 export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit }: Props) {
-  const rows = useMemo(() => buildCombinedDistributionRows(records), [records]);
+  const { currentUser } = useDcs();
+  const primary = records[0];
+  const returnRev = primary?.distributionSheet?.returnRevision || (dar?.requestType === 'NEW' ? '-' : dar?.currentRevision) || '-';
+  const [returns, setReturns] = useState<DocumentReturnRequest[]>([]);
+  const [returnsState, setReturnsState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [returnsAttempt, setReturnsAttempt] = useState(0);
+  useEffect(() => {
+    setReturns([]); setReturnsState('loading');
+    return subscribeDocumentReturns(currentUser, data => { setReturns(data); setReturnsState('ready'); }, () => setReturnsState('error'));
+  }, [currentUser.uid, currentUser.userRole, currentUser.currentDept, returnsAttempt]);
+  const rows = useMemo(() => buildCombinedDistributionRows(records, returns.filter(item => item.darId === darId), returnRev), [records, returns, darId, returnRev]);
   // Preserve the original form with only the first signed receipt per department.
   const departments = useMemo(() => {
     const grouped = new Map<string, typeof rows>();
     rows.forEach(row => grouped.set(row.department, [...(grouped.get(row.department) || []), row]));
     return [...grouped.entries()];
   }, [rows]);
-  const primary = records[0];
   const docNo = primary?.distributionSheet?.docNo || dar?.docNo || primary?.docNo || '';
   const docName = primary?.distributionSheet?.docNameTh || dar?.docNameTh || primary?.docNameTh || '';
   const receiveRev = primary?.distributionSheet?.receiveRevision || primary?.revision || dar?.proposedRevision || '00';
-  const returnRev = primary?.distributionSheet?.returnRevision || (dar?.requestType === 'NEW' ? '-' : dar?.currentRevision) || '-';
   const [signatures, setSignatures] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -63,7 +72,7 @@ export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit
     window.addEventListener('keydown', listener);
     return () => window.removeEventListener('keydown', listener);
   }, [onClose]);
-  const ready = rows.length > 0 && !loading && !error && paths.every(path => Boolean(signatures[path]));
+  const ready = rows.length > 0 && !loading && !error && returnsState === 'ready' && paths.every(path => Boolean(signatures[path]));
   const title = `FM-QS-003-00_${darId}_Distribution`;
   const print = () => { if (ready) printElementById('distribution-recall-sheet', title); };
   const open = () => { if (ready && !openPrintInNewTab('distribution-recall-sheet', title)) print(); };
@@ -84,7 +93,9 @@ export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit
         <div className="print:hidden border-b bg-indigo-50 px-4 py-3 text-sm text-indigo-950">
           แสดงเฉพาะหน่วยงานที่มีลายเซ็นรับหรือคืน {departments.length} หน่วยงาน · ใช้หลักฐานการรับครั้งแรกของแต่ละหน่วยงานใน DAR นี้
           {rows.length === 0 && <p className="mt-1 font-bold text-amber-800">ยังไม่มีรายการเซ็นรับหรือคืนเอกสารสำหรับ DAR นี้</p>}
-          {loading && <p role="status" className="mt-1">กำลังเตรียมลายเซ็นสำหรับพิมพ์…</p>}
+          {(loading || returnsState === 'loading') && <p role="status" className="mt-1">กำลังตรวจหลักฐานรับและคืนสำหรับพิมพ์…</p>}
+          {returnsState === 'error' && <p role="alert" className="mt-1 text-red-700">ตรวจหลักฐานคืนไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตและสิทธิ์ก่อนพิมพ์ <button onClick={() => setReturnsAttempt(value => value + 1)} className="font-bold underline">ลองใหม่</button></p>}
+          {returnsState === 'ready' && returnRev !== '-' && rows.some(row => !row.returnSignatureStoragePath) && <p className="mt-1 text-amber-900">บางหน่วยงานยังไม่พบหลักฐานยืนยันคืน Rev.{returnRev} — ลายเซ็นรับ Rev.เดิมไม่ใช่หลักฐานการคืน กรุณาตรวจรายการคืนฉบับเดิม</p>}
           {error && <p role="alert" className="mt-1 text-red-700">{error} <button onClick={() => setAttempt(value => value + 1)} className="font-bold underline">ลองใหม่</button></p>}
           {onEdit && <div className="mt-2 flex flex-wrap gap-2">{records.map(record => <button key={record.id} onClick={() => onEdit(record)} className="rounded border border-indigo-300 bg-white px-2 py-1">แก้ไขข้อมูล {record.docNo}</button>)}</div>}
         </div>
@@ -141,7 +152,7 @@ export function CombinedDistributionSheet({ records, darId, dar, onClose, onEdit
                   <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} className="receipt-evidence flex min-h-[28px] items-center justify-center text-[12px] font-mono font-bold">{row.copies}</div>)}</td>
                   <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} data-receipt-signature="true" className="receipt-evidence flex min-h-[28px] items-center justify-center">{signature(row.receipt?.signatureStoragePath) || (row.receipt && <span className="text-[11px] text-slate-400">{loading ? 'กำลังโหลดลายเซ็น…' : 'โหลดลายเซ็นไม่สำเร็จ'}</span>)}</div>)}</td>
                   <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} data-receipt-date="true" className="receipt-evidence flex min-h-[28px] items-center justify-center text-[11px] font-mono">{dateText(row.receipt?.downloadedAt)}</div>)}</td>
-                  <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} className="receipt-evidence flex min-h-[28px] items-center justify-center">{signature(row.returnSignatureStoragePath)}</div>)}</td>
+                  <td className="border-r border-black p-1 text-center align-middle">{evidence.map(row => <div key={row.key} className="receipt-evidence flex min-h-[28px] items-center justify-center">{signature(row.returnSignatureStoragePath) || (!row.returnSignatureStoragePath && <span className="text-[11px] text-slate-500 print:hidden">ยังไม่พบหลักฐานคืน</span>)}</div>)}</td>
                   <td className="p-1 text-center align-middle">{evidence.map(row => <div key={row.key} className="receipt-evidence flex min-h-[28px] items-center justify-center text-[11px] font-mono">{dateText(row.returnDate, true)}</div>)}</td>
                 </tr>)}</tbody>
               </table>
