@@ -20,7 +20,7 @@ import { PendingDistributionGate } from './components/PendingDistributionGate';
 import { isPendingDepartmentReceipt } from './utils/distributionAccess';
 
 export const MainLayout: React.FC = () => {
-  const { activeView, currentUser, setActiveView, distributions, distributionSync,
+  const { activeView, currentUser, setActiveView, distributions, documentReturns, distributionSync,
     selectedDistributionForDownload, selectedDistributionForReRequest } = useDcs();
 
   useEffect(() => {
@@ -36,7 +36,7 @@ export const MainLayout: React.FC = () => {
 
   const isDcc = currentUser.currentDept === 'DCC';
   const blocked = currentUser.userRole !== 'DCC_ADMIN' && !currentUser.mustChangePassword
-    && (distributionSync !== 'ready' || distributions.some(row => isPendingDepartmentReceipt(row, currentUser.currentDept)));
+    && (distributionSync !== 'ready' || distributions.some(row => isPendingDepartmentReceipt(row, currentUser.currentDept)) || documentReturns.some(row => row.status === 'PENDING'));
 
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col selection:bg-indigo-500 selection:text-white font-sans">

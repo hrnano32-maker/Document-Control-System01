@@ -51,3 +51,18 @@ test('subscriptions include old records without createdAt and distinguish cached
   assert.deepEqual(Array.from(received[1].rows, (row: any) => row.id), ['NEW', 'OLD']);
   assert.equal(received[0].fromCache, true); assert.equal(received[1].fromCache, false);
 });
+
+test('return subscription waits for server and includes the canonical QA/QC department', async () => {
+  const { h, repo } = await fixture();
+  const received: any[] = [];
+  repo.subscribeDocumentReturns({ uid: 'qa', currentDept: 'QA', userRole: 'STAFF' }, (rows: any[], fromCache: boolean) => received.push({ rows, fromCache }), () => {});
+  const sub = h.subscriptions[0];
+  assert.equal(sub.query.constraints[0].args[2], 'QA/QC');
+  assert.equal(sub.options.includeMetadataChanges, true);
+  const doc = { id: 'return-1', data: () => ({ dept: 'QA/QC', status: 'PENDING' }) };
+  sub.next({ docs: [doc], metadata: { fromCache: true, hasPendingWrites: false } });
+  sub.next({ docs: [doc], metadata: { fromCache: false, hasPendingWrites: true } });
+  sub.next({ docs: [doc], metadata: { fromCache: false, hasPendingWrites: false } });
+  assert.deepEqual(received.map(x => x.fromCache), [true, true, false]);
+  assert.equal(received[2].rows[0].id, 'return-1');
+});

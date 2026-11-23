@@ -4,18 +4,20 @@ import { useDcs } from '../context/DcsContext';
 import { useDistributionClock } from '../hooks/useDistributionClock';
 import { getDepartmentReceipt, getDistributionDownloadAccess, isPendingDepartmentReceipt, isReceiptTransferComplete } from '../utils/distributionAccess';
 import { canonicalDistributionDepartment } from '../utils/distributionReopen';
+import { DocumentReturnPanel } from './DocumentReturnPanel';
 
 // Keep this gate above every normal view. The two action dialogs are rendered
 // separately above it, so closing an action returns to the unresolved list.
 export const PendingDistributionGate: React.FC = () => {
-  const { currentUser, distributions, reRequests, distributionSync, retryDistributionSync, logout,
+  const { currentUser, distributions, documentReturns, reRequests, distributionSync, retryDistributionSync, logout,
     selectedDistributionForDownload, selectedDistributionForReRequest,
     setSelectedDistributionForDownload, setSelectedDistributionForReRequest } = useDcs();
   const now = useDistributionClock();
   const title = useRef<HTMLHeadingElement>(null);
   const pending = distributions.filter(row => isPendingDepartmentReceipt(row, currentUser.currentDept));
+  const pendingReturns = documentReturns.filter(row => row.status === 'PENDING');
   const show = currentUser.userRole !== 'DCC_ADMIN' && !currentUser.mustChangePassword
-    && (distributionSync !== 'ready' || pending.length > 0);
+    && (distributionSync !== 'ready' || pending.length > 0 || pendingReturns.length > 0);
   const actionOpen = Boolean(selectedDistributionForDownload || selectedDistributionForReRequest);
   useEffect(() => { if (show && !actionOpen) title.current?.focus(); }, [show, actionOpen]);
   if (!show) return null;
@@ -26,20 +28,20 @@ export const PendingDistributionGate: React.FC = () => {
       <div className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         <header className="bg-gradient-to-r from-indigo-950 to-slate-900 px-5 py-4 text-white sm:px-6">
           <h2 ref={title} tabIndex={-1} id="pending-distribution-title" className="flex items-center gap-2 text-lg font-bold outline-none">
-            <FileText className="h-5 w-5" /> เอกสารค้างรับของหน่วยงาน {currentUser.currentDept}
+            <FileText className="h-5 w-5" /> เอกสารค้างดำเนินการของหน่วยงาน {currentUser.currentDept}
           </h2>
-          <p className="mt-1 text-sm text-slate-200">กรุณาลงนามและบันทึกไฟล์ให้ครบทุกชุดก่อนใช้งานหน้าปกติ</p>
+          <p className="mt-1 text-sm text-slate-200">กรุณารับและดาวน์โหลดเอกสาร รวมถึงยืนยันคืน/เลิกใช้ฉบับเดิมให้ครบก่อนใช้งานหน้าปกติ</p>
         </header>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4 sm:p-6">
           {distributionSync !== 'ready' ? (
             <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
               <p className="flex items-center gap-2 font-bold">{distributionSync === 'loading' ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <AlertTriangle className="h-5 w-5" />}
-                {distributionSync === 'loading' ? 'กำลังตรวจสอบรายการค้างรับจากระบบ' : 'ตรวจสอบรายการค้างรับไม่สำเร็จ'}</p>
+                {distributionSync === 'loading' ? 'กำลังตรวจสอบรายการค้างรับและค้างคืนจากระบบ' : 'ตรวจสอบรายการค้างรับหรือค้างคืนไม่สำเร็จ'}</p>
               <p className="mt-2">กรุณาตรวจสอบอินเทอร์เน็ต แล้วลองเชื่อมต่ออีกครั้ง หรือติดต่อ DCC หากยังไม่สามารถใช้งานได้</p>
               {distributionSync === 'error' && <button type="button" onClick={retryDistributionSync} className="mt-3 flex items-center gap-2 rounded-lg bg-amber-700 px-4 py-2 font-bold text-white"><RefreshCw className="h-4 w-4" />ลองเชื่อมต่ออีกครั้ง</button>}
             </div>
           ) : <>
-            <p className="text-sm font-bold text-slate-700">ค้างดำเนินการ {pending.length} ชุด</p>
+            {pending.length > 0 && <p className="text-sm font-bold text-slate-700">เอกสารค้างรับ {pending.length} ชุด</p>}
             {pending.map(distribution => {
               const dept = currentUser.currentDept;
               const receipt = getDepartmentReceipt(distribution, dept);
@@ -70,7 +72,8 @@ export const PendingDistributionGate: React.FC = () => {
                 </div>
               </article>;
             })}
-            <p className="text-sm text-slate-600">รายการหมดอายุจะยังค้างอยู่ระหว่างรอ DCC อนุมัติ เมื่อเปิดสิทธิ์แล้วให้กลับมาลงนามและดาวน์โหลด หากเอกสารถูกแทนที่แล้ว กรุณาให้ DCC ตรวจสอบหรือยกเลิกรายการที่ไม่ต้องรับ</p>
+            {pendingReturns.length > 0 && <DocumentReturnPanel mandatory />}
+            {pending.length > 0 && <p className="text-sm text-slate-600">รายการหมดอายุจะยังค้างอยู่ระหว่างรอ DCC อนุมัติ เมื่อเปิดสิทธิ์แล้วให้กลับมาลงนามและดาวน์โหลด หากเอกสารถูกแทนที่แล้ว กรุณาให้ DCC ตรวจสอบหรือยกเลิกรายการที่ไม่ต้องรับ</p>}
           </>}
         </div>
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-4 text-sm">

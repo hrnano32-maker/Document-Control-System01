@@ -1055,10 +1055,10 @@ export const downloadDarAttachmentFromServer = async (darId: string, index: numb
 };
 
 
-export const subscribeDocumentReturns = (user: CurrentUserSession, callback: (rows: DocumentReturnRequest[]) => void, onError: (error: Error) => void) => {
-  const constraints = user.userRole === 'DCC_ADMIN' ? [] : [where('dept', '==', user.currentDept)];
-  return onSnapshot(query(collection(db, 'dcs_document_returns'), ...constraints), snap =>
-    callback(snap.docs.map(item => ({ ...item.data(), id: item.id } as DocumentReturnRequest)).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))), onError);
+export const subscribeDocumentReturns = (user: CurrentUserSession, callback: (rows: DocumentReturnRequest[], fromCache: boolean) => void, onError: (error: Error) => void) => {
+  const constraints = user.userRole === 'DCC_ADMIN' ? [] : [where('dept', '==', canonicalDistributionDepartment(user.currentDept))];
+  return onSnapshot(query(collection(db, 'dcs_document_returns'), ...constraints), { includeMetadataChanges: true }, snap =>
+    callback(snap.docs.map(item => ({ ...item.data(), id: item.id } as DocumentReturnRequest)).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))), Boolean(snap.metadata.fromCache || snap.metadata.hasPendingWrites)), onError);
 };
 export const confirmDocumentReturn = async (returnId: string) => {
   await httpsCallable(firebaseFunctions, 'confirmDocumentReturn', { timeout: 120000 })({ returnId, consent: true });
