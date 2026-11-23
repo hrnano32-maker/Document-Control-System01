@@ -20,7 +20,7 @@ import { PendingDistributionGate } from './components/PendingDistributionGate';
 import { isPendingDepartmentReceipt } from './utils/distributionAccess';
 
 export const MainLayout: React.FC = () => {
-  const { activeView, currentUser, setActiveView, distributions, distributionSync, isChangePasswordOpen,
+  const { activeView, currentUser, setActiveView, distributions, distributionSync,
     selectedDistributionForDownload, selectedDistributionForReRequest } = useDcs();
 
   useEffect(() => {
@@ -35,18 +35,18 @@ export const MainLayout: React.FC = () => {
   }
 
   const isDcc = currentUser.currentDept === 'DCC';
-  const blocked = currentUser.userRole !== 'DCC_ADMIN' && !currentUser.mustChangePassword && !isChangePasswordOpen
+  const blocked = currentUser.userRole !== 'DCC_ADMIN' && !currentUser.mustChangePassword
     && (distributionSync !== 'ready' || distributions.some(row => isPendingDepartmentReceipt(row, currentUser.currentDept)));
 
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col selection:bg-indigo-500 selection:text-white font-sans">
-      <div inert={blocked || undefined} className="contents">
+      <div inert={blocked || undefined} aria-hidden={blocked || undefined} className={blocked ? "hidden" : "contents"}>
       
       {/* Top Navigation */}
       <Navbar />
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12">
+      <main inert={currentUser.mustChangePassword || undefined} aria-hidden={currentUser.mustChangePassword || undefined} className={`flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12 ${currentUser.mustChangePassword ? "invisible" : ""}`}>
         {activeView === 'dashboard' && <Dashboard />}
         {activeView === 'masterlist' && <MasterListView />}
         {activeView === 'dar' && <DarManagement />}
@@ -80,7 +80,7 @@ export const MainLayout: React.FC = () => {
       <PendingDistributionGate />
       <DownloadModal />
       <CopyRequestModal />
-      <PwaNotificationPrompt hideBanner={Boolean(selectedDistributionForDownload || selectedDistributionForReRequest)} />
+      <PwaNotificationPrompt hideBanner={blocked || currentUser.mustChangePassword || Boolean(selectedDistributionForDownload || selectedDistributionForReRequest)} />
 
     </div>
   );

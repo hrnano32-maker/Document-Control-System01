@@ -140,13 +140,13 @@ export const subscribeDistributions = (user: CurrentUserSession, callback: (rows
     const rows = snap.docs.map(item => normalizeDistributionQaQc(item.data() as DistributionRecord))
       .sort((a, b) => String(b.distributedDate || '').localeCompare(String(a.distributedDate || '')) || String(b.id).localeCompare(String(a.id)));
     // DCC retains cancelled distributions for audit; recipients only see active allocations.
-    callback(user.userRole === 'DCC_ADMIN' ? rows : rows.filter(dist => hasDistributionAllocation(dist, user.currentDept)), snap.metadata.fromCache);
+    callback(user.userRole === 'DCC_ADMIN' ? rows : rows.filter(dist => hasDistributionAllocation(dist, user.currentDept)), Boolean(snap.metadata.fromCache || snap.metadata.hasPendingWrites));
   }, onError);
 };
 export const subscribeCopyRequests = (user: CurrentUserSession, callback: (rows: CopyReRequest[], fromCache: boolean) => void, onError?: (error: Error) => void) => {
   const constraints = user.userRole === 'DCC_ADMIN' ? [] : [where('dept', '==', user.currentDept)];
   return onSnapshot(query(collection(db, 'dcs_copy_requests'), ...constraints), { includeMetadataChanges: true }, snap => callback(snap.docs.map(item => item.data() as CopyReRequest)
-    .sort((a, b) => String(b.requestDate || '').localeCompare(String(a.requestDate || '')) || String(b.id).localeCompare(String(a.id))), snap.metadata.fromCache), onError);
+    .sort((a, b) => String(b.requestDate || '').localeCompare(String(a.requestDate || '')) || String(b.id).localeCompare(String(a.id))), Boolean(snap.metadata.fromCache || snap.metadata.hasPendingWrites)), onError);
 };
 export const subscribeAuditForUser = (user: CurrentUserSession, callback: (rows: AuditLogEntry[]) => void) => {
   const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('timestamp', 'desc')] : [where('actorDept', '==', user.currentDept), orderBy('timestamp', 'desc')];

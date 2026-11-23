@@ -3,8 +3,19 @@ import { canonicalDistributionDepartment } from './distributionReopen';
 
 // Older receipts did not record transfer status. Preserve their established
 // meaning; a new receipt explicitly remains pending until its files are saved.
-export const isReceiptTransferComplete = (receipt?: DistributionReceipt): boolean =>
-  Boolean(receipt?.downloadedAt && receipt.transferStatus !== 'PENDING');
+export const isReceiptTransferComplete = (receipt?: DistributionReceipt, expectedFileCount?: number): boolean => {
+  if (!receipt?.downloadedAt) return false;
+  // Historical receipts predate transfer tracking and remain completed as
+  // recorded; their individual downloaded files cannot be reconstructed.
+  if (receipt.transferStatus == null && !receipt.transferId) return true;
+  if (receipt.transferStatus !== 'COMPLETE' || !receipt.transferId || !receipt.transferCompletedAt || !Array.isArray(receipt.transferredIndexes)) return false;
+  const indexes = receipt.transferredIndexes;
+  if (!indexes.length || indexes.some(index => !Number.isInteger(index) || index < 0) || new Set(indexes).size !== indexes.length) return false;
+  if (expectedFileCount && expectedFileCount > 0) return indexes.length === expectedFileCount && indexes.every(index => index < expectedFileCount);
+  // After cleanup the paths may be gone, but completed indexes must still
+  // form a contiguous sequence beginning at zero.
+  return indexes.every(index => index < indexes.length);
+};
 
 export const getDepartmentReceipt = (distribution: DistributionRecord, department: string): DistributionReceipt | undefined => {
   const canonical = canonicalDistributionDepartment(department);
@@ -15,7 +26,13 @@ export const getDepartmentReceipt = (distribution: DistributionRecord, departmen
 export const isPendingDepartmentReceipt = (distribution: DistributionRecord, department: string): boolean => {
   if (!hasDistributionAllocation(distribution, department)) return false;
   const receipt = getDepartmentReceipt(distribution, department);
-  if (receipt) return !isReceiptTransferComplete(receipt);
+  if (receipt) {
+    const canonical = canonicalDistributionDepartment(department);
+    const paths = Object.entries(distribution.departmentFileLists || {}).find(([dept]) => canonicalDistributionDepartment(dept) === canonical)?.[1];
+    const single = Object.entries(distribution.departmentFiles || {}).find(([dept]) => canonicalDistributionDepartment(dept) === canonical)?.[1];
+    const expectedFileCount = paths?.length || (single ? 1 : undefined);
+    return !isReceiptTransferComplete(receipt, expectedFileCount);
+  }
   const target = distribution.targets?.find(row => canonicalDistributionDepartment(row.dept) === canonicalDistributionDepartment(department));
   return !target?.isDownloaded;
 };

@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { AlertTriangle, Clock, Download, FileText, LoaderCircle, LogOut, RefreshCw, Send } from 'lucide-react';
 import { useDcs } from '../context/DcsContext';
 import { useDistributionClock } from '../hooks/useDistributionClock';
-import { getDepartmentReceipt, getDistributionDownloadAccess, isPendingDepartmentReceipt } from '../utils/distributionAccess';
+import { getDepartmentReceipt, getDistributionDownloadAccess, isPendingDepartmentReceipt, isReceiptTransferComplete } from '../utils/distributionAccess';
 import { canonicalDistributionDepartment } from '../utils/distributionReopen';
 
 // Keep this gate above every normal view. The two action dialogs are rendered
@@ -10,11 +10,11 @@ import { canonicalDistributionDepartment } from '../utils/distributionReopen';
 export const PendingDistributionGate: React.FC = () => {
   const { currentUser, distributions, reRequests, distributionSync, retryDistributionSync, logout,
     selectedDistributionForDownload, selectedDistributionForReRequest,
-    setSelectedDistributionForDownload, setSelectedDistributionForReRequest, isChangePasswordOpen } = useDcs();
+    setSelectedDistributionForDownload, setSelectedDistributionForReRequest } = useDcs();
   const now = useDistributionClock();
   const title = useRef<HTMLHeadingElement>(null);
   const pending = distributions.filter(row => isPendingDepartmentReceipt(row, currentUser.currentDept));
-  const show = currentUser.userRole !== 'DCC_ADMIN' && !currentUser.mustChangePassword && !isChangePasswordOpen
+  const show = currentUser.userRole !== 'DCC_ADMIN' && !currentUser.mustChangePassword
     && (distributionSync !== 'ready' || pending.length > 0);
   const actionOpen = Boolean(selectedDistributionForDownload || selectedDistributionForReRequest);
   useEffect(() => { if (show && !actionOpen) title.current?.focus(); }, [show, actionOpen]);
@@ -45,12 +45,14 @@ export const PendingDistributionGate: React.FC = () => {
               const receipt = getDepartmentReceipt(distribution, dept);
               const fileCount = distribution.departmentFileLists?.[dept]?.length || (distribution.departmentFiles?.[dept] ? 1 : 0);
               const otherSigner = receipt?.transferStatus === 'PENDING' && receipt.downloaderUid && receipt.downloaderUid !== currentUser.uid;
+              const invalidAttempt = Boolean(receipt && !isReceiptTransferComplete(receipt, fileCount || undefined)
+                && (receipt.transferStatus !== 'PENDING' || !receipt.transferId || !receipt.downloaderUid));
               const access = getDistributionDownloadAccess(distribution, dept, now);
               const pendingRequest = reRequests.find(request => request.distributionId === distribution.id
                 && canonicalDistributionDepartment(request.dept) === canonicalDistributionDepartment(dept)
                 && (request.status === 'PENDING' || request.status === 'PROCESSING'));
-              const canAct = access.canDownload && !otherSigner;
-              const canRequest = !canAct && (access.canRequest || Boolean(otherSigner));
+              const canAct = access.canDownload && !otherSigner && !invalidAttempt;
+              const canRequest = !canAct && (access.canRequest || Boolean(otherSigner) || invalidAttempt);
               const reasonType = access.state === 'EXPIRED' ? 'EXPIRED_DOWNLOAD_WINDOW' : 'FILE_LOST_OR_DAMAGED';
               return <article key={distribution.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
@@ -58,7 +60,7 @@ export const PendingDistributionGate: React.FC = () => {
                     <div className="flex flex-wrap items-center gap-2 text-sm"><strong className="break-all text-indigo-800">{distribution.docNo}</strong><span className="rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">Rev.{distribution.revision}</span><span className="text-xs text-slate-500">{distribution.distributionNo}</span></div>
                     <p className="break-words text-sm font-semibold text-slate-900">{distribution.docNameTh}</p>
                     <p className={`flex items-start gap-1 text-sm ${canAct ? 'text-indigo-700' : 'text-amber-800'}`}><Clock className="mt-0.5 h-4 w-4 shrink-0" />
-                      {otherSigner ? 'มีผู้ลงนามแล้วแต่ดาวน์โหลดไม่ครบ ให้ผู้ลงนามเข้าสู่ระบบต่อ หรือร้องขอ DCC เปิดสิทธิ์ใหม่' : receipt?.transferStatus === 'PENDING' && canAct ? `ลงนามแล้ว ยังบันทึกไฟล์ไม่ครบ กรุณาดาวน์โหลดต่อ${fileCount ? ` (${receipt.transferredIndexes?.length || 0}/${fileCount} ไฟล์)` : ''}` : access.message}
+                      {invalidAttempt ? 'ข้อมูลการรับหรือหลักฐานดาวน์โหลดไม่ครบ กรุณาร้องขอ DCC เปิดสิทธิ์ใหม่' : otherSigner ? 'มีผู้ลงนามแล้วแต่ดาวน์โหลดไม่ครบ ให้ผู้ลงนามเข้าสู่ระบบต่อ หรือร้องขอ DCC เปิดสิทธิ์ใหม่' : receipt?.transferStatus === 'PENDING' && canAct ? `ลงนามแล้ว ยังบันทึกไฟล์ไม่ครบ กรุณาดาวน์โหลดต่อ${fileCount ? ` (${receipt.transferredIndexes?.length || 0}/${fileCount} ไฟล์)` : ''}` : access.message}
                     </p>
                   </div>
                   {canAct ? <button type="button" onClick={() => setSelectedDistributionForDownload({ distribution, dept })} className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-700"><Download className="h-4 w-4" />{receipt?.transferStatus === 'PENDING' ? 'ดาวน์โหลดต่อ' : 'ลงนามและดาวน์โหลด'}</button>

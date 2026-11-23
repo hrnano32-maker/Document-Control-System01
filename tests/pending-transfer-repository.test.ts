@@ -46,6 +46,8 @@ test('subscriptions include old records without createdAt and distinguish cached
   const recent = { ...h.latest, id: 'NEW', distributedDate: '2026-01-01', createdAt: '2026-01-01' };
   sub.next({ docs: [old, recent].map(row => ({ data: () => row })), metadata: { fromCache: true } });
   sub.next({ docs: [old, recent].map(row => ({ data: () => row })), metadata: { fromCache: false } });
+  sub.next({ docs: [old, recent].map(row => ({ data: () => row })), metadata: { fromCache: false, hasPendingWrites: true } });
+  assert.equal(received[2].fromCache, true);
   assert.deepEqual(Array.from(received[1].rows, (row: any) => row.id), ['NEW', 'OLD']);
   assert.equal(received[0].fromCache, true); assert.equal(received[1].fromCache, false);
 });

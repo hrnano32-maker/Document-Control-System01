@@ -93,6 +93,8 @@ export const Navbar: React.FC = () => {
   return (
     <>
       <header
+        inert={currentUser.mustChangePassword || undefined}
+        aria-hidden={currentUser.mustChangePassword || undefined}
         id="dcs-main-header"
         className="bg-slate-900/95 backdrop-blur-md text-white border-b border-slate-800 sticky top-0 z-40 shadow-lg"
       >
