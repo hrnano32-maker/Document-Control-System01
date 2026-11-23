@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { DocumentReturnPanel } from './DocumentReturnPanel';
 import { useDcs } from '../context/DcsContext';
 import { getDistributionDownloadAccess } from '../utils/distributionAccess';
+import { findConflictingCopyRequest } from '../utils/copyRequests';
 import { useDistributionClock } from '../hooks/useDistributionClock';
 import {
   DistributionRecord,
@@ -209,7 +210,15 @@ export const DistributionManager: React.FC = () => {
                 <div>
                   <strong className="text-slate-900 block">{req.docNo} (Rev.{req.revision})</strong>
                   <span className="text-slate-600 text-[11px]">{req.docNameTh}</span>
+                  <span className="block text-slate-600">ใบแจกจ่าย: {req.distributionNo}</span>
                 </div>
+
+                {pendingReRequests.some(other => other.id !== req.id && other.distributionId === req.distributionId && other.dept === req.dept) && (
+                  <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-2 font-semibold text-rose-800">
+                    พบคำขอซ้ำในใบแจกจ่ายและแผนกเดียวกัน กรุณาอนุมัติเพียงรายการเดียว แล้วไม่อนุมัติรายการซ้ำเพื่อเก็บประวัติ
+                  </p>
+                )}
+                {findConflictingCopyRequest(req, reRequests) && <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-2 font-semibold text-rose-800">มีคำขอชุดเดียวกันที่อนุมัติแล้วหรือกำลังดำเนินการ กรุณาไม่อนุมัติรายการซ้ำ</p>}
 
                 <div className="p-2.5 bg-slate-50 rounded-lg border text-[11px] text-slate-700">
                   <span className="font-semibold text-slate-900 block">เหตุผล: </span>
@@ -225,7 +234,7 @@ export const DistributionManager: React.FC = () => {
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                   <button
                     onClick={() => handleApproveReRequest(req.id)}
-                    disabled={processingRequestId !== null}
+                    disabled={processingRequestId !== null || Boolean(findConflictingCopyRequest(req, reRequests))}
                     className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1 cursor-pointer transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />

@@ -11,6 +11,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { CopyReRequest } from '../types';
+import { canonicalDistributionDepartment } from '../utils/distributionReopen';
 
 export const CopyRequestModal: React.FC = () => {
   const {
@@ -18,6 +19,7 @@ export const CopyRequestModal: React.FC = () => {
     setSelectedDistributionForReRequest,
     createReRequest,
     currentUser,
+    reRequests,
   } = useDcs();
 
   const [requestedBy, setRequestedBy] = useState('');
@@ -58,6 +60,9 @@ export const CopyRequestModal: React.FC = () => {
   if (!selectedDistributionForReRequest) return null;
 
   const { distribution, dept } = selectedDistributionForReRequest;
+  const existingRequest = reRequests.find(request => request.distributionId === distribution.id
+    && canonicalDistributionDepartment(request.dept) === canonicalDistributionDepartment(dept)
+    && (request.status === 'PENDING' || request.status === 'PROCESSING'));
 
   const handleClose = () => {
     if (submitInFlight.current) return;
@@ -136,14 +141,14 @@ export const CopyRequestModal: React.FC = () => {
         </div>
 
         {/* Content */}
-        {isSuccess ? (
+        {isSuccess || (existingRequest && !isSubmitting) ? (
           <div className="p-8 text-center space-y-4">
             <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-8 h-8" />
             </div>
-            <h4 className="font-bold text-slate-900 text-base">ยื่นคำร้องสำเร็จแล้ว</h4>
+            <h4 className="font-bold text-slate-900 text-base">{isSuccess ? 'ยื่นคำร้องสำเร็จแล้ว' : 'มีคำร้องรอ DCC พิจารณาอยู่แล้ว'}</h4>
             <p className="text-xs text-slate-600 max-w-sm mx-auto">
-              คำร้องขอสำเนา/ต่ออายุถูกส่งไปยังคิวตรวจสอบของ DCC เรียบร้อยแล้ว เมื่อ DCC อนุมัติ สิทธิ์ดาวน์โหลดจะเปิดใหม่อีก 3 วัน
+              {existingRequest ? `เลขที่ ${existingRequest.id} · ไม่ต้องส่งคำร้องซ้ำ ` : ''}เมื่อ DCC อนุมัติ สิทธิ์ดาวน์โหลดจะเปิดใหม่อีก 3 วัน
             </p>
             <div className="pt-2">
               <button

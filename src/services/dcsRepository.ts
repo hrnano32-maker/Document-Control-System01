@@ -4,6 +4,7 @@ import {
   getDoc,
   getDocs,
   getDocFromServer,
+  getDocsFromServer,
   writeBatch,
   onSnapshot,
   orderBy,
@@ -22,6 +23,7 @@ import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession,
 import { DEPARTMENTS } from '../types';
 import { hasDistributionAllocation, getDistributionDownloadAccess, isReceiptTransferComplete } from '../utils/distributionAccess';
 import { findExistingDistribution, canonicalDistributionDepartment } from '../utils/distributionReopen';
+import { findConflictingCopyRequest } from '../utils/copyRequests';
 import { getMasterRevisionHistory, revisionKey } from '../utils/masterRevisions';
 
 import { MAX_DAR_PDFS, formatPdfSize, validateDarPdf, getDarAttachments } from '../utils/darAttachments';
@@ -857,19 +859,43 @@ export const completeControlledTransfer = async (distributionId: string, transfe
 
 export const createCopyRequestRecord = async (user: CurrentUserSession, distribution: DistributionRecord, dept: Department, requestedBy: string, empId: string, reasonType: CopyReRequest['reasonType'], reasonDetails: string) => {
   if (user.currentDept !== dept) throw new Error('ไม่มีสิทธิ์ยื่นคำขอแทนหน่วยงานอื่น');
-  const latest = await getDocFromServer(doc(db, 'dcs_distributions', distribution.id));
-  if (!hasDistributionAllocation(latest.data() as DistributionRecord | undefined, dept)) throw new Error('รายการแจกจ่ายนี้ถูกยกเลิกหรือไม่มีสิทธิ์รับเอกสารแล้ว กรุณาติดต่อ DCC');
-  const seq = await nextNumber('request');
-  const id = `REQ-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
-  const record: CopyReRequest & { createdAt: string } = { id, distributionId: distribution.id, distributionNo: distribution.distributionNo, docNo: distribution.docNo, docNameTh: distribution.docNameTh, revision: distribution.revision, dept, requestedBy, empId, reasonType, reasonDetails, requestDate: new Date().toISOString(), createdAt: new Date().toISOString(), status: 'PENDING' };
-  await setDoc(doc(db, 'dcs_copy_requests', id), clean(record));
-  await writeAudit(user, 'COPY_RE_REQUESTED', record.docNo, record.revision, `ยื่นคำขอไฟล์ใหม่ ${id}`, { distributionNo: record.distributionNo, dept });
+  // Read the version before querying so concurrent submissions using this
+  // protocol cannot both commit after observing an empty request list.
+  const lockRef = doc(db, 'dcs_counters', `copy-request-lock-${encodeURIComponent(distribution.id)}-${encodeURIComponent(canonicalDistributionDepartment(dept))}`);
+  const initialLock = await getDocFromServer(lockRef);
+  const initialVersion = initialLock.data()?.value || 0;
+  const existing = await getDocsFromServer(query(collection(db, 'dcs_copy_requests'), where('dept', '==', dept)));
+  const pending = existing.docs.map(item => item.data() as CopyReRequest).find(item => item.distributionId === distribution.id && ['PENDING', 'PROCESSING'].includes(item.status));
+  if (pending) throw new Error(`มีคำขอ ${pending.id} รอ DCC พิจารณาอยู่แล้ว ไม่ต้องส่งคำขอซ้ำ`);
+  const now = new Date();
+  const year = now.getFullYear();
+  const counterRef = doc(db, 'dcs_counters', `request-${year}`);
+  const distRef = doc(db, 'dcs_distributions', distribution.id);
+  const record = await runTransaction(db, async tx => {
+    const [lockSnapshot, counterSnapshot, latest] = await Promise.all([tx.get(lockRef), tx.get(counterRef), tx.get(distRef)]);
+    if ((lockSnapshot.data()?.value || 0) !== initialVersion) throw new Error('มีการส่งคำขอพร้อมกัน กรุณาตรวจสอบสถานะคำขอก่อนลองใหม่');
+    if (!hasDistributionAllocation(latest.data() as DistributionRecord | undefined, dept)) throw new Error('รายการแจกจ่ายนี้ถูกยกเลิกหรือไม่มีสิทธิ์รับเอกสารแล้ว กรุณาติดต่อ DCC');
+    const seq = (counterSnapshot.data()?.value || 0) + 1;
+    const id = `REQ-${year}-${String(seq).padStart(4, '0')}`;
+    const timestamp = new Date().toISOString();
+    const row: CopyReRequest & { createdAt: string } = { id, distributionId: distribution.id, distributionNo: distribution.distributionNo, docNo: distribution.docNo, docNameTh: distribution.docNameTh, revision: distribution.revision, dept, requestedBy, empId, reasonType, reasonDetails, requestDate: timestamp, createdAt: timestamp, status: 'PENDING' };
+    tx.set(lockRef, { value: initialVersion + 1, kind: 'copyRequestLock', year: 0, updatedAt: timestamp });
+    tx.set(counterRef, { value: seq, kind: 'request', year, updatedAt: timestamp });
+    tx.set(doc(db, 'dcs_copy_requests', id), clean(row));
+    return row;
+  });
+  // A failed audit write must not tell the user submission failed after the
+  // request was already committed, which would encourage another attempt.
+  await writeAudit(user, 'COPY_RE_REQUESTED', record.docNo, record.revision, `ยื่นคำขอไฟล์ใหม่ ${record.id}`, { distributionNo: record.distributionNo, dept }).catch(error => console.error('COPY_REQUEST_AUDIT_FAILED', error));
 };
 
 export const decideCopyRequest = async (user: CurrentUserSession, request: CopyReRequest, approve: boolean, note: string, files?: { name: string; size: string; type: string; dataUrl: string }[]) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่พิจารณาคำขอได้');
   let reissuedDistributionId = '';
   if (approve) {
+    const requests = await getDocsFromServer(query(collection(db, 'dcs_copy_requests'), where('dept', '==', request.dept)));
+    const conflict = findConflictingCopyRequest(request, requests.docs.map(item => item.data() as CopyReRequest));
+    if (conflict) throw new Error(`คำขอ ${conflict.id} ได้รับการพิจารณาหรือกำลังดำเนินการแล้ว กรุณาตรวจสอบและไม่อนุมัติคำขอซ้ำ`);
     const requestRef = doc(db, 'dcs_copy_requests', request.id);
     await runTransaction(db, async transaction => {
       const current = await transaction.get(requestRef);
@@ -914,7 +940,12 @@ export const decideCopyRequest = async (user: CurrentUserSession, request: CopyR
       throw error;
     }
   }
-  if (!approve) await updateDoc(doc(db, 'dcs_copy_requests', request.id), clean({ status: 'REJECTED', dccDecisionBy: user.userName, dccDecisionDate: new Date().toISOString(), dccDecisionNote: note, reissuedDistributionId, updatedAt: new Date().toISOString() }));
+  if (!approve) await runTransaction(db, async tx => {
+    const requestRef = doc(db, 'dcs_copy_requests', request.id);
+    const current = await tx.get(requestRef);
+    if (!current.exists() || current.data().status !== 'PENDING') throw new Error('คำขอนี้ถูกดำเนินการไปแล้ว กรุณารีเฟรชหน้าจอ');
+    tx.update(requestRef, clean({ status: 'REJECTED', dccDecisionBy: user.userName, dccDecisionDate: new Date().toISOString(), dccDecisionNote: note, reissuedDistributionId, updatedAt: new Date().toISOString() }));
+  });
   await writeAudit(user, 'RE_REQUEST_APPROVED', request.docNo, request.revision, `${approve ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอ ${request.id}`, { note });
 };
 
