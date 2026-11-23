@@ -113,3 +113,27 @@ test('already-saved identical changes do not create duplicate audit records; unc
   await save(updates(base, { proposedRevision: '01' })); assert.equal(h.writes.length, 0);
   await assert.rejects(save(updates(base)), /ไม่มีข้อมูลที่เปลี่ยนแปลง/);
 });
+
+test('DCC may correct only prior effective dates in approved DAR additional rows', async () => {
+  for (const status of ['APPROVED', 'REGISTERED'] as const) {
+    const base=fixture();base.status=status;
+    const { h, save }=await setup(base); const form=updates(base);
+    form.additionalDocuments[0].previousEffectiveDate='2026-10-01';
+    await save(form);
+    assert.equal(h.latest.additionalDocuments[0].previousEffectiveDate,'2026-10-01');
+    assert.equal(h.latest.additionalDocuments[0].docNo,base.additionalDocuments![0].docNo);
+    assert.equal(h.audits.length,1);
+  }
+});
+
+test('approved row date correction cannot change identity, bypass date order or overwrite a concurrent edit', async () => {
+  const base=fixture();base.status='APPROVED';
+  for (const change of ['identity','future','concurrent']) {
+    const {h,save}=await setup(base),form=updates(base);
+    form.additionalDocuments[0].previousEffectiveDate='2026-10-01';
+    if(change==='identity')form.additionalDocuments[0].docNo='OTHER';
+    if(change==='future')form.additionalDocuments[0].previousEffectiveDate='2026-10-24';
+    if(change==='concurrent')h.latest.additionalDocuments[0].previousEffectiveDate='2026-10-02';
+    await assert.rejects(save(form));assert.equal(h.writes.length,0,change);
+  }
+});

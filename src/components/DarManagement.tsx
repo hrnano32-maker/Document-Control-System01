@@ -43,9 +43,10 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { MAX_DAR_PDFS, formatPdfSize, validateDarPdf, getDarAttachments, saveDownloadedBlob } from '../utils/darAttachments';
-import { revisionKey } from '../utils/masterRevisions';
+import { getMasterRevisionHistory, revisionKey } from '../utils/masterRevisions';
 import { DarPrintModal } from './DarPrintModal';
 import { DarLivePreview } from './DarLivePreview';
+import { MasterRevisionDatesModal } from './MasterRevisionDatesModal';
 import { analyzeRevisionSequence, getNextRevision, getSkippedRevisionFields, parseRevisionNumber } from '../utils/revisionHelper';
 import { formatDarRevision } from '../utils/darRevisionDisplay';
 import { getDarMasterRows } from '../utils/darMasterRegistration';
@@ -83,6 +84,7 @@ export const DarManagement: React.FC = () => {
   const [downloadingDarId, setDownloadingDarId] = useState<string | null>(null);
 
   const [editingDar, setEditingDar] = useState<DarRecord | null>(null);
+  const [editingMasterDates, setEditingMasterDates] = useState<MasterDocument | null>(null);
   const [correction, setCorrection] = useState({ docNo: '', docNameTh: '', docNameEn: '', targetEffectiveDate: '', previousEffectiveDate: '', reasonForChange: '', changeDetails: '', currentRevision: '', proposedRevision: '' });
   const correctionDetailsOnly = editingDar?.status === 'APPROVED' || editingDar?.status === 'REGISTERED';
   const [correctionRows, setCorrectionRows] = useState<DarAdditionalDocument[]>([]);
@@ -114,7 +116,7 @@ export const DarManagement: React.FC = () => {
   // Escape remains available for the review and print dialogs.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !editingMasterDates) {
         if (selectedDarForPrint) setSelectedDarForPrint(null);
         if (selectedDarForReview) setSelectedDarForReview(null);
       }
@@ -123,7 +125,7 @@ export const DarManagement: React.FC = () => {
       window.addEventListener('keydown', handleKeyDown);
     }
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedDarForPrint, selectedDarForReview]);
+  }, [selectedDarForPrint, selectedDarForReview, editingMasterDates]);
 
   // DAR Creation Form state
   const [reqType, setReqType] = useState<DarRequestType>('REVISION');
@@ -634,7 +636,7 @@ export const DarManagement: React.FC = () => {
         <div role="dialog" aria-modal="true" aria-label={`DCC แก้ไขใบ DAR ${editingDar.id}`} className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4">
           <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-bold mb-2">DCC แก้ไขใบ DAR {editingDar.id}</h3>
-            <p className="mb-4 text-sm text-amber-800">DCC สามารถแก้ไขวันที่และเหตุผลได้แม้อนุมัติแล้ว โดยระบบตรวจสอบวันที่และเก็บประวัติ</p>
+            <p className="mb-4 text-sm text-amber-800">DCC สามารถแก้ไขวันที่และเหตุผลได้แม้อนุมัติแล้ว โดยระบบตรวจสอบวันที่และเก็บประวัติ การแก้ไขใบ DAR จะไม่เปลี่ยนวันที่ใน Master List โดยอัตโนมัติ</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {([
                 ['currentRevision', 'Rev. เดิม'], ['proposedRevision', 'Rev. ที่เสนอ'], ['docNo', 'รหัสเอกสาร'], ['docNameTh', 'ชื่อเอกสารภาษาไทย'],
@@ -657,17 +659,17 @@ export const DarManagement: React.FC = () => {
             <section className="mt-4 space-y-3">
               <h4 className="font-bold">รายการเอกสารเพิ่มเติม</h4>
               {correctionRows.map((row, index) => (
-                <fieldset key={index} disabled={savingCorrection || correctionDetailsOnly} className="rounded-lg border p-3 disabled:opacity-60">
+                <fieldset key={index} disabled={savingCorrection} className="rounded-lg border p-3 disabled:opacity-60">
                   <legend className="font-semibold">รายการที่ {index + 2}</legend>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {([['docNo', 'รหัสเอกสาร'], ['docNameTh', 'ชื่อเอกสารภาษาไทย'], ['docNameEn', 'ชื่อเอกสารภาษาอังกฤษ'], ['previousEffectiveDate', 'วันที่เอกสารเดิมมีผล'], ['currentRevision', 'Rev. เดิม'], ['revision', 'Rev. ที่เสนอ'], ['reason', 'เหตุผล']] as const).map(([key, label]) => (
                       <label key={key} className="text-sm font-semibold">{label}
-                        <input type={key === 'previousEffectiveDate' ? 'date' : 'text'} className="mt-1 w-full rounded-lg border p-2"
-                          value={row[key] || ''} onChange={e => setCorrectionRows(items => items.map((item, i) => i === index ? { ...item, [key]: e.target.value } : item))} />
+                        <input type={key === 'previousEffectiveDate' ? 'date' : 'text'} className="mt-1 w-full rounded-lg border p-2 disabled:bg-slate-100"
+                          disabled={!!correctionDetailsOnly && key !== 'previousEffectiveDate'} value={row[key] || ''} onChange={e => setCorrectionRows(items => items.map((item, i) => i === index ? { ...item, [key]: e.target.value } : item))} />
                       </label>
                     ))}
                   </div>
-                  <button type="button" disabled={savingCorrection} onClick={() => setCorrectionRows(items => items.filter((_, i) => i !== index))} className="mt-2 text-sm text-rose-700">ลบรายการนี้</button>
+                  <button type="button" disabled={savingCorrection || correctionDetailsOnly} onClick={() => setCorrectionRows(items => items.filter((_, i) => i !== index))} className="mt-2 text-sm text-rose-700">ลบรายการนี้</button>
                 </fieldset>
               ))}
               <button type="button" disabled={savingCorrection || correctionDetailsOnly || correctionRows.length >= 5}
@@ -687,6 +689,8 @@ export const DarManagement: React.FC = () => {
           </div>
         </div>
       )}
+
+      {editingMasterDates && <MasterRevisionDatesModal document={editingMasterDates} user={currentUser} onClose={() => setEditingMasterDates(null)} onSaved={() => { setEditingMasterDates(null); alert('บันทึกวันที่ Master List สำเร็จ กรุณาตรวจสอบวันที่ในใบ DAR ก่อนขึ้นทะเบียน'); }} />}
 
       {/* Review / Details Modal */}
       {selectedDarForReview && (
@@ -835,15 +839,24 @@ export const DarManagement: React.FC = () => {
                 <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 space-y-3">
                   <div className="font-bold text-indigo-950">เชื่อมรหัสเดิม เมื่อเอกสารเปลี่ยนรหัส</div>
                   <p className="text-sm text-indigo-900">เลือกเฉพาะรายการที่เปลี่ยนรหัส โดยตรวจสอบว่าเป็นเอกสารเดียวกัน รหัสเดิมจะเก็บไว้เป็นประวัติ ไม่เลือกระบบจะใช้รหัสใน DAR ค้นหารายการเดิมตามปกติ</p>
-                  {(() => { try { return getDarMasterRows(selectedDarForReview); } catch { return []; } })().map((row, index) => (
-                    <label key={row.key} className="block text-sm font-semibold text-slate-800">
+                  {(() => { try { return getDarMasterRows(selectedDarForReview); } catch { return []; } })().map((row, index) => {
+                    const previous = documents.find(item => item.id === (previousDocumentLinks[row.key] || row.key));
+                    const mismatch = !!(previous?.effectiveDate && row.previousEffectiveDate && previous.effectiveDate !== row.previousEffectiveDate);
+                    const showDate = (value?: string) => value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.split('-').reverse().join('/') : value || 'ไม่ระบุ';
+                    return <div key={row.key} className="block text-sm font-semibold text-slate-800"><label className="block">
                       รายการที่ {index + 1}: {row.docNo} — {row.docNameTh}
                       <select value={previousDocumentLinks[row.key] || ''} onChange={event => setPreviousDocumentLinks(current => { const next = { ...current }; if (event.target.value) next[row.key] = event.target.value; else delete next[row.key]; return next; })} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-normal">
                         <option value="">ไม่เปลี่ยนรหัส / ใช้รหัสใน DAR</option>
                         {documents.filter(doc => doc.status === 'ACTIVE' && doc.id !== row.key && (doc.ownerDept === selectedDarForReview.requestDept || (['QA', 'QC', 'QA/QC'].includes(doc.ownerDept) && ['QA', 'QC', 'QA/QC'].includes(selectedDarForReview.requestDept)))).map(doc => <option key={doc.id} value={doc.id}>{doc.docNo} — {doc.docNameTh} — Rev.{doc.currentRevision} — มีผล {doc.effectiveDate}</option>)}
                       </select>
                     </label>
-                  ))}
+                    {previous && <div className={`mt-2 rounded-lg border p-2 font-normal ${mismatch ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-slate-200 bg-white text-slate-700'}`}>
+                      <div>วันที่เดิมใน DAR: <strong>{showDate(row.previousEffectiveDate)}</strong> · Master List {previous.docNo} Rev.{previous.currentRevision}: <strong>{showDate(previous.effectiveDate)}</strong></div>
+                      {mismatch && <div className="mt-1 font-semibold">วันที่ไม่ตรงกัน กรุณาตรวจสอบหลักฐานและแก้วันที่ที่ถูกต้องก่อนขึ้นทะเบียน</div>}
+                      <button type="button" onClick={() => setEditingMasterDates({ ...previous, revisionHistory: getMasterRevisionHistory(previous, dars.find(item => item.id === previous.darReferenceId)) })} className="mt-2 rounded-lg border border-indigo-300 bg-white px-3 py-1.5 font-semibold text-indigo-800">ตรวจสอบ / แก้วันที่ Master List {previous.docNo}</button>
+                    </div>}
+                    </div>;
+                  })}
                   <p className="text-sm text-indigo-900">ไฟล์ฉบับเดิมที่แนบเป็นไฟล์รวมของ DAR ระบบเก็บไว้เป็นหลักฐาน โดยไม่เดาว่าไฟล์ใดเป็นของรายการใด</p>
                 </div>
               )}

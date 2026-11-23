@@ -469,15 +469,25 @@ export const correctDarRecord = async (
   const detailsOnly = dar.status === 'APPROVED' || dar.status === 'REGISTERED';
   if (detailsOnly) {
     // Keep identity fields byte-for-byte; legacy names may contain spaces or lowercase.
-    for (const key of ['docNo', 'docNameTh', 'docNameEn', 'currentRevision', 'proposedRevision', 'additionalDocuments'] as const) {
+    for (const key of ['docNo', 'docNameTh', 'docNameEn', 'currentRevision', 'proposedRevision'] as const) {
       if (!sameDarCorrectionValue(key, updates[key], dar[key])) {
         throw new Error('DAR ที่อนุมัติแล้วแก้ไขได้เฉพาะวันที่และเหตุผล');
       }
     }
+    // For an approved DAR, permit only previous-effective-date corrections
+    // in existing rows; document identity and row order remain immutable.
+    const originalRows = dar.additionalDocuments || [];
+    const requestedRows = updates.additionalDocuments || [];
+    const withoutDates = (rows: typeof originalRows) => rows.map(row => ({ ...row, previousEffectiveDate: '' }));
+    if (!sameDarCorrectionValue('additionalDocuments', withoutDates(requestedRows), withoutDates(originalRows))) {
+      throw new Error('DAR ที่อนุมัติแล้วแก้ไขรายการเพิ่มเติมได้เฉพาะวันที่เอกสารเดิม');
+    }
+    const correctedRows = originalRows.map((row, index) => (row.previousEffectiveDate || '') === (requestedRows[index].previousEffectiveDate || '')
+      ? row : { ...row, previousEffectiveDate: requestedRows[index].previousEffectiveDate || '' });
     Object.assign(corrected, {
       docNo: dar.docNo, docNameTh: dar.docNameTh, docNameEn: dar.docNameEn || '',
       currentRevision: dar.currentRevision, proposedRevision: dar.proposedRevision,
-      additionalDocuments: dar.additionalDocuments || [],
+      additionalDocuments: correctedRows,
     });
   }
   // Only fields the editor changed belong in this correction. Unrelated live

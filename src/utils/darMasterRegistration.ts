@@ -1,6 +1,9 @@
 import type { DarRecord, MasterDocument, DarDocumentLink } from '../types';
 import { getMasterRevisionHistory, revisionKey } from './masterRevisions';
 
+const shortDate = (value: string) => /^(\d{4})-(\d{2})-(\d{2})$/.test(value) ? value.split('-').reverse().join('/') : value;
+const dateMismatch = (newDocNo: string, oldDoc: MasterDocument, darDate: string) => `${newDocNo}: วันที่เอกสารเดิมไม่ตรงกับ Master List\nใน DAR: ${shortDate(darDate)}\nMaster List ${oldDoc.docNo} Rev.${oldDoc.currentRevision}: ${shortDate(oldDoc.effectiveDate)}\nกรุณาตรวจสอบและแก้ไขวันที่ที่ถูกต้องก่อนขึ้นทะเบียน`;
+
 export const masterDocumentKey = (docNo: string) => encodeURIComponent(docNo.trim().toUpperCase()).replace(/%/g, '_');
 
 // A DAR has one approval and one distribution set, but each row is a distinct document.
@@ -60,7 +63,7 @@ export function planDarMasterRegistration(
       const dept = (value: string) => ['QA', 'QC', 'QA/QC'].includes(value) ? 'QA/QC' : value;
       if (dept(previous.ownerDept) !== dept(dar.requestDept)) throw new Error(`${row.docNo}: เอกสารเดิมเป็นของหน่วยงานอื่น กรุณาตรวจสอบ`);
       if (row.currentRevision && revisionKey(row.currentRevision) !== revisionKey(previous.currentRevision)) throw new Error(`${row.docNo}: Rev. เดิมไม่ตรงกับ Master List`);
-      if (row.previousEffectiveDate && previous.effectiveDate && row.previousEffectiveDate !== previous.effectiveDate) throw new Error(`${row.docNo}: วันที่เอกสารเดิมไม่ตรงกับ Master List`);
+      if (row.previousEffectiveDate && previous.effectiveDate && row.previousEffectiveDate !== previous.effectiveDate) throw new Error(dateMismatch(row.docNo, previous, row.previousEffectiveDate));
       if (previous.effectiveDate && dar.targetEffectiveDate && previous.effectiveDate >= dar.targetEffectiveDate) throw new Error(`${row.docNo}: วันที่มีผลฉบับใหม่ต้องหลังวันที่ฉบับเดิม`);
       const anchorId = previous.distributionSetDocId || sourceId;
       const anchor = previousById[anchorId];
@@ -84,7 +87,7 @@ export function planDarMasterRegistration(
       const newRev = revisionKey(row.revision);
       if (previous.status !== 'ACTIVE') throw new Error(`${row.docNo}: เอกสารเดิมไม่ได้อยู่ในสถานะ Active`);
       if (!oldRev || !newRev || oldRev === newRev || (/^\d+$/.test(oldRev) && /^\d+$/.test(newRev) && Number(newRev) <= Number(oldRev))) throw new Error(`${row.docNo}: Rev. ที่เสนอต้องใหม่กว่า Rev. ปัจจุบันใน Master List`);
-      if (previous.effectiveDate && row.previousEffectiveDate && previous.effectiveDate !== row.previousEffectiveDate) throw new Error(`${row.docNo}: วันที่เอกสารเดิมไม่ตรงกับ Master List กรุณาตรวจสอบ`);
+      if (previous.effectiveDate && row.previousEffectiveDate && previous.effectiveDate !== row.previousEffectiveDate) throw new Error(dateMismatch(row.docNo, previous, row.previousEffectiveDate));
     }
     const revision = row.revision;
     const history = previous && !renamed ? getMasterRevisionHistory(previous) : [];

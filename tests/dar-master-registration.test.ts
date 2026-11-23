@@ -114,3 +114,12 @@ test('legacy Master records without a DAR reference can still be inspected', () 
   const revision = { ...dar, requestType: 'REVISION', currentRevision: '00', proposedRevision: '01', targetEffectiveDate: '2026-12-01', previousEffectiveDate: '2026-11-03', additionalDocuments: [] } as DarRecord;
   assert.doesNotThrow(() => planDarMasterRegistration(revision, { [legacy.id]: legacy }, 'DCC', now, 'register'));
 });
+
+test('a mismatched renamed revision reports both actual dates and the selected old Master code', () => {
+  const original = planDarMasterRegistration(dar, {}, 'DCC', now, 'register').records;
+  const old = { ...original[1], id:'BOM_API-006-26', docNo:'BOM_API-006-26', distributionSetDocId:undefined, effectiveDate:'2026-11-20' };
+  const revision = { ...dar, requestType:'REVISION', currentRevision:'00', proposedRevision:'01', targetEffectiveDate:'2026-12-01', previousEffectiveDate:'2026-11-03', additionalDocuments:[{ ...dar.additionalDocuments![0], docNo:'BOM-K006-01_51', currentRevision:'00', previousEffectiveDate:'2026-11-17', revision:'01' }] } as DarRecord;
+  assert.throws(() => planDarMasterRegistration(revision, { [original[0].id]:original[0], [old.id]:old }, 'DCC', now, 'register', { 'BOM-K006-01_51':old.id }), error => {
+    const message=(error as Error).message;return message.includes('17/11/2026') && message.includes('20/11/2026') && message.includes('BOM_API-006-26');
+  });
+});
