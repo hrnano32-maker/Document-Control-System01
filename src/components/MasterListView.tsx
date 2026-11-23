@@ -413,26 +413,41 @@ export const MasterListView: React.FC = () => {
         <button type="button" className="ml-3 font-bold underline" onClick={() => { attemptedRestores.current.clear(); setRestoreError(''); setRestoreAttempt(value => value + 1); }}>ลองอีกครั้ง</button>
       </div>}
       {/* Master List Table */}
+      <style>{`
+        @media (max-width: 1023px) {
+          #dcs-masterlist-view .master-list-table,
+          #dcs-masterlist-view .master-list-table tbody { display: block; }
+          #dcs-masterlist-view .master-list-table colgroup,
+          #dcs-masterlist-view .master-list-table thead { display: none; }
+          #dcs-masterlist-view .master-list-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; padding: 12px; }
+          #dcs-masterlist-view .master-list-table tbody td { display: block; min-width: 0; padding: 4px; border: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+          #dcs-masterlist-view .master-list-table tbody td::before { content: attr(data-label); display: block; margin-bottom: 3px; color: #64748b; font-size: 12px; font-weight: 600; }
+          #dcs-masterlist-view .master-list-table tbody td.master-list-actions { grid-column: 1 / -1; }
+          #dcs-masterlist-view .master-list-table tbody td.master-list-actions > div { justify-content: flex-start; }
+          #dcs-masterlist-view .master-list-table tbody td.master-list-actions button { display: inline-flex; align-items: center; gap: 4px; padding: 6px 8px; font-size: 13px; }
+        }
+      `}</style>
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left border-collapse">
+        <div className="w-full">
+          <table className="master-list-table w-full table-fixed text-sm text-left border-collapse">
+            <colgroup><col style={{width:'13%'}}/><col style={{width:'21%'}}/><col style={{width:'6%'}}/><col style={{width:'9%'}}/><col style={{width:'8%'}}/><col style={{width:'9%'}}/><col style={{width:'9%'}}/><col style={{width:'8%'}}/><col style={{width:'17%'}}/></colgroup>
             <thead>
-              <tr className="bg-slate-900 text-white font-bold uppercase text-xs sm:text-sm tracking-wider">
-                <th className="py-4 px-4 border-r border-slate-800">รหัสเอกสาร (Doc No.)</th>
-                <th className="py-4 px-4 border-r border-slate-800 min-w-[260px]">ชื่อเอกสาร (Document Name)</th>
-                <th className="py-4 px-3.5 border-r border-slate-800 text-center">ประเภท</th>
-                <th className="py-4 px-3.5 border-r border-slate-800 text-center">หน่วยงาน</th>
-                <th className="py-4 px-3.5 border-r border-slate-800 text-center">Rev. ปัจจุบัน</th>
-                <th className="py-4 px-3.5 border-r border-slate-800 text-center">วันที่มีผลบังคับใช้</th>
-                <th className="py-4 px-3.5 border-r border-slate-800 text-center">ครบกำหนดทบทวน</th>
-                <th className="py-4 px-3.5 border-r border-slate-800 text-center">สถานะ</th>
-                <th className="py-4 px-4 text-center">การจัดการ</th>
+              <tr className="bg-slate-900 text-white font-bold uppercase text-[13px] tracking-normal">
+                <th className="py-3 px-2 border-r border-slate-800">รหัสเอกสาร (Doc No.)</th>
+                <th className="py-3 px-2 border-r border-slate-800">ชื่อเอกสาร (Document Name)</th>
+                <th className="py-3 px-2 border-r border-slate-800 text-center">ประเภท</th>
+                <th className="py-3 px-2 border-r border-slate-800 text-center">หน่วยงาน</th>
+                <th className="py-3 px-2 border-r border-slate-800 text-center">Rev. ปัจจุบัน</th>
+                <th className="py-3 px-2 border-r border-slate-800 text-center">วันที่มีผลบังคับใช้</th>
+                <th className="py-3 px-2 border-r border-slate-800 text-center">ครบกำหนดทบทวน</th>
+                <th className="py-3 px-2 border-r border-slate-800 text-center">สถานะ</th>
+                <th className="py-3 px-2 text-center">การจัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {filteredDocs.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="p-10 text-center text-slate-400 text-base">
+                  <td colSpan={9} className="p-10 text-center text-slate-400 text-base [grid-column:1/-1]">
                     <FolderOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                     ไม่พบเอกสารตามเงื่อนไขที่ระบุ
                   </td>
@@ -444,20 +459,20 @@ export const MasterListView: React.FC = () => {
                     <tr key={doc.id} className="hover:bg-slate-50/80 transition-colors">
                       
                       {/* Doc No */}
-                      <td className="py-4 px-4 border-r border-slate-100 font-mono font-bold text-indigo-900 whitespace-nowrap text-sm">
-                        <div className="flex items-center gap-2">
+                      <td data-label="รหัสเอกสาร" className="py-3 px-2 border-r border-slate-100 font-mono font-bold text-indigo-900 text-sm break-all align-top">
+                        <div className="flex items-start gap-1.5">
                           <FileText className="w-4.5 h-4.5 text-indigo-600 shrink-0" />
-                          <span className="text-sm font-extrabold">{doc.docNo}</span>
+                          <span className="text-sm font-extrabold min-w-0 break-all">{doc.docNo}</span>
                         </div>
                         {doc.previousDocNo && <div className="mt-1 text-xs font-normal text-slate-600">รหัสเดิม: {doc.previousDocNo}</div>}
                         {doc.supersededByDocNo && <div className="mt-1 text-xs font-normal text-slate-600">เปลี่ยนเป็น: {doc.supersededByDocNo}</div>}
                       </td>
 
                       {/* Doc Name */}
-                      <td className="py-4 px-4 border-r border-slate-100">
+                      <td data-label="ชื่อเอกสาร" className="py-3 px-2 border-r border-slate-100 align-top break-words [overflow-wrap:anywhere]">
                         <div className="space-y-1">
-                          <div className="font-bold text-slate-900 text-sm sm:text-base leading-snug">{doc.docNameTh}</div>
-                          <div className="text-xs sm:text-sm text-slate-500 italic">{doc.docNameEn}</div>
+                          <div className="font-bold text-slate-900 text-sm leading-snug">{doc.docNameTh}</div>
+                          <div className="text-[13px] text-slate-500 italic">{doc.docNameEn}</div>
                           <div className="text-xs text-slate-400 font-mono font-medium">
                             DAR Ref: {doc.darReferenceId}
                           </div>
@@ -466,76 +481,78 @@ export const MasterListView: React.FC = () => {
                       </td>
 
                       {/* Type Badge */}
-                      <td className="py-4 px-3.5 border-r border-slate-100 text-center whitespace-nowrap">
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${typeObj?.badgeColor || 'bg-slate-100 text-slate-700'}`}>
+                      <td data-label="ประเภท" className="py-3 px-1 border-r border-slate-100 text-center align-top">
+                        <span className={`inline-block max-w-full break-all leading-tight px-1.5 py-1 rounded-full text-xs font-bold border ${typeObj?.badgeColor || 'bg-slate-100 text-slate-700'}`}>
                           {doc.docType}
                         </span>
                       </td>
 
                       {/* Owner Dept */}
-                      <td className="py-4 px-3.5 border-r border-slate-100 text-center whitespace-nowrap font-bold text-slate-800 text-sm">
+                      <td data-label="หน่วยงาน" className="py-3 px-1 border-r border-slate-100 text-center font-bold text-slate-800 text-sm align-top break-words [overflow-wrap:anywhere]">
                         {doc.ownerDept}
                       </td>
 
                       {/* Current Rev */}
-                      <td className="py-4 px-3.5 border-r border-slate-100 text-center whitespace-nowrap">
+                      <td data-label="Rev. ปัจจุบัน" className="py-3 px-1 border-r border-slate-100 text-center align-top">
                         <button
                           onClick={() => setSelectedDocForHistory(doc)}
-                          className="inline-flex items-center gap-1.5 font-mono font-bold text-sm px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 cursor-pointer transition-colors"
+                          className="inline-flex max-w-full items-center gap-1 font-mono font-bold text-[13px] px-1 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 cursor-pointer transition-colors"
                           title="คลิกเพื่อดูประวัติ Revision ทั้งหมด"
                         >
-                          Rev.{doc.currentRevision}
-                          <History className="w-4 h-4" />
+                          <span className="min-w-0 break-all">Rev.{doc.currentRevision}</span>
+                          <History className="w-4 h-4 shrink-0" />
                         </button>
                       </td>
 
                       {/* Effective Date */}
-                      <td className="py-4 px-3.5 border-r border-slate-100 text-center whitespace-nowrap text-slate-800 font-mono text-xs sm:text-sm font-semibold">
+                      <td data-label="วันที่มีผลบังคับใช้" className="py-3 px-1 border-r border-slate-100 text-center text-slate-800 tabular-nums text-[13px] font-semibold align-top break-words">
                         {doc.effectiveDate}
                       </td>
 
                       {/* Review Due Date */}
-                      <td className="py-4 px-3.5 border-r border-slate-100 text-center whitespace-nowrap text-slate-600 font-mono text-xs sm:text-sm font-medium">
+                      <td data-label="ครบกำหนดทบทวน" className="py-3 px-1 border-r border-slate-100 text-center text-slate-600 tabular-nums text-[13px] font-medium align-top break-words">
                         {doc.reviewDueDate}
                       </td>
 
                       {/* Status */}
-                      <td className="py-4 px-3.5 border-r border-slate-100 text-center whitespace-nowrap">
+                      <td data-label="สถานะ" className="py-3 px-1 border-r border-slate-100 text-center align-top">
                         {doc.status === 'ACTIVE' ? (
-                          <span className="inline-flex items-center gap-1 font-bold text-xs sm:text-sm px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          <span className="inline-flex items-center gap-1 font-bold text-xs px-1.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
                             <CheckCircle2 className="w-4 h-4" /> Active
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 font-bold text-xs sm:text-sm px-3 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
+                          <span className="inline-flex items-center gap-1 font-bold text-xs px-1.5 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
                             <AlertCircle className="w-4 h-4" /> Obsolete
                           </span>
                         )}
                       </td>
 
                       {/* Actions */}
-                      <td className="p-4 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1.5">
+                      <td data-label="การจัดการ" className="master-list-actions p-1.5 text-center align-top">
+                        <div className="flex flex-wrap items-center justify-center gap-1">
                           
                           {/* History */}
                           <button
                             onClick={() => setSelectedDocForHistory(doc)}
-                            className="p-2 text-slate-600 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                            aria-label={`ดูประวัติ Revision ${doc.docNo}`}
+                            className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                             title="ดูประวัติ Revision ทั้งหมด"
                           >
-                            <History className="w-4.5 h-4.5" />
+                            <History className="w-4.5 h-4.5" /><span className="sr-only max-lg:not-sr-only">ประวัติ</span>
                           </button>
 
-                          {currentUser.userRole === 'DCC_ADMIN' && <button type="button" onClick={() => { setDateMessage(''); setEditingDates(doc); }} className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700" title="แก้ไขวันที่แต่ละ Revision และวันครบกำหนดทบทวน">
-                            <Calendar className="h-4 w-4" />แก้ไขวันที่
+                          {currentUser.userRole === 'DCC_ADMIN' && <button type="button" onClick={() => { setDateMessage(''); setEditingDates(doc); }} aria-label={`แก้ไขวันที่ ${doc.docNo}`} className="inline-flex items-center rounded-lg border border-indigo-200 bg-indigo-50 p-1.5 text-indigo-700" title="แก้ไขวันที่แต่ละ Revision และวันครบกำหนดทบทวน">
+                            <Calendar className="h-4 w-4" /><span className="sr-only max-lg:not-sr-only">แก้ไขวันที่</span>
                           </button>}
 
                           {/* Stamper */}
                           <button
                             onClick={() => openStamperForDoc(doc.docNo, doc.docNameTh, doc.currentRevision, doc.ownerDept)}
-                            className="p-2 text-slate-600 hover:text-red-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                            aria-label={`ประทับตรา Controlled Copy ${doc.docNo}`}
+                            className="p-1.5 text-slate-600 hover:text-red-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                             title="ประทับตรา Controlled Copy"
                           >
-                            <Stamp className="w-4.5 h-4.5" />
+                            <Stamp className="w-4.5 h-4.5" /><span className="sr-only max-lg:not-sr-only">ประทับตรา</span>
                           </button>
 
                           {/* View Document */}
@@ -557,11 +574,12 @@ export const MasterListView: React.FC = () => {
                               effectiveDate: doc.effectiveDate,
                               isControlledCopy: true,
                             })}
-                            className="px-3 py-2 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-colors cursor-pointer text-xs sm:text-sm font-bold flex items-center gap-1.5"
+                            className="p-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors cursor-pointer"
+                            aria-label={`ดูเอกสาร ${doc.docNo}`}
                             title="เปิดดูตัวอย่างเอกสาร & ดาวน์โหลดไฟล์"
                           >
                             <Eye className="w-4.5 h-4.5 text-indigo-600" />
-                            <span>ดูเอกสาร</span>
+                            <span className="sr-only max-lg:not-sr-only">ดูเอกสาร</span>
                           </button>
 
                           {/* DCC Distribute Button */}
@@ -571,19 +589,21 @@ export const MasterListView: React.FC = () => {
                                 type="button"
                                 onClick={() => doc.currentFileStoragePath && openDocumentViewer({ title: `${doc.docNameTh} — ไฟล์ต้นฉบับ`, docNo: doc.docNo, docNameTh: doc.docNameTh, docNameEn: doc.docNameEn, docType: doc.docType, revision: doc.currentRevision, dept: doc.ownerDept, fileName: doc.fileName || `${doc.docNo}_Rev${doc.currentRevision}_ORIGINAL.pdf`, fileSize: doc.fileSize, fileType: 'application/pdf', fileStoragePath: doc.currentFileStoragePath, docId: doc.id, effectiveDate: doc.effectiveDate, isControlledCopy: false })}
                                 disabled={!doc.currentFileStoragePath}
-                                className="px-3 py-2 bg-white hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 text-slate-800 border border-slate-300 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
+                                className="p-1.5 bg-white hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 text-slate-800 border border-slate-300 rounded-lg cursor-pointer transition-colors"
+                                aria-label={`ไฟล์ต้นฉบับ ${doc.docNo}`}
                                 title={doc.currentFileStoragePath ? 'เปิดและดาวน์โหลดไฟล์ PDF ต้นฉบับที่ไม่ประทับตรา' : doc.distributionSetDocId ? 'ไฟล์อยู่ในชุด DAR กรุณาตรวจสอบจากรายการเอกสารหลัก' : 'ไฟล์ต้นฉบับยังอยู่ระหว่างจัดเตรียม'}
                               >
                                 <Download className="w-4 h-4" />
-                                <span>ไฟล์ต้นฉบับ</span>
+                                <span className="sr-only max-lg:not-sr-only">ไฟล์ต้นฉบับ</span>
                               </button>
                               <button
                                 onClick={() => handleOpenQuickDistribute(doc)}
-                                className="px-3 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
+                                className="p-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg cursor-pointer transition-colors"
+                                aria-label={`แจกจ่าย ${doc.docNo}`}
                                 title="เพิ่มแผนกหรือแจกจ่ายด้วยตนเอง"
                               >
                                 <Send className="w-4 h-4" />
-                                <span>แจกจ่าย</span>
+                                <span className="sr-only max-lg:not-sr-only">แจกจ่าย</span>
                               </button>
                             </>
                           )}
