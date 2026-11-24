@@ -29,6 +29,6 @@ test('department history has no expired-receipt prompt; a pending delivery inste
   ctx.reRequests=[];item.receipts.HR={downloadedAt:'2026-11-01T01:00:00Z',transferId:'t',transferStatus:'COMPLETE',transferCompletedAt:'2026-11-01T01:01:00Z',transferredIndexes:[0]};
   assert.match(draw(),/ไม่มีหลักฐานว่าบันทึกครบทุกไฟล์/);
   item.receipts.HR.transferredIndexes=[0,1];item.targets[0].isDownloaded=false;
-  const html=draw();assert.match(html,/ประวัติการรับ · ดาวน์โหลดครบแล้ว/);assert.doesNotMatch(html,/ร้องขอ DCC เปิดสิทธิ์ใหม่|สิทธิ์ดาวน์โหลดของแผนกหมดอายุแล้ว/);
+  const html=draw();assert.match(html,/ประวัติรับเอกสารของ HR/);assert.match(html,/ประวัติการรับ · ดาวน์โหลดครบแล้ว/);assert.doesNotMatch(html,/มีหน่วยงานหมดอายุ/);assert.doesNotMatch(html,/ร้องขอ DCC เปิดสิทธิ์ใหม่|สิทธิ์ดาวน์โหลดของแผนกหมดอายุแล้ว/);
   assert.match(html,/<details[^>]*><summary[^>]*>กรณีไฟล์ที่รับแล้วสูญหายหรือชำรุด<\/summary><button[^>]*>ขอสำเนาทดแทน<\/button><\/details>/);
 });

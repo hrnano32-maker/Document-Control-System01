@@ -76,8 +76,8 @@ export const DistributionManager: React.FC = () => {
       dist.docNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
       dist.docNameTh.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchStatus = statusFilter === 'ALL' || (statusFilter === 'EXPIRED'
-      ? (isDcc ? dist.targetDepartments : [currentUser.currentDept]).some(dept => isPendingDepartmentReceipt(dist, dept) && getDistributionDownloadAccess(dist, dept, now).state === 'EXPIRED')
+    const matchStatus = !isDcc || statusFilter === 'ALL' || (statusFilter === 'EXPIRED'
+      ? dist.targetDepartments.some(dept => isPendingDepartmentReceipt(dist, dept) && getDistributionDownloadAccess(dist, dept, now).state === 'EXPIRED')
       : dist.status === statusFilter);
     return matchSearch && matchStatus;
   });
@@ -152,14 +152,14 @@ export const DistributionManager: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              การแจกจ่าย & ควบคุมสำเนา (Distribution Control)
+              {isDcc ? 'การแจกจ่าย & ควบคุมสำเนา (Distribution Control)' : `ประวัติรับเอกสารของ ${currentUser.currentDept}`}
             </h1>
             <span className="bg-cyan-100 text-cyan-800 text-xs font-bold px-2.5 py-0.5 rounded-full border border-cyan-200">
               {filteredDistributions.length} ใบแจกจ่าย
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            ควบคุมการแจกจ่าย Controlled Copy ไปยัง 12 หน่วยงาน ด้วยกฎ 1 แผนก = 1 ดาวน์โหลด พร้อมเวลานับถอยหลัง 3 วัน
+            {isDcc ? 'ควบคุมการแจกจ่าย Controlled Copy แยกตามหน่วยงาน พร้อมกำหนดเวลารับ 3 วัน' : 'รายการที่แผนกของคุณรับแล้ว เอกสารที่ยังค้างจะแสดงในหน้าบังคับรับก่อนเข้าหน้านี้'}
           </p>
         </div>
 
@@ -271,7 +271,7 @@ export const DistributionManager: React.FC = () => {
           />
         </div>
 
-        <div className="w-full sm:w-64">
+        {isDcc && <div className="w-full sm:w-64">
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
@@ -283,7 +283,7 @@ export const DistributionManager: React.FC = () => {
             <option value="EXPIRED">🔴 มีหน่วยงานหมดอายุ (Expired)</option>
             <option value="CANCELLED">⚫ ยกเลิกแล้ว (Cancelled)</option>
           </select>
-        </div>
+        </div>}
       </div>
 
       {/* Distribution Cards List */}
