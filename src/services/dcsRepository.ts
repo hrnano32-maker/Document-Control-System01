@@ -18,8 +18,9 @@ import {
 import { httpsCallable } from 'firebase/functions';
 import { deleteObject, getDownloadURL, ref, uploadBytes, uploadBytesResumable } from 'firebase/storage';
 import { auth, db, firebaseFunctions, storage } from '../lib/firebase';
-import type { AuditActionType, AuditLogEntry, CopyReRequest, CurrentUserSession, DarCreateInput, DarPreviousRevision, DocumentReturnRequest, DarRecord, DcsAnnouncement, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
+import type { AuditActionType, CopyReRequest, CurrentUserSession, DarCreateInput, DarPreviousRevision, DocumentReturnRequest, DarRecord, DcsAnnouncement, Department, DistributionReceipt, DistributionRecord, MasterDocument } from '../types';
 
+import { readAuditEntry, type AuditTrailRow } from '../utils/auditTrail';
 import { DEPARTMENTS } from '../types';
 import { hasDistributionAllocation, getDistributionDownloadAccess, isReceiptTransferComplete } from '../utils/distributionAccess';
 import { findExistingDistribution, canonicalDistributionDepartment } from '../utils/distributionReopen';
@@ -67,9 +68,9 @@ export const subscribeMasterListRegistry = (callback: (rows: MasterDocument[]) =
     callback(snap.docs.map(item => item.data() as MasterDocument))
   );
 
-export const subscribeAudit = (callback: (rows: AuditLogEntry[]) => void) =>
+export const subscribeAudit = (callback: (rows: AuditTrailRow[]) => void) =>
   onSnapshot(query(collection(db, 'dcs_audit_logs'), orderBy('timestamp', 'desc')), snap => {
-    callback(snap.docs.map(item => item.data() as AuditLogEntry));
+    callback(snap.docs.map(item => readAuditEntry(item.id, item.data())));
   });
 
 export const subscribeDars = (user: CurrentUserSession, callback: (rows: DarRecord[]) => void) => {
@@ -151,9 +152,9 @@ export const subscribeCopyRequests = (user: CurrentUserSession, callback: (rows:
   return onSnapshot(query(collection(db, 'dcs_copy_requests'), ...constraints), { includeMetadataChanges: true }, snap => callback(snap.docs.map(item => item.data() as CopyReRequest)
     .sort((a, b) => String(b.requestDate || '').localeCompare(String(a.requestDate || '')) || String(b.id).localeCompare(String(a.id))), Boolean(snap.metadata.fromCache || snap.metadata.hasPendingWrites)), onError);
 };
-export const subscribeAuditForUser = (user: CurrentUserSession, callback: (rows: AuditLogEntry[]) => void) => {
+export const subscribeAuditForUser = (user: CurrentUserSession, callback: (rows: AuditTrailRow[]) => void, onError: (error: { code: string }) => void) => {
   const constraints = user.userRole === 'DCC_ADMIN' ? [orderBy('timestamp', 'desc')] : [where('actorDept', '==', user.currentDept), orderBy('timestamp', 'desc')];
-  return onSnapshot(query(collection(db, 'dcs_audit_logs'), ...constraints), snap => callback(snap.docs.map(item => item.data() as AuditLogEntry)));
+  return onSnapshot(query(collection(db, 'dcs_audit_logs'), ...constraints), snap => callback(snap.docs.map(item => readAuditEntry(item.id, item.data()))), onError);
 };
 
 export const subscribeAnnouncements = (user: CurrentUserSession, callback: (rows: DcsAnnouncement[]) => void) => {

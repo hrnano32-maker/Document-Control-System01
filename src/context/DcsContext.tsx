@@ -1,9 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import type { AuditTrailRow } from '../utils/auditTrail';
 import { hasDistributionAllocation, refreshDistributionSelection, getDepartmentReceipt, getDepartmentReceiptState } from '../utils/distributionAccess';
 import type { AuditLogEntry, CopyReRequest, CurrentUserSession, DarCreateInput, DarRecord, DcsAnnouncement, Department, DistributionRecord, DocumentReturnRequest, DocumentViewPayload, MasterDocument } from '../types';
 import { changeDcsPassword, observeDcsAuth, signInDcsUser, signOutDcsUser, updateOwnSignature } from '../services/authService';
 import { acknowledgeDownload, cancelAnnouncementRecord, cancelDarRecord, createAnnouncementRecord, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, manageDistributionRecord, deleteDarDraftRecord, patchDarRecord, recordAnnouncementActivity, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAnnouncements, subscribeAuditForUser, subscribeMasterDocuments, subscribeMasterListRegistry, subscribeCopyRequests, subscribeDars, subscribeDistributions, subscribeDocumentReturns, updateAnnouncementRecord, writeAudit } from '../services/dcsRepository';
 
+type AuditStatus = 'loading' | 'ready' | 'denied' | 'error';
 type Result = { success: boolean; message: string; downloadUrl?: string; downloadUrls?: string[]; transferId?: string };
 interface DcsContextType {
   currentUser: CurrentUserSession; setUserName: (name: string) => void;
@@ -25,7 +27,7 @@ interface DcsContextType {
   reRequests: CopyReRequest[];
   createReRequest: (distributionId: string, dept: Department, requestedBy: string, empId: string, reasonType: CopyReRequest['reasonType'], reasonDetails: string) => Promise<void>;
   reviewReRequest: (requestId: string, approve: boolean, note: string, extendDays?: number, files?: { name: string; size: string; type: string; dataUrl: string }[]) => Promise<void>;
-  auditLogs: AuditLogEntry[]; logAudit: (actionType: AuditLogEntry['actionType'], docNo: string, revision: string, description: string, details?: Record<string, unknown>) => Promise<void>;
+  auditLogs: AuditTrailRow[]; auditStatus: AuditStatus; retryAudit: () => void; logAudit: (actionType: AuditLogEntry['actionType'], docNo: string, revision: string, description: string, details?: Record<string, unknown>) => Promise<void>;
   announcements: DcsAnnouncement[];
   createAnnouncement: (input: Pick<DcsAnnouncement, 'title' | 'details' | 'category' | 'priority' | 'effectiveDate' | 'endDate' | 'targetDepartments' | 'requireAcknowledgement'>, files: File[]) => Promise<string>;
   updateAnnouncement: (id: string, updates: Pick<DcsAnnouncement, 'title' | 'details' | 'category' | 'priority' | 'effectiveDate' | 'endDate' | 'targetDepartments' | 'requireAcknowledgement'>) => Promise<void>;
@@ -49,7 +51,9 @@ const hydrateDistribution = (row: DistributionRecord): DistributionRecord => ({ 
 export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<CurrentUserSession>(emptySession());
   const [documents, setDocuments] = useState<MasterDocument[]>([]); const [masterListDocuments, setMasterListDocuments] = useState<MasterDocument[]>([]); const [dars, setDars] = useState<DarRecord[]>([]);
-  const [distributions, setDistributions] = useState<DistributionRecord[]>([]); const [reRequests, setReRequests] = useState<CopyReRequest[]>([]); const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [distributions, setDistributions] = useState<DistributionRecord[]>([]); const [reRequests, setReRequests] = useState<CopyReRequest[]>([]);
+  const [auditState, setAuditState] = useState<{ key: string; rows: AuditTrailRow[]; status: AuditStatus }>({ key: '', rows: [], status: 'loading' });
+  const [auditRetry, setAuditRetry] = useState(0);
   const [distributionSyncState, setDistributionSyncState] = useState<{ key: string; status: 'loading' | 'ready' | 'error' }>({ key: '', status: 'loading' });
   const [requestSyncState, setRequestSyncState] = useState<{ key: string; status: 'loading' | 'ready' | 'error' }>({ key: '', status: 'loading' });
   const [returnState, setReturnState] = useState<{ key: string; status: 'loading' | 'ready' | 'error'; rows: DocumentReturnRequest[] }>({ key: '', status: 'loading', rows: [] });
@@ -78,7 +82,7 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSelectedDistributionForReRequest(null);
     setSelectedDistributionForSheet(null);
     setSelectedDocumentForView(null);
-    if (!currentUser.isAuthenticated) { setDocuments([]); setMasterListDocuments([]); setDars([]); setDistributions([]); setReRequests([]); setAuditLogs([]); setAnnouncements([]); return; }
+    if (!currentUser.isAuthenticated) { setDocuments([]); setMasterListDocuments([]); setDars([]); setDistributions([]); setReRequests([]); setAnnouncements([]); return; }
     let active = true;
     setDistributionSyncState({ key: distributionKey, status: 'loading' });
     setRequestSyncState({ key: distributionKey, status: 'loading' });
@@ -100,9 +104,24 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return hasDistributionAllocation(latest.find(row => row.id === selected.distributionId), currentUser.currentDept) ? selected : null;
       });
     };
-    const stops = [subscribeMasterDocuments(currentUser, setDocuments), subscribeMasterListRegistry(setMasterListDocuments), subscribeDars(currentUser, setDars), subscribeDistributions(currentUser, receiveDistributions, error => { console.error('DISTRIBUTION_SYNC_FAILED', error); if (active) setDistributionSyncState({ key: distributionKey, status: 'error' }); }), subscribeCopyRequests(currentUser, (rows, fromCache) => { if (active) { setReRequests(rows); setRequestSyncState({ key: distributionKey, status: fromCache ? 'loading' : 'ready' }); } }, error => { console.error('COPY_REQUEST_SYNC_FAILED', error); if (active) setRequestSyncState({ key: distributionKey, status: 'error' }); }), subscribeDocumentReturns(currentUser, (rows, fromCache) => { if (active) setReturnState({ key: distributionKey, rows, status: fromCache ? 'loading' : 'ready' }); }, error => { console.error('DOCUMENT_RETURN_SYNC_FAILED', error); if (active) setReturnState({ key: distributionKey, rows: [], status: 'error' }); }), subscribeAuditForUser(currentUser, setAuditLogs), subscribeAnnouncements(currentUser, setAnnouncements)];
+    const stops = [subscribeMasterDocuments(currentUser, setDocuments), subscribeMasterListRegistry(setMasterListDocuments), subscribeDars(currentUser, setDars), subscribeDistributions(currentUser, receiveDistributions, error => { console.error('DISTRIBUTION_SYNC_FAILED', error); if (active) setDistributionSyncState({ key: distributionKey, status: 'error' }); }), subscribeCopyRequests(currentUser, (rows, fromCache) => { if (active) { setReRequests(rows); setRequestSyncState({ key: distributionKey, status: fromCache ? 'loading' : 'ready' }); } }, error => { console.error('COPY_REQUEST_SYNC_FAILED', error); if (active) setRequestSyncState({ key: distributionKey, status: 'error' }); }), subscribeDocumentReturns(currentUser, (rows, fromCache) => { if (active) setReturnState({ key: distributionKey, rows, status: fromCache ? 'loading' : 'ready' }); }, error => { console.error('DOCUMENT_RETURN_SYNC_FAILED', error); if (active) setReturnState({ key: distributionKey, rows: [], status: 'error' }); }), subscribeAnnouncements(currentUser, setAnnouncements)];
     return () => { active = false; stops.forEach(stop => stop()); };
   }, [currentUser.isAuthenticated, currentUser.uid, currentUser.currentDept, currentUser.userRole, distributionRetry]);
+
+  useEffect(() => {
+    if (!currentUser.isAuthenticated) {
+      setAuditState({ key: '', rows: [], status: 'loading' });
+      return;
+    }
+    let active = true;
+    const key = distributionKey;
+    setAuditState({ key, rows: [], status: 'loading' });
+    const stop = subscribeAuditForUser(currentUser,
+      rows => { if (active) setAuditState({ key, rows, status: 'ready' }); },
+      error => { if (active) setAuditState({ key, rows: [], status: error.code === 'permission-denied' ? 'denied' : 'error' }); }
+    );
+    return () => { active = false; stop(); };
+  }, [currentUser.isAuthenticated, distributionKey, auditRetry]);
 
   const needDar = (id: string) => { const row = dars.find(x => x.id === id); if (!row) throw new Error('ไม่พบ DAR'); return row; };
   const needDoc = (id: string) => { const row = documents.find(x => x.id === id); if (!row) throw new Error('ไม่พบเอกสาร'); return row; };
@@ -119,7 +138,7 @@ export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     distributions, documentReturns, returnSync: returnStatus, distributionSync, retryDistributionSync: () => setDistributionRetry(value => value + 1), createDistribution: (id, depts, instructions, files, onProgress) => createDistributionRecord(currentUser, needDoc(id), depts, instructions, files, onProgress), cancelDistribution: (id, reason) => manageDistributionRecord(currentUser, needDist(id), 'CANCEL', reason), deleteDistribution: id => manageDistributionRecord(currentUser, needDist(id), 'DELETE'), downloadControlledCopy,
     reRequests, createReRequest: (id, dept, name, empId, reason, details) => createCopyRequestRecord(currentUser, needDist(id), dept, name, empId, reason, details), reviewReRequest: async (id, approve, note, _days, files) => { const row = reRequests.find(x => x.id === id); if (!row) throw new Error('ไม่พบคำขอ'); await decideCopyRequest(currentUser, row, approve, note, files); },
     announcements, createAnnouncement: (input, files) => createAnnouncementRecord(currentUser, input, files), updateAnnouncement: (id, updates) => updateAnnouncementRecord(currentUser, id, updates), cancelAnnouncement: (id, reason) => cancelAnnouncementRecord(currentUser, id, reason), markAnnouncementRead: id => recordAnnouncementActivity(currentUser, id, 'READ'), acknowledgeAnnouncement: id => recordAnnouncementActivity(currentUser, id, 'ACKNOWLEDGE'),
-    auditLogs, logAudit: (type, docNo, revision, description, details) => writeAudit(currentUser, type, docNo, revision, description, details), resetToDefaultData: () => {},
+    auditLogs: auditState.key === distributionKey ? auditState.rows : [], auditStatus: auditState.key === distributionKey ? auditState.status : 'loading', retryAudit: () => setAuditRetry(n => n + 1), logAudit: (type, docNo, revision, description, details) => writeAudit(currentUser, type, docNo, revision, description, details), resetToDefaultData: () => {},
     activeView, setActiveView: view => { if (currentUser.allowedViews.includes(view as any)) setActiveView(view); }, selectedDocForModal, setSelectedDocForModal, selectedDistributionForSheet, setSelectedDistributionForSheet,
     selectedDistributionForDownload, setSelectedDistributionForDownload, selectedDistributionForReRequest, setSelectedDistributionForReRequest, isStamperOpen, setIsStamperOpen, stampDocData,
     openStamperForDoc: (docNo, docName, revision, dept) => { setStampDocData({ docNo, docName, revision, dept }); setIsStamperOpen(true); }, selectedDocumentForView, setSelectedDocumentForView, openDocumentViewer: setSelectedDocumentForView,

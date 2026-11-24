@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useDcs } from '../context/DcsContext';
-import { AuditLogEntry, DEPARTMENTS } from '../types';
+import { DEPARTMENTS } from '../types';
 import {
   History,
   Search,
@@ -20,45 +20,34 @@ import {
 } from 'lucide-react';
 
 export const AuditTrailView: React.FC = () => {
-  const { auditLogs, currentUser } = useDcs();
+  const { auditLogs, currentUser, auditStatus, retryAudit } = useDcs();
 
-  const isDcc = currentUser.currentDept === 'DCC';
+  const isDcc = currentUser.userRole === 'DCC_ADMIN';
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAction, setSelectedAction] = useState<string>('ALL');
   const [selectedDept, setSelectedDept] = useState<string>(isDcc ? 'ALL' : currentUser.currentDept);
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 
-  // Update selectedDept when currentUser changes
   React.useEffect(() => {
-    if (!isDcc) {
-      setSelectedDept(currentUser.currentDept);
-    }
-  }, [currentUser.currentDept, isDcc]);
+    setSelectedDept(isDcc ? 'ALL' : currentUser.currentDept);
+    setExpandedLogId(null);
+  }, [currentUser.uid, currentUser.currentDept, isDcc]);
 
+  const query = searchQuery.trim().toLowerCase();
   const filteredLogs = auditLogs.filter(log => {
-    // Non-DCC users can only see logs relevant to their department
-    if (!isDcc) {
-      const isRelatedToDept =
-        log.actorDept === currentUser.currentDept ||
-        (log.actor && log.actor.includes(currentUser.currentDept)) ||
-        (log.details && JSON.stringify(log.details).includes(currentUser.currentDept));
-      if (!isRelatedToDept) return false;
-    }
-
-    const matchSearch =
-      log.docNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      log.actor.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      log.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (log.details && JSON.stringify(log.details).toLowerCase().includes(searchQuery.toLowerCase()));
-
+    if (!isDcc && log.actorDept !== currentUser.currentDept) return false;
+    const matchSearch = !query || [log.docNo, log.actor, log.description, log.actionType, log.actorDept].some(value => value.toLowerCase().includes(query))
+      || (log.details && JSON.stringify(log.details).toLowerCase().includes(query));
     const matchAction = selectedAction === 'ALL' || log.actionType === selectedAction;
     const matchDept = isDcc ? (selectedDept === 'ALL' || log.actorDept === selectedDept) : true;
 
     return matchSearch && matchAction && matchDept;
   });
 
-  const getActionBadge = (actionType: AuditLogEntry['actionType']) => {
+  const getActionBadge = (actionType: string) => {
     switch (actionType) {
+      case 'DEPARTMENT_NORMALIZED':
+        return { label: 'ปรับสิทธิ์หน่วยงาน QA/QC', color: 'bg-slate-100 text-slate-800 border-slate-200' };
       case 'DAR_CREATED':
         return { label: '📝 DAR สร้างขึ้น', color: 'bg-amber-100 text-amber-800 border-amber-200' };
       case 'DAR_REVIEWED':
@@ -78,7 +67,7 @@ export const AuditTrailView: React.FC = () => {
       case 'RE_REQUEST_APPROVED':
         return { label: '✅ อนุมัติคำขอสำเนา', color: 'bg-emerald-100 text-emerald-800 border-emerald-200' };
       default:
-        return { label: actionType, color: 'bg-slate-100 text-slate-800 border-slate-200' };
+        return { label: actionType || 'ไม่ระบุประเภทเหตุการณ์', color: 'bg-slate-100 text-slate-800 border-slate-200' };
     }
   };
 
@@ -93,7 +82,7 @@ export const AuditTrailView: React.FC = () => {
               Audit Trail (ระบบจำทุกเหตุการณ์ย้อนหลัง)
             </h1>
             <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-0.5 rounded-full border border-emerald-200">
-              {filteredLogs.length} เหตุการณ์
+              {auditStatus === 'ready' ? `${filteredLogs.length} เหตุการณ์` : 'Audit Trail'}
             </span>
             {isDcc ? (
               <span className="bg-indigo-100 text-indigo-800 text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-indigo-200 flex items-center gap-1">
@@ -115,7 +104,7 @@ export const AuditTrailView: React.FC = () => {
         <div className="flex items-center gap-2">
           <span className="px-3 py-1.5 bg-slate-100 text-slate-700 text-xs font-mono rounded-xl border flex items-center gap-1.5">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            ISO 7.5 Log Integrity: Verified
+            ประวัติการดำเนินการ
           </span>
         </div>
       </div>
@@ -179,7 +168,14 @@ export const AuditTrailView: React.FC = () => {
 
       {/* Timeline List */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4">
-        {filteredLogs.length === 0 ? (
+        {auditStatus === 'loading' ? (
+          <p role="status">กำลังโหลดประวัติ…</p>
+        ) : auditStatus === 'denied' || auditStatus === 'error' ? (
+          <div role="alert" className="space-y-2">
+            <p>{auditStatus === 'denied' ? 'บัญชีนี้ไม่มีสิทธิ์อ่านประวัติจากฐานข้อมูล กรุณาตรวจสอบสิทธิ์บัญชีกับผู้ดูแลระบบ' : 'โหลดประวัติไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง'}</p>
+            <button type="button" onClick={retryAudit} className="text-indigo-700 font-bold">ลองโหลดประวัติอีกครั้ง</button>
+          </div>
+        ) : filteredLogs.length === 0 ? (
           <div className="p-10 text-center text-slate-400 text-base">
             <History className="w-10 h-10 mx-auto mb-2 text-slate-300" />
             ไม่พบบันทึกเหตุการณ์ตามเงื่อนไข
@@ -204,9 +200,9 @@ export const AuditTrailView: React.FC = () => {
                         <span className={`px-3 py-1 rounded-full text-xs font-bold border ${badge.color}`}>
                           {badge.label}
                         </span>
-                        <span className="font-mono font-bold text-sm text-indigo-900 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
+                        {log.docNo && <span className="font-mono font-bold text-sm text-indigo-900 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
                           {log.docNo}
-                        </span>
+                        </span>}
                         {log.revision && (
                           <span className="font-mono font-bold text-xs text-slate-700 bg-white px-2 py-1 rounded-lg border border-slate-200">
                             Rev.{log.revision}
@@ -214,18 +210,16 @@ export const AuditTrailView: React.FC = () => {
                         )}
                         <span className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-1.5">
                           <User className="w-4 h-4 text-slate-500" />
-                          {log.actor}
+                          {log.actor || 'ไม่ระบุผู้ดำเนินการ'}
                         </span>
                       </div>
 
                       <div className="flex items-center gap-3 text-xs text-slate-500 font-mono">
                         <span className="flex items-center gap-1">
                           <Clock className="w-3.5 h-3.5 text-slate-400" />
-                          {new Date(log.timestamp).toLocaleString('th-TH')}
+                          {log.timestamp ? new Date(log.timestamp).toLocaleString('th-TH') : 'ไม่ระบุเวลา'}
                         </span>
-                        <span className="text-xs text-slate-400">
-                          IP: {log.ipAddress}
-                        </span>
+                        {log.ipAddress && <span className="text-xs text-slate-400">IP: {log.ipAddress}</span>}
                       </div>
                     </div>
 
