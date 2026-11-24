@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDcs } from '../context/DcsContext';
-import { downloadDarAttachmentFromServer, validateDarEffectiveDates, correctDarRecord } from '../services/dcsRepository';
+import { downloadDarAttachmentFromServer, validateDarEffectiveDates, correctDarRecord, checkDarIdentityForAction } from '../services/dcsRepository';
 import {
   DarRecord,
   DarAdditionalDocument,
@@ -49,11 +49,12 @@ import { DarLivePreview } from './DarLivePreview';
 import { MasterRevisionDatesModal } from './MasterRevisionDatesModal';
 import { analyzeRevisionSequence, getNextRevision, getSkippedRevisionFields, parseRevisionNumber } from '../utils/revisionHelper';
 import { formatDarRevision } from '../utils/darRevisionDisplay';
+import { isOwnedActiveMaster, identityWarnings } from '../utils/darIdentity';
 import { getDarMasterRows } from '../utils/darMasterRegistration';
 
 export const DarManagement: React.FC = () => {
   const {
-    documents,
+    documents, masterListDocuments,
     dars,
     currentUser,
     createDar,
@@ -65,6 +66,19 @@ export const DarManagement: React.FC = () => {
     openDocumentViewer,
   } = useDcs();
 
+  const [identityReview, setIdentityReview] = useState<{ message: string; isNew: boolean } | null>(null);
+  const [identitySearch, setIdentitySearch] = useState('');
+  const resolveIdentity = useRef<((accepted: boolean) => void) | null>(null);
+  const askIdentity = (message: string, isNew: boolean) => new Promise<boolean>(resolve => {
+    resolveIdentity.current?.(false);
+    resolveIdentity.current = resolve;
+    setIdentitySearch('');
+    setIdentityReview({ message, isNew });
+  });
+  const finishIdentity = (accepted: boolean) => {
+    resolveIdentity.current?.(accepted); resolveIdentity.current = null; setIdentityReview(null);
+  };
+  useEffect(() => () => { resolveIdentity.current?.(false); resolveIdentity.current = null; }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
@@ -74,8 +88,6 @@ export const DarManagement: React.FC = () => {
   const [isSubmittingDar, setIsSubmittingDar] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedDarForReview, setSelectedDarForReview] = useState<DarRecord | null>(null);
-  const [previousDocumentLinks, setPreviousDocumentLinks] = useState<Record<string, string>>({});
-  useEffect(() => { setPreviousDocumentLinks({}); }, [selectedDarForReview?.id]);
   const [selectedDarForPrint, setSelectedDarForPrint] = useState<DarRecord | null>(null);
   const [showMobileLivePreview, setShowMobileLivePreview] = useState(false);
   const [registeringDarId, setRegisteringDarId] = useState<string | null>(null);
@@ -116,7 +128,7 @@ export const DarManagement: React.FC = () => {
   // Escape remains available for the review and print dialogs.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !editingMasterDates) {
+      if (e.key === 'Escape' && !editingMasterDates && !identityReview) {
         if (selectedDarForPrint) setSelectedDarForPrint(null);
         if (selectedDarForReview) setSelectedDarForReview(null);
       }
@@ -125,7 +137,7 @@ export const DarManagement: React.FC = () => {
       window.addEventListener('keydown', handleKeyDown);
     }
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedDarForPrint, selectedDarForReview, editingMasterDates]);
+  }, [selectedDarForPrint, selectedDarForReview, editingMasterDates, identityReview]);
 
   // DAR Creation Form state
   const [reqType, setReqType] = useState<DarRequestType>('REVISION');
@@ -143,14 +155,22 @@ export const DarManagement: React.FC = () => {
   const [docNameTh, setDocNameTh] = useState('');
   const [docNameEn, setDocNameEn] = useState('');
   const [docType, setDocType] = useState<DocumentType>('QP');
-  const [currentRevision, setCurrentRevision] = useState('02');
-  const [proposedRevision, setProposedRevision] = useState('03');
+  const [currentRevision, setCurrentRevision] = useState('');
+  const [proposedRevision, setProposedRevision] = useState('');
   const [reasonForChange, setReasonForChange] = useState('');
   const [changeDetails, setChangeDetails] = useState('');
   const [additionalDocuments, setAdditionalDocuments] = useState<DarAdditionalDocument[]>([]);
   const [skippedRevisionReason, setSkippedRevisionReason] = useState('');
-  const [showDocSelector, setShowDocSelector] = useState(false);
-  const [docSearchKeyword, setDocSearchKeyword] = useState('');
+  const registry = masterListDocuments?.length ? masterListDocuments : documents;
+  const identityMatches = React.useMemo(() => {
+    const term = identitySearch.trim().toLocaleLowerCase();
+    return identityReview?.isNew && term.length >= 2 ? registry.filter(item =>
+      [item.docNo, item.docNameTh, item.docNameEn].some(text => text?.toLocaleLowerCase().includes(term))) : [];
+  }, [identityReview, identitySearch, registry]);
+  const eligibleMasters = React.useMemo(() => registry.filter(doc => isOwnedActiveMaster(doc, reqDept)), [registry, reqDept]);
+  const formWarnings = React.useMemo(() => !isCreateModalOpen ? [] : identityWarnings({
+    requestType: reqType, requestDept: reqDept, docNo, docNameTh, docNameEn, additionalDocuments,
+  }, registry), [isCreateModalOpen, reqType, reqDept, docNo, docNameTh, docNameEn, additionalDocuments, registry]);
   const [isoClause, setIsoClause] = useState('ISO 9001:2015 Clause 7.5.3');
   const [formError, setFormError] = useState('');
 
@@ -158,7 +178,7 @@ export const DarManagement: React.FC = () => {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [previousFiles, setPreviousFiles] = useState<File[]>([]);
   const [useMasterPrevious, setUseMasterPrevious] = useState(true);
-  const previousMaster = documents.find(item => item.docNo.trim().toUpperCase() === docNo.trim().toUpperCase() && revisionKey(item.currentRevision) === revisionKey(currentRevision));
+  const previousMaster = eligibleMasters.find(item => item.docNo.trim().toUpperCase() === docNo.trim().toUpperCase() && revisionKey(item.currentRevision) === revisionKey(currentRevision));
   const masterPreviousPaths = previousMaster?.currentFileStoragePaths?.length ? previousMaster.currentFileStoragePaths : [previousMaster?.currentFileStoragePath].filter(Boolean);
   const previousCount = previousFiles.length + (useMasterPrevious ? masterPreviousPaths.length : 0);
   useEffect(() => { setPreviousFiles([]); setUseMasterPrevious(true); }, [docNo, currentRevision, reqType]);
@@ -259,25 +279,48 @@ export const DarManagement: React.FC = () => {
     .some(rev => rev.trim() && parseRevisionNumber(rev) === null);
 
   // Handle selecting an existing document from Master List
-  const handleSelectMasterDoc = (doc: MasterDocument) => {
-    setDocNo(doc.docNo);
-    setDocNameTh(doc.docNameTh);
-    setDocNameEn(doc.docNameEn);
-    setDocType(doc.docType);
-    setReqDept(doc.ownerDept);
-    if (reqType === 'NEW') setReqType('REVISION');
-    setCurrentRevision(doc.currentRevision);
-    setProposedRevision(getNextRevision(doc.currentRevision));
-    setSkippedRevisionReason('');
-    setShowDocSelector(false);
+  const selectMaster = (number: string, index?: number) => {
+    const doc = eligibleMasters.find(item => item.docNo === number);
+    const next = reqType === 'OBSOLETE' ? 'OBSOLETE' : doc ? getNextRevision(doc.currentRevision) : '';
+    if (index !== undefined) {
+      setAdditionalDocuments(items => items.map((row, i) => i !== index ? row : { ...row, docNo: number,
+        docNameTh: doc?.docNameTh || '', docNameEn: doc?.docNameEn || '', previousEffectiveDate: doc?.effectiveDate || '', currentRevision: doc?.currentRevision || '', revision: next }));
+      return;
+    }
+    setDocNo(number); setDocNameTh(doc?.docNameTh || ''); setDocNameEn(doc?.docNameEn || '');
+    if (doc) setDocType(doc.docType);
+    setCurrentRevision(doc?.currentRevision || ''); setProposedRevision(next); setSkippedRevisionReason('');
+    previousDateManuallyEdited.current = false;
+    setPreviousEffectiveDate(doc?.effectiveDate || '');
+  };
+  const renderIdentitySelect = (number: string, index?: number) => <select required
+    aria-label={`เลือกรหัสเดิมจาก Master List รายการที่ ${index === undefined ? 1 : index + 2}`}
+    value={number} onChange={event => selectMaster(event.target.value, index)}
+    className="w-full min-w-0 h-10 px-2 border border-slate-300 rounded-lg text-sm bg-white">
+    <option value="">เลือกรหัสเดิมจาก Master List</option>
+    {eligibleMasters.map(doc => <option key={doc.id} value={doc.docNo}>{doc.docNo} · {doc.docNameTh} · Rev.{doc.currentRevision}</option>)}
+  </select>;
+  const changeRequestType = (kind: DarRequestType) => {
+    if (kind === reqType) return;
+    setReqType(kind); setSkippedRevisionReason(''); setFormError('');
+    if (kind !== 'NEW' && reqType !== 'NEW') {
+      const revision = (rev: string) => kind === 'OBSOLETE' ? 'OBSOLETE' : getNextRevision(rev);
+      setProposedRevision(revision(currentRevision));
+      setAdditionalDocuments(items => items.map(row => ({ ...row, revision: revision(row.currentRevision || '') })));
+      return;
+    }
+    // Preserve the proposed names and reasons; a change of action requires choosing the number again.
+    setDocNo(''); setCurrentRevision(kind === 'NEW' ? 'N/A' : ''); setProposedRevision(kind === 'NEW' ? '00' : kind === 'OBSOLETE' ? 'OBSOLETE' : '');
+    previousDateManuallyEdited.current = false; setPreviousEffectiveDate('');
+    setAdditionalDocuments(items => items.map(row => ({ ...row, docNo: '', currentRevision: kind === 'NEW' ? 'N/A' : '', revision: kind === 'NEW' ? '00' : kind === 'OBSOLETE' ? 'OBSOLETE' : '', previousEffectiveDate: '' })));
   };
 
   useEffect(() => {
     if (previousDateManuallyEdited.current) return;
     const number = docNo.trim().toUpperCase();
-    const existing = number ? documents.find(item => item.docNo.trim().toUpperCase() === number) : undefined;
+    const existing = number ? eligibleMasters.find(item => item.docNo.trim().toUpperCase() === number) : undefined;
     setPreviousEffectiveDate(reqType === 'NEW' ? '' : existing?.effectiveDate || '');
-  }, [docNo, reqType, documents]);
+  }, [docNo, reqType, eligibleMasters]);
 
   // Filter dars
   const filteredDars = dars.filter(dar => {
@@ -390,7 +433,7 @@ export const DarManagement: React.FC = () => {
       deptApproverDate,
       deptApproverSignature,
       distributionHolders: darDistributionHolders,
-      }, (message, percent) => setDarUploadProgress({ message, percent }));
+      }, (message, percent) => setDarUploadProgress({ message, percent }), message => askIdentity(message, reqType === 'NEW'));
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'ส่งใบ DAR ไม่สำเร็จ');
       return;
@@ -411,21 +454,15 @@ export const DarManagement: React.FC = () => {
     setPreviousFiles([]);
   };
 
-  const confirmDocumentLinks = () => {
-    const pairs = Object.entries(previousDocumentLinks).map(([newId, oldId]) => {
-      const row = selectedDarForReview && getDarMasterRows(selectedDarForReview).find(item => item.key === newId);
-      const old = documents.find(item => item.id === oldId);
-      return row && old ? `${old.docNo} (Rev.${old.currentRevision}) → ${row.docNo} (Rev.${row.revision})` : '';
-    }).filter(Boolean);
-    return !pairs.length || window.confirm(`ยืนยันเชื่อมเอกสารเดิมกับรหัสใหม่ตามรายการนี้หรือไม่?\n\n${pairs.join('\n')}\n\nเมื่อขึ้นทะเบียน รหัสเดิมจะถูกเปลี่ยนสถานะเป็นเอกสารที่ถูกแทนที่ทันที และเก็บประวัติไว้ กรุณาตรวจสอบรหัสและวันที่ให้ถูกต้อง`);
-  };
-  const handleRegisterToMasterList = async (darId: string, alreadyConfirmed = false) => {
+  const handleRegisterToMasterList = async (darId: string, approveFirst = false) => {
     if (registeringDarId) return;
-    const links = selectedDarForReview?.id === darId ? previousDocumentLinks : {};
-    if (!alreadyConfirmed && Object.keys(links).length && !confirmDocumentLinks()) return;
     setRegisteringDarId(darId);
     try {
-      await registerDarToMasterList(darId, links);
+      const dar = dars.find(row => row.id === darId);
+      if (!dar) throw new Error('ไม่พบใบ DAR กรุณาเปิดใหม่');
+      await checkDarIdentityForAction(dar, message => askIdentity(message, dar.requestType === 'NEW'));
+      if (approveFirst) await reviewDar(darId, 'APPROVED', reviewRemarks);
+      await registerDarToMasterList(darId);
       confetti({
         particleCount: 80,
         spread: 70,
@@ -632,6 +669,34 @@ export const DarManagement: React.FC = () => {
         </div>
       </div>}
 
+      {identityReview && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4" role="alertdialog" aria-modal="true" aria-labelledby="dar-identity-title" onKeyDown={e => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finishIdentity(false); }
+        if (e.key === 'Tab') {
+          const controls = (e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('input, button');
+          const first = controls[0], last = controls[controls.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+          if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        }
+      }}>
+        <section className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-5 shadow-xl">
+          <h3 id="dar-identity-title" className="text-lg font-bold">ตรวจสอบเอกสารเดิมก่อนดำเนินการ</h3>
+          <p className="my-3 max-h-[50vh] overflow-auto whitespace-pre-line text-sm">{identityReview.message}</p>
+          <p className="text-sm text-slate-700">{identityReview.isNew ? 'หากเป็นการปรับปรุงเอกสารเดิม ให้กลับไปใช้คำขอแก้ไขด้วยรหัสเดิม' : 'เมื่อยืนยัน ระบบจะบันทึกชื่อและ Rev. ใหม่ในทะเบียนหมายเลขเดิม'}</p>
+          {identityReview.isNew && <div className="mt-3 text-sm">
+            <label className="block font-semibold">ค้นทะเบียนเดิมด้วยรหัสหรือชื่อ
+              <input type="search" value={identitySearch} onChange={e => setIdentitySearch(e.target.value)} placeholder="พิมพ์อย่างน้อย 2 ตัวอักษร" className="mt-1 w-full rounded-lg border px-3 py-2 font-normal" />
+            </label>
+            {identitySearch.trim().length >= 2 && <div role="status" className="mt-1 max-h-40 overflow-y-auto">
+              {identityMatches.length === 0 ? 'ไม่พบรายการที่ตรงกับคำค้น' : <><p>พบ {identityMatches.length} รายการ</p><ul>{identityMatches.slice(0, 10).map(doc => <li key={doc.id}>{doc.docNo} · {doc.docNameTh} · Rev.{doc.currentRevision} · {doc.ownerDept}</li>)}</ul>{identityMatches.length > 10 && 'แสดง 10 รายการแรก กรุณาระบุคำค้นให้เจาะจงขึ้น'}</>}
+            </div>}
+          </div>}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button autoFocus type="button" onClick={() => finishIdentity(false)} className="rounded-lg border px-3 py-2">กลับไปตรวจสอบ</button>
+            <button type="button" onClick={() => finishIdentity(true)} className="rounded-lg bg-indigo-700 px-3 py-2 font-semibold text-white">{identityReview.isNew ? 'ยืนยันว่าเป็นเอกสารคนละฉบับ' : 'ยืนยันแก้ไขเอกสารรหัสเดิม'}</button>
+          </div>
+        </section>
+      </div>}
+
       {editingDar && isDcc && (
         <div role="dialog" aria-modal="true" aria-label={`DCC แก้ไขใบ DAR ${editingDar.id}`} className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4">
           <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
@@ -645,7 +710,7 @@ export const DarManagement: React.FC = () => {
               ] as [keyof typeof correction, string][]).map(([key, label]) => (
                 <label key={key} className="block text-sm font-semibold">{label}
                   <input className="mt-1 w-full rounded-lg border p-2" type={String(key).toLowerCase().includes('date') ? 'date' : 'text'}
-                    disabled={savingCorrection || (correctionDetailsOnly && !['targetEffectiveDate', 'previousEffectiveDate'].includes(String(key)))}
+                    disabled={savingCorrection || (editingDar.requestType !== 'NEW' && key === 'docNo') || (correctionDetailsOnly && !['targetEffectiveDate', 'previousEffectiveDate'].includes(String(key)))}
                     value={correction[key]} onChange={e => setCorrection(prev => ({ ...prev, [key]: e.target.value }))} />
                 </label>
               ))}
@@ -665,14 +730,14 @@ export const DarManagement: React.FC = () => {
                     {([['docNo', 'รหัสเอกสาร'], ['docNameTh', 'ชื่อเอกสารภาษาไทย'], ['docNameEn', 'ชื่อเอกสารภาษาอังกฤษ'], ['previousEffectiveDate', 'วันที่เอกสารเดิมมีผล'], ['currentRevision', 'Rev. เดิม'], ['revision', 'Rev. ที่เสนอ'], ['reason', 'เหตุผล']] as const).map(([key, label]) => (
                       <label key={key} className="text-sm font-semibold">{label}
                         <input type={key === 'previousEffectiveDate' ? 'date' : 'text'} className="mt-1 w-full rounded-lg border p-2 disabled:bg-slate-100"
-                          disabled={!!correctionDetailsOnly && key !== 'previousEffectiveDate'} value={row[key] || ''} onChange={e => setCorrectionRows(items => items.map((item, i) => i === index ? { ...item, [key]: e.target.value } : item))} />
+                          disabled={(editingDar.requestType !== 'NEW' && key === 'docNo') || (!!correctionDetailsOnly && key !== 'previousEffectiveDate')} value={row[key] || ''} onChange={e => setCorrectionRows(items => items.map((item, i) => i === index ? { ...item, [key]: e.target.value } : item))} />
                       </label>
                     ))}
                   </div>
-                  <button type="button" disabled={savingCorrection || correctionDetailsOnly} onClick={() => setCorrectionRows(items => items.filter((_, i) => i !== index))} className="mt-2 text-sm text-rose-700">ลบรายการนี้</button>
+                  <button type="button" disabled={savingCorrection || correctionDetailsOnly || editingDar.requestType !== 'NEW'} onClick={() => setCorrectionRows(items => items.filter((_, i) => i !== index))} className="mt-2 text-sm text-rose-700">ลบรายการนี้</button>
                 </fieldset>
               ))}
-              <button type="button" disabled={savingCorrection || correctionDetailsOnly || correctionRows.length >= 5}
+              <button type="button" disabled={savingCorrection || correctionDetailsOnly || editingDar.requestType !== 'NEW' || correctionRows.length >= 5}
                 onClick={() => setCorrectionRows(items => [...items, { docNo: '', docNameTh: '', docNameEn: '', previousEffectiveDate: '', revision: '', reason: '' }])}
                 className="rounded-lg border px-3 py-2 text-sm font-bold disabled:opacity-50">เพิ่มรายการ</button>
             </section>
@@ -837,19 +902,16 @@ export const DarManagement: React.FC = () => {
 
               {isDcc && selectedDarForReview.requestType === 'REVISION' && !['REGISTERED', 'CANCELLED'].includes(selectedDarForReview.status) && (
                 <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 space-y-3">
-                  <div className="font-bold text-indigo-950">เชื่อมรหัสเดิม เมื่อเอกสารเปลี่ยนรหัส</div>
-                  <p className="text-sm text-indigo-900">เลือกเฉพาะรายการที่เปลี่ยนรหัส โดยตรวจสอบว่าเป็นเอกสารเดียวกัน รหัสเดิมจะเก็บไว้เป็นประวัติ ไม่เลือกระบบจะใช้รหัสใน DAR ค้นหารายการเดิมตามปกติ</p>
+                  <div className="font-bold text-indigo-950">ตรวจสอบเอกสารเดิมใน Master List</div>
+                  <p>การแก้ไขใช้รหัสเดิมทุกแถว และบันทึก Rev. ใหม่ในประวัติของเอกสารฉบับนั้น</p>
                   {(() => { try { return getDarMasterRows(selectedDarForReview); } catch { return []; } })().map((row, index) => {
-                    const previous = documents.find(item => item.id === (previousDocumentLinks[row.key] || row.key));
+                    const previous = documents.find(item => item.id === row.key);
                     const mismatch = !!(previous?.effectiveDate && row.previousEffectiveDate && previous.effectiveDate !== row.previousEffectiveDate);
                     const showDate = (value?: string) => value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.split('-').reverse().join('/') : value || 'ไม่ระบุ';
                     return <div key={row.key} className="block text-sm font-semibold text-slate-800"><label className="block">
                       รายการที่ {index + 1}: {row.docNo} — {row.docNameTh}
-                      <select value={previousDocumentLinks[row.key] || ''} onChange={event => setPreviousDocumentLinks(current => { const next = { ...current }; if (event.target.value) next[row.key] = event.target.value; else delete next[row.key]; return next; })} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-normal">
-                        <option value="">ไม่เปลี่ยนรหัส / ใช้รหัสใน DAR</option>
-                        {documents.filter(doc => doc.status === 'ACTIVE' && doc.id !== row.key && (doc.ownerDept === selectedDarForReview.requestDept || (['QA', 'QC', 'QA/QC'].includes(doc.ownerDept) && ['QA', 'QC', 'QA/QC'].includes(selectedDarForReview.requestDept)))).map(doc => <option key={doc.id} value={doc.id}>{doc.docNo} — {doc.docNameTh} — Rev.{doc.currentRevision} — มีผล {doc.effectiveDate}</option>)}
-                      </select>
                     </label>
+                    {!previous && <p role="alert" className="text-rose-700">ไม่พบรหัสเดิม ไม่สามารถขึ้นทะเบียนรายการนี้เป็นฉบับแก้ไขได้</p>}
                     {previous && <div className={`mt-2 rounded-lg border p-2 font-normal ${mismatch ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-slate-200 bg-white text-slate-700'}`}>
                       <div>วันที่เดิมใน DAR: <strong>{showDate(row.previousEffectiveDate)}</strong> · Master List {previous.docNo} Rev.{previous.currentRevision}: <strong>{showDate(previous.effectiveDate)}</strong></div>
                       {mismatch && <div className="mt-1 font-semibold">วันที่ไม่ตรงกัน กรุณาตรวจสอบหลักฐานและแก้วันที่ที่ถูกต้องก่อนขึ้นทะเบียน</div>}
@@ -917,13 +979,7 @@ export const DarManagement: React.FC = () => {
                           alert('ยังไม่สามารถอนุมัติ/ส่งต่อใบ DAR ได้ กรุณาให้ผู้ขอดำเนินการและผู้อนุมัติในแผนกลงลายเซ็นให้ครบก่อน (ไม่รวม QMR)');
                           return;
                         }
-                        if (!confirmDocumentLinks()) return;
-                        try {
-                          await reviewDar(selectedDarForReview.id, 'APPROVED', reviewRemarks);
-                          await handleRegisterToMasterList(selectedDarForReview.id, true);
-                        } catch (error) {
-                          alert(error instanceof Error ? error.message : 'อนุมัติสำเร็จ แต่ขึ้นทะเบียนหรือแจกจ่ายอัตโนมัติไม่สำเร็จ กรุณากดดำเนินการซ้ำจากรายการ DAR');
-                        }
+                        await handleRegisterToMasterList(selectedDarForReview.id, true);
                       }}
                       className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-1 cursor-pointer"
                     >
@@ -1039,11 +1095,7 @@ export const DarManagement: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 [&>*]:min-w-0">
                   <button
                     type="button"
-                    onClick={() => {
-                      setReqType('NEW');
-                      setCurrentRevision('N/A');
-                      setProposedRevision('00');
-                    }}
+                    onClick={() => changeRequestType('NEW')}
                     className={`min-w-0 whitespace-normal py-2 px-2 rounded-xl font-bold text-xs border text-center cursor-pointer transition-all ${
                       reqType === 'NEW'
                         ? 'bg-emerald-50 border-emerald-500 text-emerald-800 ring-2 ring-emerald-300'
@@ -1055,11 +1107,7 @@ export const DarManagement: React.FC = () => {
 
                   <button
                     type="button"
-                    onClick={() => {
-                      setReqType('REVISION');
-                      setCurrentRevision('01');
-                      setProposedRevision('02');
-                    }}
+                    onClick={() => changeRequestType('REVISION')}
                     className={`min-w-0 whitespace-normal py-2 px-2 rounded-xl font-bold text-xs border text-center cursor-pointer transition-all ${
                       reqType === 'REVISION'
                         ? 'bg-blue-50 border-blue-500 text-blue-800 ring-2 ring-blue-300'
@@ -1071,10 +1119,7 @@ export const DarManagement: React.FC = () => {
 
                   <button
                     type="button"
-                    onClick={() => {
-                      setReqType('OBSOLETE');
-                      setProposedRevision('OBSOLETE');
-                    }}
+                    onClick={() => changeRequestType('OBSOLETE')}
                     className={`min-w-0 whitespace-normal py-2 px-2 rounded-xl font-bold text-xs border text-center cursor-pointer transition-all ${
                       reqType === 'OBSOLETE'
                         ? 'bg-rose-50 border-rose-500 text-rose-800 ring-2 ring-rose-300'
@@ -1094,7 +1139,14 @@ export const DarManagement: React.FC = () => {
                   </label>
                   <select
                     value={reqDept}
-                    onChange={e => setReqDept(e.target.value as any)}
+                    disabled={!isDcc}
+                    onChange={e => {
+                      setReqDept(e.target.value as Department);
+                      if (reqType !== 'NEW') {
+                        selectMaster('');
+                        setAdditionalDocuments(items => items.map(row => ({ ...row, docNo: '', docNameTh: '', docNameEn: '', previousEffectiveDate: '', currentRevision: '', revision: reqType === 'OBSOLETE' ? 'OBSOLETE' : '' })));
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   >
                     {DEPARTMENTS.filter(d => d.id !== 'DCC').map(d => (
@@ -1134,7 +1186,7 @@ export const DarManagement: React.FC = () => {
               {reqType !== 'NEW' && <div>
                 <label className="mb-1.5 block text-xs font-bold text-slate-700">วันที่เอกสารเดิมบังคับใช้ <span className="text-rose-500">*</span></label>
                 <input aria-label="วันที่เอกสารเดิมบังคับใช้ รายการที่ 1" type="date" required value={previousEffectiveDate} onChange={e => { previousDateManuallyEdited.current = true; setPreviousEffectiveDate(e.target.value); }} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                <p className="mt-1 text-xs text-slate-500">ดึงจาก Master List เมื่อพบเอกสาร หากกรอกวันที่เองหรือเปลี่ยนรหัสเอกสาร กรุณาตรวจสอบให้ตรงกับฉบับเดิม วันที่ฉบับใหม่ต้องอยู่หลังวันนี้</p>
+                <p className="mt-1 text-xs text-slate-500">ดึงจาก Master List เมื่อพบเอกสาร หากกรอกวันที่เอง กรุณาตรวจสอบให้ตรงกับฉบับเดิม วันที่ฉบับใหม่ต้องอยู่หลังวันนี้</p>
                 {previousEffectiveDate && targetEffectiveDate && previousEffectiveDate >= targetEffectiveDate && <p role="alert" className="mt-2 text-sm font-bold text-rose-600">วันที่ฉบับใหม่ต้องอยู่หลังวันที่เอกสารเดิม ระบบจะไม่อนุญาตให้ส่ง DAR</p>}
               </div>}
               {/* Document Identity */}
@@ -1143,14 +1195,14 @@ export const DarManagement: React.FC = () => {
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     รหัสเอกสาร (Doc No.) <span className="text-rose-500">*</span>
                   </label>
-                  <input
+                  {reqType !== 'NEW' ? renderIdentitySelect(docNo) : <input
                     type="text"
                     value={docNo}
                     onChange={e => setDocNo(e.target.value)}
                     placeholder="เช่น QP-PD-005 หรือ WI-QA-008"
                     className="w-full px-3.5 py-2 border border-slate-300 rounded-lg text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     required
-                  />
+                  />}
                 </div>
 
                 <div>
@@ -1247,6 +1299,10 @@ export const DarManagement: React.FC = () => {
                 </div>
               </div>
 
+              {formWarnings.length > 0 && <div role="status" className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                {formWarnings.map((message, i) => <p key={i} className="whitespace-pre-line">{message}</p>)}
+                {reqType === 'NEW' && <p>หากเป็นเอกสารเดิม ให้เลือก “ขอแก้ไข” และใช้หมายเลขเดิม</p>}
+              </div>}
               {/* Reason */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
@@ -1315,7 +1371,7 @@ export const DarManagement: React.FC = () => {
                         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,0.8fr)_minmax(0,0.8fr)] items-end gap-3.5 [&>*]:min-w-0">
                           <div>
                             <label className="block text-xs font-bold text-slate-700 mb-1.5">รหัสเอกสาร (Doc No.) <span className="text-rose-500">*</span></label>
-                            <input value={item.docNo} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, docNo: e.target.value } : row))} placeholder="เช่น QP-PD-005 หรือ WI-QA-008" className="w-full h-10 px-3.5 border border-slate-300 rounded-lg text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                            {reqType !== 'NEW' ? renderIdentitySelect(item.docNo, index) : <input value={item.docNo} onChange={e => setAdditionalDocuments(items => items.map((row, i) => i === index ? { ...row, docNo: e.target.value } : row))} placeholder="เช่น QP-PD-005 หรือ WI-QA-008" className="w-full h-10 px-3.5 border border-slate-300 rounded-lg text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none" />}
                           </div>
                           <div>
                             <label className="block text-xs font-bold text-slate-700 mb-1.5">วันที่เอกสารเดิมบังคับใช้ {reqType !== 'NEW' && <span className="text-rose-500">*</span>}</label>

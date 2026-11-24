@@ -74,40 +74,6 @@ test('a revision uses each document own history and retains old source paths wit
   assert.throws(() => planDarMasterRegistration(revision, previousById, 'DCC', now, 'register'), /ไม่พบ WI-PD2-038/);
 });
 
-test('an explicit per-row renumbering preserves the old Master, its history and distribution anchor', () => {
-  const oldRows = planDarMasterRegistration(dar, {}, 'DCC', now, 'register').records;
-  const old = { ...oldRows[1], docNo: 'BOM_API-007-26', id: 'BOM_API-007-26', currentFileStoragePath: 'archive/old.pdf', darReferenceId: 'DAR-OLD', distributionSetDocId: oldRows[0].id };
-  const revision = { ...dar, requestType: 'REVISION', currentRevision: '00', proposedRevision: '01', targetEffectiveDate: '2026-12-01', previousEffectiveDate: '2026-11-03', additionalDocuments: [{ ...dar.additionalDocuments![0], docNo: 'BOM-K007-01_51', currentRevision: '00', previousEffectiveDate: '2026-11-03', revision: '00' }] } as DarRecord;
-  const prior = { [oldRows[0].id]: oldRows[0], [old.id]: old };
-  const plan = planDarMasterRegistration(revision, prior, 'DCC', now, 'register', { 'BOM-K007-01_51': old.id });
-  const renamed = plan.records[1];
-  assert.equal(renamed.previousDocumentId, old.id);
-  assert.equal(renamed.currentRevision, '00');
-  assert.equal(renamed.revisionHistory.length, 1);
-  assert.equal(renamed.currentFileStoragePath, undefined);
-  assert.equal(plan.superseded[0].status, 'OBSOLETE');
-  assert.equal(plan.superseded[0].currentFileStoragePath, 'archive/old.pdf');
-  assert.equal(plan.superseded[0].supersededByDocumentId, renamed.id);
-  assert.equal(plan.linkedPreviousDocuments[0].previousDistributionAnchorId, oldRows[0].id);
-  assert.equal(plan.linkedPreviousDocuments[0].previousDarId, 'DAR-OLD');
-});
-
-test('renumbering rejects stale, wrong department, reused and conflicting targets', () => {
-  const oldRows = planDarMasterRegistration(dar, {}, 'DCC', now, 'register').records;
-  const old = { ...oldRows[1], id: 'OLD', docNo: 'OLD', distributionSetDocId: undefined };
-  const revision = { ...dar, requestType: 'REVISION', currentRevision: '00', proposedRevision: '01', targetEffectiveDate: '2026-12-01', previousEffectiveDate: '2026-11-03', additionalDocuments: [{ ...dar.additionalDocuments![0], docNo: 'NEW-1', currentRevision: '00', previousEffectiveDate: '2026-11-03', revision: '01' }, { ...dar.additionalDocuments![1], docNo: 'NEW-2', currentRevision: '00', previousEffectiveDate: '2026-11-03', revision: '01' }] } as DarRecord;
-  const base = { [oldRows[0].id]: oldRows[0], OLD: old };
-  const run = (data: typeof base, links: Record<string, string>) => planDarMasterRegistration(revision, data, 'DCC', now, 'register', links);
-  assert.throws(() => run(base, { 'NEW-1': 'OLD', 'NEW-2': 'OLD' }), /ใช้ซ้ำ/);
-  assert.throws(() => run({ ...base, OLD: { ...old, status: 'OBSOLETE' } }, { 'NEW-1': 'OLD' }), /Active/);
-  assert.throws(() => run({ ...base, OLD: { ...old, ownerDept: 'HR' } }, { 'NEW-1': 'OLD' }), /หน่วยงานอื่น/);
-  assert.throws(() => run({ ...base, OLD: { ...old, currentRevision: '03' } }, { 'NEW-1': 'OLD' }), /Rev. เดิม/);
-  assert.throws(() => run({ ...base, OLD: { ...old, effectiveDate: '2026-11-02' } }, { 'NEW-1': 'OLD' }), /วันที่เอกสารเดิม/);
-  assert.throws(() => run({ ...base, 'NEW-1': { ...old, id: 'NEW-1' } }, { 'NEW-1': 'OLD' }), /มีใน Master List/);
-  assert.throws(() => run(base, { 'NEW-1': 'MISSING' }), /ไม่พบรหัสเดิม/);
-});
-
-
 test('legacy Master records without a DAR reference can still be inspected', () => {
   const original = planDarMasterRegistration(dar, {}, 'DCC', now, 'register').records;
   const legacy = { ...original[0], darReferenceId: undefined } as unknown as MasterDocument;
@@ -115,11 +81,13 @@ test('legacy Master records without a DAR reference can still be inspected', () 
   assert.doesNotThrow(() => planDarMasterRegistration(revision, { [legacy.id]: legacy }, 'DCC', now, 'register'));
 });
 
-test('a mismatched renamed revision reports both actual dates and the selected old Master code', () => {
-  const original = planDarMasterRegistration(dar, {}, 'DCC', now, 'register').records;
-  const old = { ...original[1], id:'BOM_API-006-26', docNo:'BOM_API-006-26', distributionSetDocId:undefined, effectiveDate:'2026-11-20' };
-  const revision = { ...dar, requestType:'REVISION', currentRevision:'00', proposedRevision:'01', targetEffectiveDate:'2026-12-01', previousEffectiveDate:'2026-11-03', additionalDocuments:[{ ...dar.additionalDocuments![0], docNo:'BOM-K006-01_51', currentRevision:'00', previousEffectiveDate:'2026-11-17', revision:'01' }] } as DarRecord;
-  assert.throws(() => planDarMasterRegistration(revision, { [original[0].id]:original[0], [old.id]:old }, 'DCC', now, 'register', { 'BOM-K006-01_51':old.id }), error => {
-    const message=(error as Error).message;return message.includes('17/11/2026') && message.includes('20/11/2026') && message.includes('BOM_API-006-26');
-  });
+test('revisions require the existing number for the primary as well as extra rows; dates refer to that Master', () => {
+  const original = planDarMasterRegistration(dar, {}, 'DCC', now, 'register').records[0];
+  const revision = { ...dar, requestType:'REVISION', currentRevision:'00', proposedRevision:'01', targetEffectiveDate:'2026-12-01', previousEffectiveDate:original.effectiveDate, additionalDocuments:[] } as DarRecord;
+  const prior = { [original.id]:original };
+  assert.throws(() => planDarMasterRegistration({ ...revision, docNo:'NEW-CODE' },prior,'DCC',now,'register'), /ไม่พบ NEW-CODE/);
+  assert.throws(() => planDarMasterRegistration({ ...revision, docNo:'NEW-CODE' },prior,'DCC',now,'register', {'NEW-CODE':original.id}), /ไม่อนุญาตให้เปลี่ยนหมายเลข/);
+  assert.throws(() => planDarMasterRegistration({ ...revision, previousEffectiveDate:'2026-11-17' }, prior,'DCC',now,'register'), /วันที่เอกสารเดิม.*Master List/);
+  assert.throws(() => planDarMasterRegistration({...revision,requestDept:'HR'}, prior,'DCC',now,'register'), /หน่วยงาน/);
+  assert.throws(() => planDarMasterRegistration({...revision,docNo:'A/B'}, { 'A_2FB':{...original,docNo:'A_2FB'} },'DCC',now,'register'), /ไม่พบ/);
 });

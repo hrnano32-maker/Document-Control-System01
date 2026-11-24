@@ -30,7 +30,7 @@ test('new submissions require an old revision for each revision row and reject n
 test('registration verifies the prior revision of the matching Master document without breaking legacy DARs', () => {
   const dar = { id:'DAR-TEST', status:'APPROVED', requestType:'REVISION', requestDept:'HR', docNo:'WI-HR-01', docNameTh:'เอกสารหนึ่ง', docNameEn:'', docType:'WI', currentRevision:'01', proposedRevision:'02', targetEffectiveDate:'2026-01-01', previousEffectiveDate:'2025-01-01', reasonForChange:'ปรับปรุง', additionalDocuments:[row] } as DarRecord;
   const base = { id:'WI-HR-02', docNo:'WI-HR-02', docNameTh:'เอกสารสอง', docNameEn:'', docType:'WI', ownerDept:'HR', status:'ACTIVE', currentRevision:'03', effectiveDate:'2025-01-01', darReferenceId:'DAR-OLD', createdAt:'2025-01-01', updatedAt:'2025-01-01', reviewDueDate:'2026-01-01', revisionHistory:[], retentionPeriodYears:5 } as MasterDocument;
-  const previous = { 'WI-HR-02': base };
+  const previous = { 'WI-HR-01': {...base,id:'WI-HR-01',docNo:'WI-HR-01',currentRevision:'01'}, 'WI-HR-02': base };
   const result = planDarMasterRegistration(dar, previous, 'DCC', '2025-10-01T00:00:00.000Z', 'register');
   assert.equal(result.records[1].currentRevision, '04');
   assert.throws(() => planDarMasterRegistration({ ...dar, additionalDocuments:[{ ...row, currentRevision:'02' }] }, previous, 'DCC', '2025-10-01T00:00:00.000Z', 'register'), /Rev. เดิมไม่ตรง/);

@@ -1,0 +1,25 @@
+name: Check DAR identity rules
+on:
+  push:
+    branches: [main]
+    paths: [firestore.rules, tests/emulator/dar-identity.mjs, .github/workflows/dar-identity-rules.yml]
+  pull_request:
+    paths: [firestore.rules, tests/emulator/dar-identity.mjs, .github/workflows/dar-identity-rules.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm install --legacy-peer-deps
+      - run: npx --yes --package=firebase-tools@14 firebase emulators:exec --only firestore --project demo-dcs-identity "node tests/emulator/dar-identity.mjs"

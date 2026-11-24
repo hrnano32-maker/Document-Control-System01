@@ -25,8 +25,10 @@ test('saved arrays win over compatibility fields and old single-file DARs still 
 });
 
 async function repository() {
-  const h = { records: {} as Record<string, any>, uploads: [] as any[], calls: [] as any[], failPrepare: false, failAt: 0, profile: { active: true, department: 'HR', role: 'STAFF' } };
-  const firestore = `const h=globalThis.__h; export const collection=(_,name)=>({name}); export const doc=(db,name,id)=>({name:id?name:db.name,id:id||name||'audit'}); const snap=r=>({exists:()=>true,data:()=>r.name==='users'?h.profile:h.records[r.name+'/'+r.id]}); export const getDocsFromServer=()=>{};export const getDocFromServer=async r=>snap(r); export const runTransaction=async(_,cb)=>cb({get:async r=>snap(r),set:(r,v)=>h.records[r.name+'/'+r.id]=v}); export const writeBatch=()=>{const rows=[];return {set:(r,v)=>rows.push([r,v]),commit:async()=>{for(const[r,v]of rows)h.records[r.name+'/'+r.id]=v;}}}; export const getDoc=async()=>{};export const getDocs=async()=>{};export const onSnapshot=()=>()=>{};export const orderBy=()=>{};export const query=()=>{};export const where=()=>{};export const setDoc=()=>{};export const Timestamp={};export const updateDoc=()=>{};`;
+  const h = { records: {} as Record<string, any>, catalog: [] as any[], uploads: [] as any[], calls: [] as any[], failPrepare: false, failAt: 0, profile: { active: true, department: 'HR', role: 'STAFF' } };
+  const fixtureMasters = ['WI-HR-01','WI-HR-02'].map(docNo => ({ id: docNo, docNo, docNameTh: docNo === 'WI-HR-01' ? input().docNameTh : 'เอกสารเพิ่มเติม', docNameEn: '', ownerDept: 'HR', status:'ACTIVE' }));
+  // Seed the old Masters only for revision scenarios; NEW starts with an empty registry.
+  const firestore = `const h=globalThis.__h;const fixtureMasters=${JSON.stringify(fixtureMasters)}; export const collection=(_,name)=>({name}); export const doc=(db,name,id)=>({name:id?name:db.name,id:id||name||'audit'}); const snap=r=>({id:r.id,exists:()=>r.name!=='dcs_documents'||fixtureMasters.some(x=>x.id===r.id),data:()=>r.name==='users'?h.profile:r.name==='dcs_documents'?fixtureMasters.find(x=>x.id===r.id):h.records[r.name+'/'+r.id]}); export const getDocsFromServer=async()=>({docs:h.catalog.map(m=>({id:m.id,data:()=>m}))});export const getDocFromServer=async r=>snap(r); export const runTransaction=async(_,cb)=>cb({get:async r=>snap(r),set:(r,v)=>h.records[r.name+'/'+r.id]=v}); export const writeBatch=()=>{const rows=[];return {set:(r,v)=>rows.push([r,v]),commit:async()=>{for(const[r,v]of rows)h.records[r.name+'/'+r.id]=v;}}}; export const getDoc=async()=>{};export const getDocs=async()=>{};export const onSnapshot=()=>()=>{};export const orderBy=()=>{};export const query=()=>{};export const where=()=>{};export const setDoc=()=>{};export const Timestamp={};export const updateDoc=()=>{};`;
   const mocks: Record<string, string> = {
     firestore,
     storage: `const h=globalThis.__h;export const ref=(_,path)=>path;export const uploadBytesResumable=(path,blob,metadata)=>({on:(_,progress,error,done)=>{if(h.failAt===h.uploads.length+1){error(new Error('Upload failed'));return;}h.uploads.push({path,blob,metadata});progress({bytesTransferred:blob.size});done();}});export const deleteObject=()=>{};export const getDownloadURL=()=>{};export const uploadBytes=()=>{};export const getBlob=()=>{};`,
@@ -137,3 +139,16 @@ test('revision submission preserves all original effective dates and rejects mis
   }
 });
 
+test('existing number is blocked even with a different title; similar new titles require explicit review before allocation', async () => {
+  const { h, repo } = await repository();
+  h.catalog.push({ id:'WI-HR-01', docNo:'WI-HR-01', docNameTh:'ขั้นตอนการส่งคืนเอกสาร', docNameEn:'Document Return Procedure', ownerDept:'HR', status:'ACTIVE', currentRevision:'00' });
+  const payload = { ...input(), docNameTh:'ขั้นตอนการส่งคืนเอกสาร ฉบับภายใน', attachments:[attachment('new.pdf')] };
+  await assert.rejects(repo.createDarRecord(user, { ...payload, docNameTh:'ชื่อที่ต่างไปทั้งหมด' }, undefined, () => true), /มีใน Master List/);
+  const draft = { ...payload, docNo:'WI-HR-99' };
+  await assert.rejects(repo.createDarRecord(user, {...draft, docNameTh:'ชื่อที่ต่างไปทั้งหมด'}, undefined, (message:string) => { assert.match(message,/ไม่พบรหัสหรือชื่อใกล้เคียง/); return false; }), /กรุณาตรวจสอบเอกสารเดิม/);
+  await assert.rejects(repo.createDarRecord(user, draft), /กรุณาตรวจสอบเอกสารเดิม/);
+  await assert.rejects(repo.createDarRecord(user, draft, undefined, (message:string) => { assert.match(message,/WI-HR-01/); return false; }), /กรุณาตรวจสอบเอกสารเดิม/);
+  assert.deepEqual(h.records,{}); assert.equal(h.uploads.length,0);
+  const id = await repo.createDarRecord(user, draft, undefined, () => true);
+  assert.equal(h.records['dcs_dars/'+id].docNo,'WI-HR-99');
+});

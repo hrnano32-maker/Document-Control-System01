@@ -137,3 +137,10 @@ test('approved row date correction cannot change identity, bypass date order or 
     await assert.rejects(save(form));assert.equal(h.writes.length,0,change);
   }
 });
+test('a submitted revision cannot be assigned a different primary or secondary number by DCC', async () => {
+  const dar = fixture(), { h, save } = await setup(dar);
+  for (const edit of [{ docNo: 'WI-HR-99' }, { additionalDocuments: [] }, { additionalDocuments: [{ ...dar.additionalDocuments![0], docNo: 'WI-HR-99' }] }]) {
+    await assert.rejects(save(updates(dar,edit)), /ไม่อนุญาตให้เปลี่ยนหมายเลข/);
+  }
+  assert.equal(h.writes.length,0);
+});

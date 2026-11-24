@@ -27,6 +27,7 @@ import { findConflictingCopyRequest } from '../utils/copyRequests';
 import { getMasterRevisionHistory, revisionKey } from '../utils/masterRevisions';
 
 import { MAX_DAR_PDFS, formatPdfSize, validateDarPdf, getDarAttachments } from '../utils/darAttachments';
+import { assertExistingDarMaster, identityWarnings, numberText, type DarIdentity } from '../utils/darIdentity';
 import { getDarMasterRows, masterDocumentKey, planDarMasterRegistration } from '../utils/darMasterRegistration';
 import { validateAdditionalCurrentRevisions } from '../utils/darRevisionDisplay';
 import { DAR_CORRECTION_LABELS, sameDarCorrectionValue } from '../utils/darCorrection';
@@ -344,7 +345,31 @@ const darSubmissionStep = async <T,>(stage: string, operation: () => Promise<T>)
   }
 };
 
-export const createDarRecord = async (user: CurrentUserSession, input: DarCreateInput, onProgress?: (message: string, percent: number) => void) => {
+// Re-read the registry before the requester submits or DCC approves. A title
+// match is advisory; only an existing number can identify a revision.
+export async function checkDarIdentityForAction(input: DarIdentity, confirm?: (message: string) => Promise<boolean> | boolean) {
+  const rows = [input, ...(input.additionalDocuments || [])];
+  const catalog: MasterDocument[] = input.requestType === 'NEW'
+    ? (await getDocsFromServer(collection(db, 'dcs_documents'))).docs.map(doc => ({ ...doc.data(), id: doc.id } as MasterDocument))
+    : (await Promise.all(rows.map(row => getDocFromServer(doc(db, 'dcs_documents', masterDocumentKey(row.docNo)))))).flatMap(snap => snap.exists() ? [{ ...snap.data(), id: snap.id } as MasterDocument] : []);
+  for (const row of rows) {
+    const master = catalog.find(doc => numberText(doc.docNo) === numberText(row.docNo));
+    if (input.requestType === 'NEW') {
+      if (master || catalog.some(doc => doc.id === masterDocumentKey(row.docNo))) throw new Error(`รหัส ${row.docNo} มีใน Master List แล้ว หากเป็นเอกสารเดิมให้เลือก “ขอแก้ไข” และใช้รหัสเดิม`);
+    } else assertExistingDarMaster(row, input.requestDept, master);
+  }
+  const warnings = identityWarnings(input, catalog);
+  // A completely new title and number cannot reliably be matched by text.
+  // Require the human declaration even when an existing registry has no candidate.
+  if (input.requestType === 'NEW' && catalog.length && !warnings.length) {
+    warnings.push('ไม่พบรหัสหรือชื่อใกล้เคียงใน Master List กรุณาตรวจว่าเป็นเอกสารใหม่จริง ไม่ใช่เอกสารที่เคยขึ้นทะเบียนแล้วเปลี่ยนชื่อหรือหมายเลข');
+  }
+  if (warnings.length) {
+    if (!confirm || !await confirm(warnings.join('\n\n'))) throw new Error('ยังไม่ได้ดำเนินการ กรุณาตรวจสอบเอกสารเดิมใน Master List ก่อน');
+  }
+}
+
+export const createDarRecord = async (user: CurrentUserSession, input: DarCreateInput, onProgress?: (message: string, percent: number) => void, confirmIdentity?: (message: string) => Promise<boolean> | boolean) => {
   getSkippedRevisionFields(input.requestType, input.isSkippedRevision === true, input.skippedRevisionReason || '');
   validateDarEffectiveDates(input);
   validateAdditionalCurrentRevisions(input);
@@ -384,6 +409,7 @@ export const createDarRecord = async (user: CurrentUserSession, input: DarCreate
   if (profile.role !== 'DCC_ADMIN' && profile.department !== input.requestDept) {
     throw new Error(`หน่วยงานในบัญชีคือ ${profile.department} แต่ใบ DAR ระบุ ${input.requestDept} กรุณาตรวจหน่วยงานผู้ขอ หรือเข้าสู่ระบบใหม่หลัง DCC เปลี่ยนชื่อแผนก`);
   }
+  await checkDarIdentityForAction(input, confirmIdentity);
   const seq = await darSubmissionStep('ออกเลขที่ DAR', () => nextNumber('dar'));
   const year = new Date().getFullYear();
   const id = `DAR-${year}-${String(seq).padStart(4, '0')}`;
@@ -469,6 +495,15 @@ export const correctDarRecord = async (
     changeDetails: updates.changeDetails.trim(),
   };
   const detailsOnly = dar.status === 'APPROVED' || dar.status === 'REGISTERED';
+  if (!detailsOnly && dar.requestType !== 'NEW' && (numberText(dar.docNo) !== corrected.docNo ||
+    (dar.additionalDocuments || []).length !== corrected.additionalDocuments.length ||
+    corrected.additionalDocuments.some((row, i) => row.docNo !== numberText(dar.additionalDocuments![i].docNo)))) {
+    throw new Error('ใบ DAR แก้ไข/ยกเลิกที่ยื่นแล้วไม่อนุญาตให้เปลี่ยนหมายเลข เพิ่ม หรือลบรายการเอกสาร');
+  }
+  if (!detailsOnly && dar.requestType !== 'NEW') {
+    corrected.docNo = dar.docNo;
+    corrected.additionalDocuments.forEach((row, i) => { row.docNo = dar.additionalDocuments![i].docNo; });
+  }
   if (detailsOnly) {
     // Keep identity fields byte-for-byte; legacy names may contain spaces or lowercase.
     for (const key of ['docNo', 'docNameTh', 'docNameEn', 'currentRevision', 'proposedRevision'] as const) {
@@ -548,7 +583,27 @@ export const correctDarRecord = async (
 
 export const reviewDarRecord = async (user: CurrentUserSession, dar: DarRecord, status: 'APPROVED' | 'REJECTED' | 'UNDER_REVIEW', remarks: string) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่ตรวจสอบ DAR ได้');
-  await patchDarRecord(dar.id, { status, dccReviewer: user.userName, dccReviewDate: new Date().toISOString().slice(0, 10), dccRemarks: remarks });
+  const patch = { status, dccReviewer: user.userName, dccReviewDate: new Date().toISOString().slice(0, 10), dccRemarks: remarks };
+  if (status !== 'APPROVED') await patchDarRecord(dar.id, patch);
+  else {
+    const darRef = doc(db, 'dcs_dars', dar.id);
+    await runTransaction(db, async tx => {
+      const snapshot = await tx.get(darRef);
+      if (!snapshot.exists()) throw new Error('ไม่พบใบ DAR');
+      const live = { ...snapshot.data(), id: dar.id } as DarRecord;
+      if (!['PENDING_REVIEW','UNDER_REVIEW'].includes(live.status) || live.status !== dar.status || live.requestType !== dar.requestType ||
+        live.requestDept !== dar.requestDept || live.targetEffectiveDate !== dar.targetEffectiveDate ||
+        !sameDarCorrectionValue('additionalDocuments', getDarMasterRows(live), getDarMasterRows(dar))) throw new Error('ข้อมูล DAR เปลี่ยน กรุณาเปิดใบ DAR ใหม่เพื่อตรวจสอบ');
+      if (!live.requesterSignature || !live.deptApproverSignature) throw new Error('ลายเซ็นผู้ยื่นและผู้อนุมัติในหน่วยงานยังไม่ครบ');
+      const masters = await Promise.all(getDarMasterRows(live).map(async row => {
+        const snap = await tx.get(doc(db, 'dcs_documents', row.key));
+        return [row.key, snap.exists() ? { ...snap.data(), id: row.key } as MasterDocument : undefined] as const;
+      }));
+      const now = new Date().toISOString();
+      planDarMasterRegistration({ ...live, status:'APPROVED' }, Object.fromEntries(masters), user.userName, now, 'register');
+      tx.update(darRef, { ...patch, updatedAt:now });
+    });
+  }
   await writeAudit(user, 'DAR_REVIEWED', dar.docNo, dar.proposedRevision, `ตรวจสอบ ${dar.id}: ${status}`, { remarks });
 };
 
@@ -572,14 +627,9 @@ const documentKey = masterDocumentKey;
 
 export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord, links: Record<string, string> = {}) => {
   if (user.userRole !== 'DCC_ADMIN') throw new Error('เฉพาะ DCC เท่านั้นที่ขึ้นทะเบียนเอกสารได้');
-  if (Object.keys(links).length) {
-    try {
-      const support = await httpsCallable<{ capability: string }, { capability?: string }>(firebaseFunctions, 'syncDocumentReturnRequests')({ capability: 'renumbered-returns-v1' });
-      if (support.data.capability !== 'renumbered-returns-v1') throw new Error('unsupported');
-    } catch { throw new Error('ยังไม่สามารถเชื่อมรหัสได้: ระบบคืนเอกสารฝั่งเซิร์ฟเวอร์ยังไม่พร้อม กรุณาติดต่อ DCC เพื่อตรวจสอบการติดตั้ง'); }
-  }
+  if (Object.keys(links).length) throw new Error('ไม่อนุญาตให้เปลี่ยนหมายเลขเอกสารผ่านใบ DAR ขอแก้ไข');
   const openedRows = getDarMasterRows(dar);
-  const ids = [...new Set([...openedRows.map(row => row.key), ...Object.values(links)])];
+  const ids = openedRows.map(row => row.key);
   const refs = ids.map(id => doc(db, 'dcs_documents', id));
   const masterRef = doc(db, 'dcs_documents', openedRows[0].key);
   const darRef = doc(db, 'dcs_dars', dar.id);
@@ -588,23 +638,16 @@ export const registerDarRecord = async (user: CurrentUserSession, dar: DarRecord
     if (!darSnap.exists()) throw new Error('ไม่พบใบ DAR');
     const currentDar = { ...darSnap.data(), id: dar.id } as DarRecord;
     const rows = getDarMasterRows(currentDar);
-    if (rows.map(row => row.key).join('|') !== openedRows.map(row => row.key).join('|')) throw new Error('รายการเอกสารใน DAR เปลี่ยน กรุณารีเฟรชก่อนขึ้นทะเบียน');
+    if (currentDar.requestType !== dar.requestType || currentDar.requestDept !== dar.requestDept || currentDar.targetEffectiveDate !== dar.targetEffectiveDate || !sameDarCorrectionValue('additionalDocuments', rows, openedRows)) throw new Error('รายการเอกสารใน DAR เปลี่ยน กรุณารีเฟรชก่อนขึ้นทะเบียน');
     const snapshots = await Promise.all(refs.map(ref => tx.get(ref)));
     const previousById: Record<string, MasterDocument | undefined> = Object.fromEntries(snapshots.map((snap, index) => [refs[index].id, snap.exists() ? { ...snap.data(), id: refs[index].id } as MasterDocument : undefined]));
-    const anchorIds = [...new Set(Object.values(links).map(id => previousById[id]?.distributionSetDocId).filter((id): id is string => !!id && !(id in previousById)))];
-    const anchors = await Promise.all(anchorIds.map(id => tx.get(doc(db, 'dcs_documents', id))));
-    anchors.forEach((snap, i) => { previousById[anchorIds[i]] = snap.exists() ? { ...snap.data(), id: anchorIds[i] } as MasterDocument : undefined; });
     const previous = previousById[masterRef.id];
     if (currentDar.status === 'REGISTERED' && previous?.darReferenceId === dar.id) return { alreadyRegistered: true, previousFile: null, linked: !!currentDar.linkedPreviousDocuments?.length };
     const now = new Date().toISOString();
     const plan = planDarMasterRegistration(currentDar, previousById, user.userName, now, 'register', links);
-    for (const record of [...plan.records, ...plan.superseded]) tx.set(doc(db, 'dcs_documents', record.id), clean(record));
-    tx.update(darRef, clean({ status: 'REGISTERED', updatedAt: now, ...(plan.linkedPreviousDocuments.length ? { linkedPreviousDocuments: plan.linkedPreviousDocuments } : {}) }));
-    if (plan.linkedPreviousDocuments.length) {
-      const auditRef = doc(collection(db, 'dcs_audit_logs'));
-      tx.set(auditRef, clean({ id: auditRef.id, timestamp: now, createdAt: now, ...actorFields(user), actionType: 'MASTER_LIST_UPDATED', docNo: currentDar.docNo, revision: currentDar.proposedRevision, description: `เชื่อมรหัสเอกสารเดิมกับรหัสใหม่ตาม ${dar.id}`, details: { darId: dar.id, links: plan.linkedPreviousDocuments } }));
-    }
-    return { alreadyRegistered: false, linked: !!plan.linkedPreviousDocuments.length, previousFile: previous?.currentFileStoragePath ? { path: previous.currentFileStoragePath, revision: previous.currentRevision, newRevision: currentDar.proposedRevision || currentDar.currentRevision || '00' } : null };
+    for (const record of plan.records) tx.set(doc(db, 'dcs_documents', record.id), clean(record));
+    tx.update(darRef, { status: 'REGISTERED', updatedAt: now });
+    return { alreadyRegistered: false, linked: false, previousFile: previous?.currentFileStoragePath ? { path: previous.currentFileStoragePath, revision: previous.currentRevision, newRevision: currentDar.proposedRevision || currentDar.currentRevision || '00' } : null };
   });
   const previousFile = registrationResult.previousFile;
   if (previousFile && (previousFile.revision !== previousFile.newRevision || dar.requestType === 'OBSOLETE')) {

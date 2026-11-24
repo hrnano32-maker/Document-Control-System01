@@ -66,26 +66,30 @@ test('a conflict or stale changed DAR does not partially write any Master docume
 });
 
 
-test('renumbering is an atomic linked registration, then reconciles the old holders', async () => {
-  const dar = { ...base(), requestType: 'REVISION', currentRevision: '00', proposedRevision: '01', previousEffectiveDate: '2026-01-01', targetEffectiveDate: '2026-12-01', additionalDocuments: [{ docNo: 'NEW-CODE', docNameTh: 'รายการเดิมเปลี่ยนรหัส', currentRevision: '00', previousEffectiveDate: '2026-01-01', revision: '01', reason: 'เปลี่ยนรหัส' }] };
-  const { h, repo } = await setup(dar); h.distributionId = 'DIST-NEW';
-  const oldPrimary = { id: 'WI-HR-01', docNo: 'WI-HR-01', status: 'ACTIVE', ownerDept: 'HR', currentRevision: '00', effectiveDate: '2026-01-01', darReferenceId: 'DAR-OLD', revisionHistory: [], createdAt: '2026-01-01' };
-  const old = { ...oldPrimary, id: 'OLD-CODE', docNo: 'OLD-CODE', distributionSetDocId: 'OLD-ANCHOR', currentFileStoragePath: 'old.pdf' };
-  h.store.set('dcs_documents/WI-HR-01', oldPrimary); h.store.set('dcs_documents/OLD-CODE', old); h.store.set('dcs_documents/OLD-ANCHOR', { ...oldPrimary, id: 'OLD-ANCHOR' });
-  await repo.registerDarRecord(dcc, dar, { 'NEW-CODE': 'OLD-CODE' });
-  assert.equal(h.store.get('dcs_documents/OLD-CODE').status, 'OBSOLETE');
-  assert.equal(h.store.get('dcs_documents/OLD-CODE').currentFileStoragePath, 'old.pdf');
-  assert.equal(h.store.get('dcs_documents/NEW-CODE').previousDocumentId, 'OLD-CODE');
-  assert.equal(h.store.get('dcs_dars/' + dar.id).linkedPreviousDocuments[0].previousDistributionAnchorId, 'OLD-ANCHOR');
-  assert.equal(h.writes.filter(row => row.key.startsWith('dcs_audit_logs/')).length, 1);
-  assert.ok(h.calls.some(call => call.name === 'syncDocumentReturnRequests' && call.data.distributionId === 'DIST-NEW'));
+test('a new number is refused with or without a legacy link; renaming with the original number updates one Master', async () => {
+  const dar = { ...base(), requestType: 'REVISION', currentRevision: '00', proposedRevision: '01', previousEffectiveDate: '2026-01-01', targetEffectiveDate: '2026-12-01', additionalDocuments: [] };
+  const { h, repo } = await setup(dar);
+  const old = { id: 'OLD', docNo:'OLD', status:'ACTIVE', ownerDept:'HR', docNameTh:'ชื่อเดิม', currentRevision:'00', effectiveDate:'2026-01-01', darReferenceId:'DAR-OLD', revisionHistory:[], createdAt:'2026-01-01' };
+  h.store.set('dcs_documents/OLD',old);
+  await assert.rejects(repo.registerDarRecord(dcc,dar,{[dar.docNo]:'OLD'}),/ไม่อนุญาตให้เปลี่ยนหมายเลข/);
+  await assert.rejects(repo.registerDarRecord(dcc,dar),/ไม่พบ/);
+  assert.equal(h.writes.length,0); assert.equal(h.calls.length,0);
+  h.store.get('dcs_dars/'+dar.id).docNo='OLD';
+  await repo.registerDarRecord(dcc,{...dar,docNo:'OLD'});
+  const masters=[...h.store.keys()].filter(k=>k.startsWith('dcs_documents/'));
+  assert.deepEqual(masters,['dcs_documents/OLD']);
+  assert.equal(h.store.get(masters[0]).docNameTh,dar.docNameTh);
+  assert.deepEqual(Array.from(h.store.get(masters[0]).revisionHistory,(r:any)=>r.rev),['00','01']);
 });
-
-test('renumbering fails without server capability or with stale source before any write', async () => {
-  const dar = { ...base(), requestType: 'REVISION', currentRevision: '00', proposedRevision: '01', additionalDocuments: [{ docNo: 'NEW-CODE', docNameTh: 'เอกสาร', currentRevision: '00', revision: '01', reason: 'เปลี่ยนรหัส' }] };
-  const { h, repo } = await setup(dar); h.capability = '';
-  await assert.rejects(repo.registerDarRecord(dcc, dar, { 'NEW-CODE': 'OLD-CODE' }), /เซิร์ฟเวอร์ยังไม่พร้อม/); assert.equal(h.writes.length, 0);
-  h.capability = 'renumbered-returns-v1';
-  h.store.set('dcs_documents/WI-HR-01', { id: 'WI-HR-01', docNo: 'WI-HR-01', status: 'ACTIVE', ownerDept: 'HR', currentRevision: '00', effectiveDate: '2026-01-01', darReferenceId: 'DAR-OLD', revisionHistory: [], createdAt: '2026-01-01' });
-  await assert.rejects(repo.registerDarRecord(dcc, dar, { 'NEW-CODE': 'OLD-CODE' }), /ไม่พบรหัสเดิม/); assert.equal(h.writes.length, 0);
+test('a missing second Master blocks both approval and registration without partial writes or distribution', async () => {
+  const dar = { ...base(), status:'PENDING_REVIEW', requestType:'REVISION', requesterSignature:'signed', deptApproverSignature:'approved',
+    currentRevision:'00', proposedRevision:'01', previousEffectiveDate:'2026-01-01', additionalDocuments:[{...base().additionalDocuments[0], currentRevision:'00', revision:'01', previousEffectiveDate:'2026-01-01'}] };
+  const { h, repo } = await setup(dar);
+  h.store.set('dcs_documents/'+dar.docNo,{ id:dar.docNo, docNo:dar.docNo, docNameTh:dar.docNameTh, ownerDept:'HR', status:'ACTIVE', currentRevision:'00', effectiveDate:'2026-01-01' });
+  await assert.rejects(repo.reviewDarRecord(dcc,dar,'APPROVED',''),/WI-HR-02/);
+  assert.equal(h.store.get('dcs_dars/'+dar.id).status,'PENDING_REVIEW');
+  h.store.get('dcs_dars/'+dar.id).status='APPROVED';
+  await assert.rejects(repo.registerDarRecord(dcc,{...dar,status:'APPROVED'}),/WI-HR-02/);
+  assert.equal(h.store.get('dcs_documents/'+dar.docNo).currentRevision,'00');
+  assert.equal(h.writes.length,0); assert.equal(h.calls.length,0);
 });

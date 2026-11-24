@@ -83,9 +83,18 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // Keep standalone legacy Master imports possible. An existing DAR may
+    // originate a new Master row only when it actually registers a new document.
+    function mayCreateMaster(data) {
+      let dar = data.get('darReferenceId', '');
+      return dar == '' || (dar is string && dar.matches('[^/]+')
+        && get(/databases/$(database)/documents/dcs_dars/$(dar)).data.requestType == 'NEW');
+    }
     match /dcs_documents/{id} {
       allow read: if activeUser();
-      allow create, update: if isDcc();
+      allow create: if isDcc() && mayCreateMaster(request.resource.data);
+      allow update: if isDcc() && !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['docNo', 'supersededByDocumentId', 'supersededByDocNo', 'renumberedByDarId']);
       allow delete: if false;
     }
 
@@ -110,6 +119,19 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    function sameDarNumbers(before, after) {
+      let old = before.get('additionalDocuments', []);
+      let next = after.get('additionalDocuments', []);
+      return before.requestType == after.requestType && (before.requestType == 'NEW'
+        || (before.docNo == after.docNo && (old == next || (
+          old.size() == next.size() && next.size() <= 5
+          && (next.size() < 1 || old[0].docNo == next[0].docNo)
+          && (next.size() < 2 || old[1].docNo == next[1].docNo)
+          && (next.size() < 3 || old[2].docNo == next[2].docNo)
+          && (next.size() < 4 || old[3].docNo == next[3].docNo)
+          && (next.size() < 5 || old[4].docNo == next[4].docNo)
+        ))));
+    }
     match /dcs_dars/{id} {
       allow read: if isDcc() || sameDepartment(resource.data.requestDept);
       allow create: if activeUser()
@@ -129,7 +151,7 @@ service cloud.firestore {
         && request.resource.data.deptApproverDate is string
         && request.resource.data.deptApproverSignature is string
         && request.resource.data.deptApproverSignature.size() > 0;
-      allow update: if previousFilesUnchanged() && ((isDcc() && (
+      allow update: if previousFilesUnchanged() && sameDarNumbers(resource.data, request.resource.data) && ((isDcc() && (
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'requestType', 'targetEffectiveDate', 'previousEffectiveDate', 'additionalDocuments'
         ]) || darEffectiveDatesAllowed(request.resource.data)
