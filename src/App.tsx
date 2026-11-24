@@ -17,7 +17,7 @@ import { UserRegistrationAdmin } from './components/UserRegistrationAdmin';
 import { PwaNotificationPrompt } from './components/PwaNotificationPrompt';
 import { Announcements } from './components/Announcements';
 import { PendingDistributionGate } from './components/PendingDistributionGate';
-import { isPendingDepartmentReceipt } from './utils/distributionAccess';
+import { getRecipientGate } from './utils/distributionAccess';
 
 export const MainLayout: React.FC = () => {
   const { activeView, currentUser, setActiveView, distributions, documentReturns, distributionSync,
@@ -35,8 +35,8 @@ export const MainLayout: React.FC = () => {
   }
 
   const isDcc = currentUser.currentDept === 'DCC';
-  const blocked = currentUser.userRole !== 'DCC_ADMIN' && !currentUser.mustChangePassword
-    && (distributionSync !== 'ready' || distributions.some(row => isPendingDepartmentReceipt(row, currentUser.currentDept)) || documentReturns.some(row => row.status === 'PENDING'));
+  const gate = getRecipientGate(currentUser, distributionSync, distributions, documentReturns);
+  const { blocked } = gate;
 
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col selection:bg-indigo-500 selection:text-white font-sans">
@@ -77,7 +77,7 @@ export const MainLayout: React.FC = () => {
       </footer>
 
       </div>
-      <PendingDistributionGate />
+      <PendingDistributionGate gate={gate} />
       <DownloadModal />
       <CopyRequestModal />
       <PwaNotificationPrompt hideBanner={blocked || currentUser.mustChangePassword || Boolean(selectedDistributionForDownload || selectedDistributionForReRequest)} />

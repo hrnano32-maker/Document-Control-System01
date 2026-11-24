@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useDcs } from '../context/DcsContext';
-import { getDistributionDownloadAccess } from '../utils/distributionAccess';
-import { useDistributionClock } from '../hooks/useDistributionClock';
+import { getDepartmentReceiptState, hasDistributionAllocation, isPendingDepartmentReceipt } from '../utils/distributionAccess';
 import {
   FileText,
   Send,
@@ -34,14 +33,11 @@ export const Dashboard: React.FC = () => {
     reRequests,
     setActiveView,
     setIsStamperOpen,
-    setSelectedDistributionForDownload,
     setSelectedDistributionForSheet,
-    setSelectedDistributionForReRequest,
     deleteDistribution,
     announcements,
   } = useDcs();
 
-  const now = useDistributionClock();
   const [cleaningDistributionId, setCleaningDistributionId] = useState<string | null>(null);
 
   const isDcc = currentUser.currentDept === 'DCC';
@@ -56,21 +52,8 @@ export const Dashboard: React.FC = () => {
   const unreadAnnouncements = isDcc ? [] : announcements.filter(item => item.status === 'PUBLISHED' && item.endDate >= currentDate && !item.reads?.[currentUser.currentDept]);
 
   // Department specific stats
-  const deptDistributions = distributions.filter(dist =>
-    dist.targets.some(t => t.dept === currentUser.currentDept)
-  );
-
-  const deptPendingDownloads = distributions.filter(dist => {
-    const target = dist.targets.find(t => t.dept === currentUser.currentDept);
-    if (!target) return false;
-    return !target.isDownloaded && getDistributionDownloadAccess(dist, currentUser.currentDept, now).canDownload;
-  });
-
-  const deptExpiredDownloads = distributions.filter(dist => {
-    const target = dist.targets.find(t => t.dept === currentUser.currentDept);
-    if (!target) return false;
-    return !target.isDownloaded && getDistributionDownloadAccess(dist, currentUser.currentDept, now).state === 'EXPIRED';
-  });
+  const deptDistributions = distributions.filter(dist => hasDistributionAllocation(dist, currentUser.currentDept));
+  const deptPendingDownloads = deptDistributions.filter(dist => isPendingDepartmentReceipt(dist, currentUser.currentDept));
 
   const deptOwnedDocs = documents.filter(d => d.ownerDept === currentUser.currentDept);
   const deptDars = dars.filter(d => d.requestDept === currentUser.currentDept);
@@ -312,10 +295,10 @@ export const Dashboard: React.FC = () => {
 
             <div className="space-y-3.5">
               {(isDcc ? distributions : deptDistributions).slice(0, 3).map(dist => {
-                const myTarget = dist.targets.find(t => t.dept === currentUser.currentDept);
-                const downloadedCount = dist.targets.filter(t => t.isDownloaded).length;
-                const totalTargets = dist.targets.length;
-                const access = getDistributionDownloadAccess(dist, currentUser.currentDept, now);
+                const received = getDepartmentReceiptState(dist, currentUser.currentDept) === 'COMPLETE';
+                const activeTargets = dist.targets.filter(t => hasDistributionAllocation(dist, t.dept));
+                const downloadedCount = activeTargets.filter(t => getDepartmentReceiptState(dist, t.dept) === 'COMPLETE').length;
+                const totalTargets = activeTargets.length;
 
                 return (
                   <div
@@ -366,36 +349,16 @@ export const Dashboard: React.FC = () => {
                               </button>
                             )}
                           </>
-                        ) : myTarget?.isDownloaded ? (
-                          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-200">
-                            <CheckCircle2 className="w-4 h-4" /> รับสำเนาแล้ว (Copy 1/1)
-                          </span>
-                        ) : !access.canDownload ? (
-                          access.canRequest ? <button
-                            onClick={() => setSelectedDistributionForReRequest({ distribution: dist, dept: currentUser.currentDept })}
-                            className="px-3 py-1.5 text-xs font-bold bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300 rounded-xl cursor-pointer"
-                          >
-                            🔔 {access.message} — ร้องขอ DCC
-                          </button> : <span className="text-xs text-slate-600">{access.message}</span>
-                        ) : (
-                          <button
-                            onClick={() => setSelectedDistributionForDownload({ distribution: dist, dept: currentUser.currentDept })}
-                            className="px-3.5 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer animate-pulse"
-                          >
-                            <Download className="w-4 h-4" />
-                            ดาวน์โหลด & ลงนาม
-                          </button>
-                        )}
+                        ) : received ? (
+                          <span className="inline-flex items-center gap-1.5 text-sm font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-xl"><CheckCircle2 className="w-4 h-4" /> รับและดาวน์โหลดครบแล้ว</span>
+                        ) : <span className="text-sm text-amber-800">ยังค้างรับ</span>}
+
                       </div>
                     </div>
 
                     <div className="flex items-center justify-between text-xs text-slate-600 pt-2 border-t border-slate-200/80">
-                      <span>
-                        สถานะการรับ: <strong className="text-slate-800">{downloadedCount}/{totalTargets} หน่วยงาน</strong>
-                      </span>
-                      <span>
-                        {isDcc ? 'กำหนดรับแยกรายแผนก' : <>{access.message}{access.expiresAt > 0 && <> · สิ้นสุด {new Date(access.expiresAt).toLocaleString('th-TH')}</>}</>}
-                      </span>
+                      {isDcc ? <><span>สถานะการรับ: <strong className="text-slate-800">{downloadedCount}/{totalTargets} หน่วยงาน</strong></span><span>กำหนดรับแยกรายแผนก</span></> : <span>สถานะเฉพาะฝ่าย {currentUser.currentDept}</span>}
+
                     </div>
                   </div>
                 );

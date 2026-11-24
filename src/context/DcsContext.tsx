@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { hasDistributionAllocation, refreshDistributionSelection, getDepartmentReceipt, isReceiptTransferComplete } from '../utils/distributionAccess';
+import { hasDistributionAllocation, refreshDistributionSelection, getDepartmentReceipt, getDepartmentReceiptState } from '../utils/distributionAccess';
 import type { AuditLogEntry, CopyReRequest, CurrentUserSession, DarCreateInput, DarRecord, DcsAnnouncement, Department, DistributionRecord, DocumentReturnRequest, DocumentViewPayload, MasterDocument } from '../types';
 import { changeDcsPassword, observeDcsAuth, signInDcsUser, signOutDcsUser, updateOwnSignature } from '../services/authService';
 import { acknowledgeDownload, cancelAnnouncementRecord, cancelDarRecord, createAnnouncementRecord, createCopyRequestRecord, createDarRecord, createDistributionRecord, decideCopyRequest, manageDistributionRecord, deleteDarDraftRecord, patchDarRecord, recordAnnouncementActivity, registerDarRecord, reviewDarRecord, reviseMasterDocument, saveMasterDocument, subscribeAnnouncements, subscribeAuditForUser, subscribeMasterDocuments, subscribeMasterListRegistry, subscribeCopyRequests, subscribeDars, subscribeDistributions, subscribeDocumentReturns, updateAnnouncementRecord, writeAudit } from '../services/dcsRepository';
@@ -44,7 +44,7 @@ interface DcsContextType {
 
 const emptySession = (): CurrentUserSession => ({ uid: '', currentDept: 'DCC', username: '', userName: '', userEmpId: '', userRole: 'STAFF', roleName: 'Department User', deptDescriptionTh: '', position: '', signaturePath: '', isAuthenticated: false, mustChangePassword: false, allowedViews: [] });
 const DcsContext = createContext<DcsContextType | undefined>(undefined);
-const hydrateDistribution = (row: DistributionRecord): DistributionRecord => ({ ...row, targets: (row.targets || []).map(target => { const receipt = getDepartmentReceipt(row, target.dept); if (!receipt) return target; const complete = isReceiptTransferComplete(receipt); return { ...target, isDownloaded: complete, status: complete ? 'DOWNLOADED' : 'PENDING', downloadTimestamp: receipt.downloadedAt, downloaderName: receipt.downloaderName, downloaderEmpId: receipt.downloaderEmpId, downloaderPosition: receipt.downloaderPosition, signatureDataUrl: null }; }) });
+const hydrateDistribution = (row: DistributionRecord): DistributionRecord => ({ ...row, targets: (row.targets || []).map(target => { const receipt = getDepartmentReceipt(row, target.dept); if (!receipt) return target; const complete = getDepartmentReceiptState(row, target.dept) === 'COMPLETE'; return { ...target, isDownloaded: complete, status: complete ? 'DOWNLOADED' : 'PENDING', downloadTimestamp: receipt.downloadedAt, downloaderName: receipt.downloaderName, downloaderEmpId: receipt.downloaderEmpId, downloaderPosition: receipt.downloaderPosition, signatureDataUrl: null }; }) });
 
 export const DcsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<CurrentUserSession>(emptySession());

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { DocumentReturnPanel } from './DocumentReturnPanel';
 import { useDcs } from '../context/DcsContext';
-import { getDistributionDownloadAccess } from '../utils/distributionAccess';
+import { getDistributionDownloadAccess, getDepartmentReceiptState, getDepartmentReceipt, hasDistributionAllocation, isPendingDepartmentReceipt } from '../utils/distributionAccess';
+import { canonicalDistributionDepartment } from '../utils/distributionReopen';
 import { findConflictingCopyRequest } from '../utils/copyRequests';
 import { useDistributionClock } from '../hooks/useDistributionClock';
 import {
@@ -15,7 +16,6 @@ import {
   Printer,
   Clock,
   CheckCircle2,
-  AlertCircle,
   Download,
   Lock,
   Bell,
@@ -70,13 +70,14 @@ export const DistributionManager: React.FC = () => {
   };
 
   const filteredDistributions = distributions.filter(dist => {
+    if (!isDcc && !hasDistributionAllocation(dist, currentUser.currentDept)) return false;
     const matchSearch =
       dist.distributionNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
       dist.docNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
       dist.docNameTh.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchStatus = statusFilter === 'ALL' || (statusFilter === 'EXPIRED'
-      ? (isDcc ? dist.targetDepartments : [currentUser.currentDept]).some(dept => getDistributionDownloadAccess(dist, dept, now).state === 'EXPIRED')
+      ? (isDcc ? dist.targetDepartments : [currentUser.currentDept]).some(dept => isPendingDepartmentReceipt(dist, dept) && getDistributionDownloadAccess(dist, dept, now).state === 'EXPIRED')
       : dist.status === statusFilter);
     return matchSearch && matchStatus;
   });
@@ -294,17 +295,22 @@ export const DistributionManager: React.FC = () => {
           </div>
         ) : (
           filteredDistributions.map(dist => {
-            const myAccess = getDistributionDownloadAccess(dist, currentUser.currentDept, now);
+            const dept = currentUser.currentDept;
+            const myState = getDepartmentReceiptState(dist, dept);
+            const complete = myState === 'COMPLETE';
+            const myAccess = getDistributionDownloadAccess(dist, dept, now);
+            const receipt = getDepartmentReceipt(dist, dept);
+            const waiting = !isDcc && reRequests.some(req => req.distributionId === dist.id &&
+              canonicalDistributionDepartment(req.dept) === canonicalDistributionDepartment(dept) && (req.status === 'PENDING' || req.status === 'PROCESSING'));
             const timeInfo = dist.status === 'CANCELLED'
               ? { text: '⚫ ยกเลิกการแจกจ่ายแล้ว', color: 'bg-slate-100 text-slate-700 border-slate-300' }
               : isDcc ? { text: 'กำหนดรับแยกรายแผนก', color: 'bg-sky-50 text-sky-800 border-sky-200' }
-              : { text: myAccess.message, color: myAccess.canDownload ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200' };
-            const activeTargets = dist.targets.filter(t => !dist.departmentCancellations?.[t.dept]);
-            const downloadedCount = activeTargets.filter(t => t.isDownloaded).length;
+              : complete ? { text: 'ประวัติการรับ · ดาวน์โหลดครบแล้ว', color: 'bg-emerald-50 text-emerald-800 border-emerald-200' }
+              : { text: myAccess.message, color: 'bg-amber-50 text-amber-800 border-amber-200' };
+            const activeTargets = dist.targets.filter(t => hasDistributionAllocation(dist, t.dept));
+            const downloadedCount = activeTargets.filter(t => getDepartmentReceiptState(dist, t.dept) === 'COMPLETE').length;
             const totalTargets = activeTargets.length;
             const percent = totalTargets ? Math.round((downloadedCount / totalTargets) * 100) : 0;
-
-            const myTarget = activeTargets.find(t => t.dept === currentUser.currentDept);
 
             return (
               <div
@@ -425,46 +431,14 @@ export const DistributionManager: React.FC = () => {
                     </div>}
                     {!isDcc && <h4 className="text-sm font-bold text-slate-800">สถานะการรับเอกสารของ {currentUser.currentDept}</h4>}
 
-                    {/* Department-specific Action Banner */}
-                    {myTarget && dist.status !== 'CANCELLED' && (
-                      <div className="pt-2 border-t border-slate-200">
-                        {myTarget.isDownloaded ? (
-                          <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
-                            <span className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                              {currentUser.currentDept}: บันทึกการรับเอกสารแล้ว
-                            </span>
-                            <span className="text-xs text-emerald-700 font-mono font-medium">
-                              {myTarget.downloadTimestamp ? new Date(myTarget.downloadTimestamp).toLocaleDateString('th-TH') : ''}<br />{myAccess.message}
-                            </span>
-                            {myAccess.canRequest && <button onClick={() => setSelectedDistributionForReRequest({ distribution: dist, dept: currentUser.currentDept })} className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white">ร้องขอ DCC</button>}
-                          </div>
-                        ) : !myAccess.canDownload ? (
-                          <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between">
-                            <span className="text-xs font-bold text-rose-800 flex items-center gap-1.5">
-                              <AlertCircle className="w-4 h-4 text-rose-600" />
-                              {myAccess.message}
-                            </span>
-                            {myAccess.canRequest && <button
-                              onClick={() => setSelectedDistributionForReRequest({ distribution: dist, dept: currentUser.currentDept })}
-                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors shadow-xs"
-                            >
-                              🔔 ร้องขอ DCC
-                            </button>}
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => setSelectedDistributionForDownload({ distribution: dist, dept: currentUser.currentDept })}
-                            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition-all animate-pulse"
-                          >
-                            <Download className="w-4 h-4" />
-                            ดาวน์โหลด Controlled Copy สำหรับ {currentUser.currentDept}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {!isDcc && !!dist.departmentFileLists?.[currentUser.currentDept]?.length && <p className="text-sm font-semibold text-slate-700">เอกสารชุดนี้สำหรับแผนกคุณมี {dist.departmentFileLists[currentUser.currentDept].length} ไฟล์</p>}
-                    {!isDcc && myTarget?.isDownloaded && <p className="text-sm text-slate-600">บันทึกการรับแล้ว กรุณาตรวจสอบว่าไฟล์ที่ต้องการอยู่ในโฟลเดอร์ดาวน์โหลดของเครื่อง สถานะนี้ไม่ได้ยืนยันการบันทึกไฟล์ลงเครื่อง</p>}
+                    {!isDcc && myState !== 'NOT_ASSIGNED' && (complete ? <>
+                      <p className="flex items-center gap-2 text-sm font-semibold text-emerald-800"><CheckCircle2 className="h-4 w-4" />รับและดาวน์โหลดครบแล้ว{receipt?.transferCompletedAt && ` · ${new Date(receipt.transferCompletedAt).toLocaleDateString('th-TH')}`}</p>
+                      {waiting ? <p className="text-sm text-slate-600">คำขอสำเนาเพิ่มเติมอยู่ระหว่างรอ DCC</p> :
+                        <details className="text-sm text-slate-600"><summary className="cursor-pointer">กรณีไฟล์ที่รับแล้วสูญหายหรือชำรุด</summary>
+                          <button type="button" onClick={() => setSelectedDistributionForReRequest({ distribution: dist, dept, reasonType: 'FILE_LOST_OR_DAMAGED' })} className="mt-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium">ขอสำเนาทดแทน</button>
+                        </details>}
+                    </> : <p className="text-sm font-semibold text-amber-800">ยังค้างรับ · ดำเนินการที่หน้ารายการค้างรับของแผนก</p>)}
+
 
                   </div>
 
@@ -482,12 +456,13 @@ export const DistributionManager: React.FC = () => {
                       const cancellation = dist.departmentCancellations?.[target.dept];
                       const isCancelled = dist.status === 'CANCELLED' || Boolean(cancellation);
                       const access = getDistributionDownloadAccess(dist, target.dept, now);
+                      const received = getDepartmentReceiptState(dist, target.dept) === 'COMPLETE';
                       const isExpired = !access.canDownload;
                       return (
                         <div
                           key={target.dept}
                           className={`p-3.5 rounded-xl border text-xs flex flex-col justify-between space-y-2 transition-colors ${
-                            target.isDownloaded
+                            received
                               ? 'bg-emerald-50/60 border-emerald-200/90 text-slate-800'
                               : isExpired
                                 ? 'bg-rose-50/50 border-rose-200 text-slate-700'
@@ -501,7 +476,7 @@ export const DistributionManager: React.FC = () => {
 
                           {isCancelled ? (
                             <div className="pt-1.5 border-t border-slate-200 text-xs text-slate-600 font-bold">ยกเลิกการแจกจ่ายแล้ว{cancellation && <p className="mt-1 font-normal">เหตุผล: {cancellation.reason}</p>}</div>
-                          ) : target.isDownloaded ? (
+                          ) : received ? (
                             <div className="space-y-0.5 pt-1.5 border-t border-emerald-200/60">
                               <div className="flex items-center gap-1.5 text-xs text-emerald-900 font-bold">
                                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -510,7 +485,7 @@ export const DistributionManager: React.FC = () => {
                               <span className="text-xs text-slate-500 block font-mono">
                                 {new Date(target.downloadTimestamp!).toLocaleString('th-TH')}
                               </span>
-                              <p className={access.canDownload ? 'text-emerald-700' : 'text-rose-700'}>{access.message}</p>
+                              <p className="text-emerald-700">ดาวน์โหลดครบแล้ว</p>
                             </div>
                           ) : isExpired ? (
                             <div className="flex items-center justify-between pt-1.5 border-t border-rose-200/60">

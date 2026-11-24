@@ -1,4 +1,4 @@
-import type { DistributionReceipt, DistributionRecord } from '../types';
+import type { CurrentUserSession, DistributionReceipt, DistributionRecord, DocumentReturnRequest } from '../types';
 import { canonicalDistributionDepartment } from './distributionReopen';
 
 // Older receipts did not record transfer status. Preserve their established
@@ -17,25 +17,50 @@ export const isReceiptTransferComplete = (receipt?: DistributionReceipt, expecte
   return indexes.every(index => index < indexes.length);
 };
 
-export const getDepartmentReceipt = (distribution: DistributionRecord, department: string): DistributionReceipt | undefined => {
-  const canonical = canonicalDistributionDepartment(department);
-  return distribution.receipts?.[canonical]
-    || Object.entries(distribution.receipts || {}).find(([key]) => canonicalDistributionDepartment(key) === canonical)?.[1];
+// Prefer the current canonical entry over data left under a former department name.
+const departmentValue = <T,>(map: Record<string, T> | undefined, department: string): T | undefined => {
+  const id = canonicalDistributionDepartment(department);
+  return map?.[id] ?? Object.entries(map || {}).find(([key]) => canonicalDistributionDepartment(key) === id)?.[1];
+};
+export const getDepartmentReceipt = (distribution: DistributionRecord, department: string) => departmentValue(distribution.receipts, department);
+
+export const getDepartmentFileCount = (dist: DistributionRecord, dept: string): number => {
+  // A reopened department may have its own set of files. Never use a different
+  // department's count. Names and keys survive removal of the downloadable paths.
+  const reissue = (dist.copyReissueHistory || []).slice().reverse().find(row => canonicalDistributionDepartment(row.department) === canonicalDistributionDepartment(dept));
+  const scoped = Math.max(departmentValue(dist.departmentFileLists, dept)?.length || 0,
+    departmentValue(dist.departmentFileNames, dept)?.length || 0,
+    departmentValue(dist.departmentFileKeyLists, dept)?.length || 0, reissue?.fileCount || 0);
+  return scoped || dist.fileNames?.length || dist.fileStoragePaths?.length ||
+    (departmentValue(dist.departmentFiles, dept) || dist.fileName ? 1 : 0);
 };
 
-export const isPendingDepartmentReceipt = (distribution: DistributionRecord, department: string): boolean => {
-  if (!hasDistributionAllocation(distribution, department)) return false;
-  const receipt = getDepartmentReceipt(distribution, department);
-  if (receipt) {
-    const canonical = canonicalDistributionDepartment(department);
-    const paths = Object.entries(distribution.departmentFileLists || {}).find(([dept]) => canonicalDistributionDepartment(dept) === canonical)?.[1];
-    const single = Object.entries(distribution.departmentFiles || {}).find(([dept]) => canonicalDistributionDepartment(dept) === canonical)?.[1];
-    const expectedFileCount = paths?.length || (single ? 1 : undefined);
-    return !isReceiptTransferComplete(receipt, expectedFileCount);
+// Printing keeps historical signatures. Admission to the application requires
+// file completion for the CURRENT allocation, never a target flag or first receipt.
+export function getDepartmentReceiptState(dist: DistributionRecord, dept: string) {
+  if (!hasDistributionAllocation(dist, dept)) return 'NOT_ASSIGNED';
+  const receipt = getDepartmentReceipt(dist, dept);
+  if (!receipt) return 'DUE';
+  if (receipt.transferStatus === 'COMPLETE' && isReceiptTransferComplete(receipt, getDepartmentFileCount(dist, dept))) {
+    const lastReopen = (dist.copyReissueHistory || []).slice().reverse().find(row => canonicalDistributionDepartment(row.department) === canonicalDistributionDepartment(dept));
+    const completedAt = Date.parse(receipt.transferCompletedAt!);
+    if (Number.isFinite(completedAt) && (!lastReopen || completedAt >= Date.parse(lastReopen.approvedAt))) return 'COMPLETE';
   }
-  const target = distribution.targets?.find(row => canonicalDistributionDepartment(row.dept) === canonicalDistributionDepartment(department));
-  return !target?.isDownloaded;
+  if (receipt.transferStatus === 'PENDING' && receipt.transferId && receipt.downloaderUid && receipt.downloadedAt) return 'DUE';
+  return 'NEEDS_REOPEN';
+}
+
+export const isPendingDepartmentReceipt = (dist: DistributionRecord, dept: string) => {
+  const state = getDepartmentReceiptState(dist, dept);
+  return state === 'DUE' || state === 'NEEDS_REOPEN';
 };
+
+export function getRecipientGate(user: CurrentUserSession, sync: 'ready' | 'loading' | 'error', distributions: DistributionRecord[], returns: DocumentReturnRequest[]) {
+  const pending = distributions.filter(item => isPendingDepartmentReceipt(item, user.currentDept));
+  const pendingReturns = returns.filter(item => item.status === 'PENDING' && canonicalDistributionDepartment(item.dept) === canonicalDistributionDepartment(user.currentDept));
+  const blocked = user.userRole !== 'DCC_ADMIN' && !user.mustChangePassword && (sync !== 'ready' || pending.length > 0 || pendingReturns.length > 0);
+  return { blocked, pending, pendingReturns };
+}
 
 // Historical targets/receipts remain after cancellation. Only the current
 // allocation and cancellation state grant access; expiry still allows re-request.

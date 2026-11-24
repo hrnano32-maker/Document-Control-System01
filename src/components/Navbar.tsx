@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useDcs } from '../context/DcsContext';
-import { getDistributionDownloadAccess } from '../utils/distributionAccess';
-import { useDistributionClock } from '../hooks/useDistributionClock';
+import { isPendingDepartmentReceipt } from '../utils/distributionAccess';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { NanoLogo } from './NanoLogo';
 import {
@@ -35,7 +34,6 @@ export const Navbar: React.FC = () => {
     setIsChangePasswordOpen,
   } = useDcs();
 
-  const now = useDistributionClock();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [fontSize, setFontSize] = useState<'normal' | 'large' | 'extra-large'>('large');
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -76,13 +74,7 @@ export const Navbar: React.FC = () => {
   const pendingReRequestsCount = reRequests.filter(r => r.status === 'PENDING').length;
 
   // Pending downloads for current dept
-  const pendingDownloadsForMe = distributions.reduce((acc, dist) => {
-    const target = dist.targets.find(t => t.dept === currentUser.currentDept);
-    if (target && !target.isDownloaded && getDistributionDownloadAccess(dist, currentUser.currentDept, now).canDownload) {
-      return acc + 1;
-    }
-    return acc;
-  }, 0);
+  const pendingDownloadsForMe = distributions.filter(dist => isPendingDepartmentReceipt(dist, currentUser.currentDept)).length;
 
   const totalNotifications = isDcc
     ? pendingDarsCount + pendingReRequestsCount
