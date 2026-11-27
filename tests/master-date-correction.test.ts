@@ -16,7 +16,7 @@ async function setup() {
   }
   const m=master(),h={store:new Map<string,any>([['dcs_documents/'+m.id,structuredClone(m)],['dcs_dars/DAR-OLD',{id:'DAR-OLD',docNo:m.docNo,status:'REGISTERED',requestType:'NEW',proposedRevision:'00',targetEffectiveDate:'2026-11-17'}]]),writes:[] as any[]};
   const context:any={__h:h,module:{exports:{}},structuredClone,Date,console};vm.runInNewContext(compiled,context);
-  return {h,m,save:(opened=m,date='2026-11-17')=>context.module.exports.correctMasterRevisionDates(user,opened,{'00':date},m.reviewDueDate,'แก้วันที่ตามเอกสารอนุมัติ')};
+  return {h,m,restore:(id:string)=>context.module.exports.restoreMasterRevisionDates(user,id),save:(opened=m,date='2026-11-17')=>context.module.exports.correctMasterRevisionDates(user,opened,{'00':date},m.reviewDueDate,'แก้วันที่ตามเอกสารอนุมัติ')};
 }
 
 test('DCC can correct the specific old Master date and matching revision history with an audit',async()=>{
@@ -29,4 +29,19 @@ test('DCC can correct the specific old Master date and matching revision history
 test('a concurrent Master change blocks the correction without writing anything',async()=>{
   const {h,m,save}=await setup();h.store.get('dcs_documents/'+m.id).effectiveDate='2026-11-21';
   await assert.rejects(save(),/เปลี่ยนระหว่างแก้ไข/);assert.equal(h.writes.length,0);
+});
+
+test('DCC repair for a secondary renamed document is transactional, auditable and idempotent',async()=>{
+  const {h,restore}=await setup();
+  const old={...master(),id:'BOM_API-007-26',docNo:'BOM_API-007-26',status:'OBSOLETE',supersededByDocumentId:'BOM-K007-01_51',
+    renumberedByDarId:'DAR-0033',effectiveDate:'2026-11-17',revisionHistory:[]};
+  const next={...master(),id:old.supersededByDocumentId,docNo:old.supersededByDocumentId,currentRevision:'01',darReferenceId:'DAR-0033',
+    previousDocumentId:old.id,previousDocNo:old.docNo,renumberedByDarId:'DAR-0033',revisionHistory:[{...master().revisionHistory[0],rev:'01'}]};
+  h.store.set('dcs_documents/'+old.id,structuredClone(old));h.store.set('dcs_documents/'+next.id,structuredClone(next));
+  h.store.set('dcs_dars/DAR-0033',{id:'DAR-0033',status:'REGISTERED',requestType:'REVISION',docNo:'BOM-K006-01_51',currentRevision:'00',proposedRevision:'01',previousEffectiveDate:'2026-11-15',additionalDocuments:[{docNo:next.docNo,revision:'01'}]});
+  assert.equal(await restore(next.id),true);
+  assert.deepEqual(Array.from(h.store.get('dcs_documents/'+next.id).revisionHistory,(r:any)=>r.effectiveDate),['2026-11-17','2026-11-20']);
+  assert.equal(await restore(next.id),false);
+  assert.deepEqual(h.writes.map(r=>[r.kind,r.ref.name]),[['update','dcs_documents'],['set','dcs_audit_logs']]);
+  assert.deepEqual(h.store.get('dcs_documents/'+old.id),old);
 });

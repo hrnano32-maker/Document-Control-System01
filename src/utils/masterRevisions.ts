@@ -14,9 +14,31 @@ export const isCalendarDate = (value: string) => {
 
 const compareRevisions = (a: string, b: string) => a.localeCompare(b, 'en', { numeric: true });
 
-// Existing Master List dates take precedence over DAR fallback, including DCC corrections.
-// Only the DAR linked to this registered document may fill a missing history entry/date.
-export function getMasterRevisionHistory(master: MasterDocument, dar?: DarRecord): RevisionHistoryItem[] {
+const codeKey = (value?: string) => (value || '').trim().toUpperCase();
+
+function registeredRow(master: MasterDocument, dar?: DarRecord) {
+  if (!dar || dar.status !== 'REGISTERED' || dar.id !== master.darReferenceId) return;
+  const rows = [
+    { docNo: dar.docNo, revision: dar.proposedRevision || dar.currentRevision, currentRevision: dar.currentRevision, previousEffectiveDate: dar.previousEffectiveDate, reason: dar.reasonForChange },
+    ...(dar.additionalDocuments || []),
+  ].filter(row => codeKey(row.docNo) === codeKey(master.docNo));
+  if (rows.length === 1 && revisionKey(rows[0].revision) === revisionKey(master.currentRevision)) return rows[0];
+}
+
+// Old releases registered renumberings with reciprocal IDs and the DAR ID on
+// both Masters. A shared DAR, attachment set, document name or row order is
+// never evidence that a second document is an earlier revision of this one.
+function isPredecessor(master: MasterDocument, old: MasterDocument): boolean {
+  return !!master.id && !!old.id && old.id !== master.id && old.status === 'OBSOLETE'
+    && master.previousDocumentId === old.id && old.supersededByDocumentId === master.id
+    && !!master.renumberedByDarId && master.renumberedByDarId === old.renumberedByDarId
+    && (!master.previousDocNo || codeKey(master.previousDocNo) === codeKey(old.docNo))
+    && (!old.supersededByDocNo || codeKey(old.supersededByDocNo) === codeKey(master.docNo));
+}
+
+// Prefer a date already in this Master, then its verified predecessor,
+// then this specific row of its registered DAR. Do not copy file access.
+export function getMasterRevisionHistory(master: MasterDocument, dar?: DarRecord, previous?: MasterDocument): RevisionHistoryItem[] {
   const entries = new Map<string, RevisionHistoryItem>();
   for (const item of master.revisionHistory || []) {
     const key = revisionKey(item.rev);
@@ -25,33 +47,38 @@ export function getMasterRevisionHistory(master: MasterDocument, dar?: DarRecord
     if (!existing || (!existing.effectiveDate && item.effectiveDate)) entries.set(key, { ...item, rev: key });
   }
   const currentKey = revisionKey(master.currentRevision);
-  const supplement = (rev: string, date: string | undefined, sourceDar?: DarRecord) => {
-    const key = revisionKey(rev);
+  const supplement = (rev: string | undefined, date: string | undefined, darNo: string, reason: string) => {
+    const key = revisionKey(rev || '');
     if (!key || !date || !isCalendarDate(date)) return;
     const existing = entries.get(key);
     if (existing?.effectiveDate) return;
     entries.set(key, {
-      rev: key, darNo: sourceDar?.id || master.darReferenceId,
-      reason: key === currentKey ? (sourceDar?.reasonForChange || 'วันที่ฉบับปัจจุบันใน Master List') : 'วันที่เอกสารเดิมจากใบ DAR',
-      registeredBy: '', registeredDate: '',
+      rev: key, darNo, reason, registeredBy: '', registeredDate: '',
       status: key === currentKey ? (master.status === 'OBSOLETE' ? 'OBSOLETE' : 'ACTIVE') : 'SUPERSEDED',
       controlledDriveLink: '', ...existing, effectiveDate: date,
     });
   };
-  supplement(master.currentRevision, master.effectiveDate);
-  if (dar && dar.id === master.darReferenceId && dar.status === 'REGISTERED'
-      && dar.docNo.trim().toUpperCase() === master.docNo.trim().toUpperCase()
-      && revisionKey(dar.proposedRevision || dar.currentRevision) === currentKey) {
-    supplement(dar.proposedRevision || dar.currentRevision, dar.targetEffectiveDate, dar);
-    if (dar.requestType !== 'NEW' && revisionKey(dar.currentRevision) !== currentKey) {
-      supplement(dar.currentRevision, dar.previousEffectiveDate, dar);
+  supplement(master.currentRevision, master.effectiveDate, master.darReferenceId, 'วันที่ฉบับปัจจุบันใน Master List');
+  if (previous && isPredecessor(master, previous)) {
+    const currentDate = entries.get(currentKey)?.effectiveDate;
+    for (const row of getMasterRevisionHistory(previous)) {
+      if (row.rev === currentKey || (currentDate && row.effectiveDate >= currentDate)) continue;
+      if (/^\d+$/.test(row.rev) && /^\d+$/.test(currentKey) && Number(row.rev) >= Number(currentKey)) continue;
+      supplement(row.rev, row.effectiveDate, row.darNo || previous.darReferenceId, `วันที่ตาม Master List รหัสเดิม ${previous.docNo}`);
+    }
+  }
+  const row = registeredRow(master, dar);
+  if (dar && row) {
+    supplement(row.revision, dar.targetEffectiveDate, dar.id, row.reason || 'วันที่ฉบับปัจจุบันจากใบ DAR');
+    if (dar.requestType !== 'NEW' && revisionKey(row.currentRevision || '') !== currentKey) {
+      supplement(row.currentRevision, row.previousEffectiveDate, dar.id, 'วันที่เอกสารเดิมจากใบ DAR');
     }
   }
   return [...entries.values()].sort((a, b) => compareRevisions(a.rev, b.rev));
 }
 
-export const hasMissingRevisionDates = (master: MasterDocument, dar?: DarRecord) =>
-  getMasterRevisionHistory(master, dar).some(row => !(master.revisionHistory || [])
+export const hasMissingRevisionDates = (master: MasterDocument, dar?: DarRecord, previous?: MasterDocument) =>
+  getMasterRevisionHistory(master, dar, previous).some(row => !(master.revisionHistory || [])
     .some(stored => revisionKey(stored.rev) === row.rev && stored.effectiveDate === row.effectiveDate));
 
 // Rev.00 is the initial issue. All revisions belong to the same table, in order.

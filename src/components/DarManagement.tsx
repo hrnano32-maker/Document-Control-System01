@@ -915,7 +915,7 @@ export const DarManagement: React.FC = () => {
                     {previous && <div className={`mt-2 rounded-lg border p-2 font-normal ${mismatch ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-slate-200 bg-white text-slate-700'}`}>
                       <div>วันที่เดิมใน DAR: <strong>{showDate(row.previousEffectiveDate)}</strong> · Master List {previous.docNo} Rev.{previous.currentRevision}: <strong>{showDate(previous.effectiveDate)}</strong></div>
                       {mismatch && <div className="mt-1 font-semibold">วันที่ไม่ตรงกัน กรุณาตรวจสอบหลักฐานและแก้วันที่ที่ถูกต้องก่อนขึ้นทะเบียน</div>}
-                      <button type="button" onClick={() => setEditingMasterDates({ ...previous, revisionHistory: getMasterRevisionHistory(previous, dars.find(item => item.id === previous.darReferenceId)) })} className="mt-2 rounded-lg border border-indigo-300 bg-white px-3 py-1.5 font-semibold text-indigo-800">ตรวจสอบ / แก้วันที่ Master List {previous.docNo}</button>
+                      <button type="button" onClick={() => setEditingMasterDates({ ...previous, revisionHistory: getMasterRevisionHistory(previous, dars.find(item => item.id === previous.darReferenceId), registry.find(item => item.id === previous.previousDocumentId)) })} className="mt-2 rounded-lg border border-indigo-300 bg-white px-3 py-1.5 font-semibold text-indigo-800">ตรวจสอบ / แก้วันที่ Master List {previous.docNo}</button>
                     </div>}
                     </div>;
                   })}

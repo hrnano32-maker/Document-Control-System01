@@ -99,7 +99,7 @@ export function planDarMasterRegistration(
       next.fileTypes = files.map(file => file.type);
     }
     next.revisionHistory = getMasterRevisionHistory(next, {
-      ...dar, status: 'REGISTERED', docNo: row.docNo, proposedRevision: revision,
+      ...dar, status: 'REGISTERED', additionalDocuments: [], docNo: row.docNo, proposedRevision: revision,
       currentRevision: index === 0 ? dar.currentRevision : row.currentRevision || previous?.currentRevision || 'N/A',
       previousEffectiveDate: row.previousEffectiveDate, reasonForChange: row.reason,
     });

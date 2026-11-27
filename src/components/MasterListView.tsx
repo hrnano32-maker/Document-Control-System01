@@ -72,10 +72,18 @@ export const MasterListView: React.FC = () => {
   const attemptedDarRecovery = useRef(new Set<string>());
   const [recoveryMessage, setRecoveryMessage] = useState('');
   const [recoveryError, setRecoveryError] = useState('');
-  const revisionDocuments = useMemo(() => masterListDocuments.map(master => ({
-    ...master,
-    revisionHistory: getMasterRevisionHistory(master, dars.find(dar => dar.id === master.darReferenceId)),
-  })), [masterListDocuments, dars]);
+  const revisionSources = useMemo(() => {
+    const byId = new Map(masterListDocuments.map(master => [master.id, master]));
+    const byDar = new Map(dars.map(dar => [dar.id, dar]));
+    return masterListDocuments.map(master => {
+      const dar = byDar.get(master.darReferenceId);
+      const previous = master.previousDocumentId ? byId.get(master.previousDocumentId) : undefined;
+      return { master, dar, previous };
+    });
+  }, [masterListDocuments, dars]);
+  const revisionDocuments = useMemo(() => revisionSources.map(({ master, dar, previous }) => ({
+    ...master, revisionHistory: getMasterRevisionHistory(master, dar, previous),
+  })), [revisionSources]);
   const selectedDocForHistory = historyDocument
     ? revisionDocuments.find(master => master.id === historyDocument.id) || historyDocument : null;
 
@@ -112,10 +120,11 @@ export const MasterListView: React.FC = () => {
 
   useEffect(() => {
     if (currentUser.userRole !== 'DCC_ADMIN') return;
-    const candidates = masterListDocuments.map(master => {
-      const dar = dars.find(item => item.id === master.darReferenceId);
-      return { master, dar, key: `${master.id}:${master.updatedAt}:${dar?.id || ''}:${dar?.status || ''}:${dar?.previousEffectiveDate || ''}:${dar?.targetEffectiveDate || ''}` };
-    }).filter(({ master, dar, key }) => hasMissingRevisionDates(master, dar) && !attemptedRestores.current.has(key));
+    const candidates = revisionSources.filter(({ master, dar, previous }) => hasMissingRevisionDates(master, dar, previous))
+      .map(({ master, dar, previous }) => ({
+        master,
+        key: JSON.stringify([master.id, master.updatedAt, getMasterRevisionHistory(master, dar, previous).map(row => [row.rev, row.effectiveDate])]),
+      })).filter(({ key }) => !attemptedRestores.current.has(key));
     if (!candidates.length) { setRestoringDates(false); return; }
     let stopped = false;
     setRestoringDates(true);
@@ -136,7 +145,7 @@ export const MasterListView: React.FC = () => {
       if (!stopped) setRestoringDates(false);
     })();
     return () => { stopped = true; };
-  }, [masterListDocuments, dars, currentUser.uid, currentUser.userRole, restoreAttempt]);
+  }, [revisionSources, currentUser.uid, currentUser.userRole, restoreAttempt]);
 
   // Close modals on Escape key press
   useEffect(() => {
